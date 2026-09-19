@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Токены · Kinovecher</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1e1e2e; color: #cdd6f4;
+    }
+    .nav { background: #181825; padding: 14px 24px; display: flex; gap: 24px; align-items: center; border-bottom: 1px solid #313244; }
+    .nav .brand { font-weight: 700; font-size: 16px; color: #89b4fa; margin-right: auto; }
+    .nav a { color: #a6adc8; text-decoration: none; font-size: 14px; }
+    .nav a:hover { color: #cdd6f4; }
+    .container { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
+    h2 { font-size: 18px; margin: 0 0 16px 0; }
+    .card { background: #313244; padding: 20px 24px; border-radius: 8px; border: 1px solid #45475a; }
+    label { display: block; font-size: 13px; margin: 16px 0 6px; color: #a6adc8; }
+    label .status { float: right; font-size: 12px; }
+    label .ok { color: #a6e3a1; }
+    label .no { color: #f38ba8; }
+    input[type="password"] {
+      width: 100%; padding: 10px 12px; background: #1e1e2e;
+      border: 1px solid #45475a; border-radius: 6px; color: #cdd6f4;
+      font-size: 13px; font-family: ui-monospace, monospace;
+    }
+    input:focus { outline: none; border-color: #89b4fa; }
+    .hint { font-size: 12px; color: #6c7086; margin-top: 4px; }
+    button {
+      margin-top: 24px; padding: 11px 20px; background: #89b4fa; color: #1e1e2e;
+      border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #74c7ec; }
+    .saved {
+      background: rgba(166,227,161,0.15); color: #a6e3a1;
+      padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <span class="brand">Kinovecher</span>
+    <a href="/">Дашборд</a>
+    <a href="/tokens">Токены</a>
+    <a href="/channels">Каналы</a>
+    <a href="/features">Фичи</a>
+  </div>
+
+  <div class="container">
+    <h2>Токены</h2>
+
+    {% if request.query_params.get('saved') %}
+      <div class="saved">✓ Сохранено. Перезапустите процесс, чтобы бот подхватил новые токены (или дождитесь 30-секундного кеша для Pointauc/Telegram).</div>
+    {% endif %}
+
+    <form class="card" method="post" action="/tokens">
+      {% for key, label in tokens %}
+        <label>
+          {{ label }}
+          {% if saved.get(key) %}
+            <span class="status ok">✓ сохранён</span>
+          {% else %}
+            <span class="status no">— не задан</span>
+          {% endif %}
+        </label>
+        <input type="password" name="{{ key }}" placeholder="вставьте новый токен, чтобы перезаписать">
+        <div class="hint">
+          {% if key == 'discord_token' %}Получить: https://discord.com/developers/applications → Bot → Reset Token.{% endif %}
+          {% if key == 'telegram_token' %}Получить: @BotFather → /newbot или /token.{% endif %}
+          {% if key == 'pointauc_token' %}Получить: https://pointauc.com/settings → Personal Token.{% endif %}
+        </div>
+      {% endfor %}
+      <button type="submit">Сохранить</button>
+    </form>
+  </div>
+</body>
+</html>

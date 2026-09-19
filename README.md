@@ -40,7 +40,7 @@ cp .env.example .env
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 # вставить в .env, прописать DISCORD_TOKEN и т.д.
 
-python -m app.main
+python main.py
 ```
 
 Бот доступен в Discord, веб-панель — на http://localhost:8000
@@ -79,25 +79,28 @@ python -m app.main
 ## Структура
 
 ```
-kinovecher/
-├── app/
-│   ├── main.py          # точка входа: uvicorn + discord.py
-│   ├── config.py        # настройки из env
-│   ├── db.py            # aiosqlite + миграции
-│   ├── models.py        # дата-классы для строк
-│   ├── crypto.py        # Fernet-шифрование токенов
-│   ├── pointauc.py      # HTTP-клиент Pointauc (2 эндпоинта)
-│   ├── telegram.py      # TG sendMessage
-│   ├── bot.py           # discord.py Bot + slash commands
-│   ├── web.py            # FastAPI + Jinja2
-│   └── templates/
-│       ├── login.html
-│       ├── panel.html
-│       └── ...
-├── data/                # bot.db здесь
+kinovecher/                 # корень архива = корень Git-репо
+├── main.py                 # точка входа: uvicorn + discord.py
+├── config.py               # настройки из env
+├── db.py                    # aiosqlite + миграции
+├── models.py               # дата-классы для строк
+├── crypto.py               # Fernet-шифрование токенов
+├── pointauc.py             # HTTP-клиент Pointauc (2 эндпоинта)
+├── telegram.py             # TG sendMessage
+├── bot.py                  # discord.py Bot + slash commands
+├── web.py                  # FastAPI + Jinja2
+├── templates/              # HTML-шаблоны панели
+├── static/                 # пусто (.gitkeep), под будущую статику
 ├── requirements.txt
 ├── Dockerfile
 └── .env.example
+
+# На BotHost:
+# /app/                     # сюда BotHost разворачивает Git-репо
+# /app/data/                # персистентный volume, BotHost монтирует автоматически
+# /app/data/bot.db         # SQLite — переживает редеплой
+# /srv/app/                # сюда Dockerfile копирует код (вне bind-mount)
+# /srv/venv/                # Python virtualenv
 ```
 
 ## TODO после MVP
