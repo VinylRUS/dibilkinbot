@@ -46,7 +46,7 @@
     <h2>🎡 Победители колеса</h2>
     <article class="card">
       <table>
-        <tr><th>Фильм</th><th>TMDB ID</th><th>Дата</th><th>Статус</th><th>Подтверждён</th></tr>
+        <tr><th>Фильм</th><th>Кинопоиск ID</th><th>Дата</th><th>Статус</th><th>Подтверждён</th></tr>
         {% for w_id, lot_name, tmdb_id, confidence, detected_at, confirmed_at in winners %}
           <tr>
             <td>{{ lot_name }}</td>

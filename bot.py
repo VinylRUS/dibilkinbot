@@ -12,7 +12,7 @@ from discord.ext import commands
 
 import crypto
 import db
-import tmdb
+import kinopoisk as tmdb
 import telegram
 from config import settings
 from pointauc import PointaucClient, PointaucError
@@ -181,7 +181,7 @@ class KinovecherBot(commands.Bot):
 
     async def _build_winner_embed(self, lot_name: str, tmdb_id: int | None,
                                    winner_id: int, confirmed: bool) -> discord.Embed:
-        """Построить embed для победителя. Если есть TMDB meta — с постером."""
+        """Построить embed для победителя. Если есть Кинопоиск meta — с постером."""
         embed = discord.Embed(
             title=f"🎡 Победитель колеса — {lot_name}",
             color=0x2ECC71 if confirmed else 0xF39C12,
@@ -211,10 +211,10 @@ class KinovecherBot(commands.Bot):
                     embed.add_field(name="Длительность", value=f"{meta['runtime']} мин", inline=True)
                 if meta.get("imdb_id"):
                     embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
-                embed.add_field(name="TMDB", value="[Источник](https://www.themoviedb.org/) · *This product uses the TMDB API but is not endorsed or certified by TMDB.*", inline=False)
+                embed.add_field(name="Кинопоиск", value="[Источник](https://kinopoisk.dev/) · *использует kinopoisk.dev API*", inline=False)
         else:
             embed.description = f"_{lot_name}_"
-            embed.add_field(name="TMDB", value="Метаданные не найдены — добавь через /wheel add для постера", inline=False)
+            embed.add_field(name="Кинопоиск", value="Метаданные не найдены — добавь через /wheel add для постера", inline=False)
 
         return embed
 
@@ -227,7 +227,7 @@ class WheelCog(commands.Cog):
 
     wheel = app_commands.Group(name="wheel", description="Колесо фильмов (Pointauc)")
 
-    @wheel.command(name="add", description="Добавить фильм в колесо Pointauc + метаданные из TMDB")
+    @wheel.command(name="add", description="Добавить фильм в колесо Pointauc + метаданные из Кинопоиска")
     @app_commands.describe(title="Название фильма (русское или оригинальное)")
     async def wheel_add(self, interaction: discord.Interaction, title: str):
         title = title.strip()
@@ -252,7 +252,7 @@ class WheelCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        # Параллельно: добавляем в Pointauc + ищем метаданные в TMDB
+        # Параллельно: добавляем в Pointauc + ищем метаданные в Кинопоиске
         pointauc_task = asyncio.create_task(client.add_bid(title, cost=0))
         tmdb_task = asyncio.create_task(tmdb.lookup_movie(title))
 
@@ -285,12 +285,12 @@ class WheelCog(commands.Cog):
                 embed.add_field(name="Описание", value=plot, inline=False)
             if meta.get("poster_url"):
                 embed.set_thumbnail(url=meta["poster_url"])
-            embed.set_footer(text=f"Pointauc bid: {bid_ids[0] if bid_ids else '—'} · TMDB id: {meta['tmdb_id']} · *uses TMDB API*")
+            embed.set_footer(text=f"Pointauc bid: {bid_ids[0] if bid_ids else '—'} · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoisk.dev API*")
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(
                 f"✅ «{title}» добавлен в колесо.\nBid ID: `{bid_ids[0] if bid_ids else '—'}`\n"
-                "_TMDB метаданные недоступны — задайте токен в панели, либо фильм не найден._",
+                "_Кинопоиск метаданные недоступны — задайте токен в панели, либо фильм не найден._",
                 ephemeral=True,
             )
 

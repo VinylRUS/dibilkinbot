@@ -151,7 +151,7 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
 
     # Статусы токенов для виджетов
     saved_pointauc = bool(await db.get_setting("pointauc_token"))
-    saved_tmdb = bool(await db.get_setting("tmdb_token"))
+    saved_kp = bool(await db.get_setting("kinopoisk_token"))
     saved_tg = bool(await db.get_setting("telegram_token"))
 
     return templates.TemplateResponse(request, "panel.html", {
@@ -161,7 +161,7 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         "activity": activity,
         "top_quotes": top_quotes,
         "saved_pointauc": saved_pointauc,
-        "saved_tmdb": saved_tmdb,
+        "saved_kp": saved_kp,
         "saved_tg": saved_tg,
     })
 
@@ -172,7 +172,7 @@ KNOWN_TOKENS = [
     ("discord_token", "Discord Bot Token"),
     ("telegram_token", "Telegram Bot Token"),
     ("pointauc_token", "Pointauc Personal Token"),
-    ("tmdb_token", "TMDB Bearer Token (Read Access Token)"),
+    ("kinopoisk_token", "Kinopoisk API Token (X-API-KEY от @poiskkinodev_bot)"),
 ]
 
 
@@ -196,13 +196,13 @@ async def tokens_save(
     discord_token: str = Form(""),
     telegram_token: str = Form(""),
     pointauc_token: str = Form(""),
-    tmdb_token: str = Form(""),
+    kinopoisk_token: str = Form(""),
 ):
     updates = {
         "discord_token": discord_token.strip(),
         "telegram_token": telegram_token.strip(),
         "pointauc_token": pointauc_token.strip(),
-        "tmdb_token": tmdb_token.strip(),
+        "kinopoisk_token": kinopoisk_token.strip(),
     }
     for key, val in updates.items():
         if val:
