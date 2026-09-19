@@ -5,6 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Юзеры · DeeBeelkin</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .user-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .user-row:last-child { border-bottom: none; }
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--card-alt);
+      flex-shrink: 0;
+      object-fit: cover;
+    }
+    .avatar-placeholder {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--accent-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .user-info { flex: 1; }
+    .user-name {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .user-meta {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      margin-top: 2px;
+    }
+    .user-roles {
+      margin-top: 4px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .role-chip {
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 500;
+    }
+    .role-chip.top {
+      background: var(--accent);
+      color: var(--accent-text);
+    }
+    .guild-name {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
@@ -16,11 +80,34 @@
     {% endif %}
     <article class="card">
       <table>
-        <tr><th>Discord ID</th><th>Имя</th><th>Роль</th><th>Последний вход</th><th>Сделать админом</th></tr>
-        {% for discord_id, username, display_name, is_admin_flag, last_login_at in users %}
+        <tr>
+          <th>Юзер</th>
+          <th>Discord ID</th>
+          <th>Роль</th>
+          <th>Последний вход</th>
+          <th>Сделать админом</th>
+        </tr>
+        {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name in users %}
           <tr>
+            <td>
+              <div class="user-row" style="border-bottom:none; padding:0;">
+                {% if avatar_url %}
+                  <img src="{{ avatar_url }}" alt="" class="avatar">
+                {% else %}
+                  <div class="avatar-placeholder">{{ (display_name or username or '?')[0]|upper }}</div>
+                {% endif %}
+                <div class="user-info">
+                  <div class="user-name">{{ display_name or username or '—' }}</div>
+                  {% if top_role %}
+                    <div class="user-meta">роль: {{ top_role }}</div>
+                  {% endif %}
+                  {% if guild_name %}
+                    <div class="guild-name">📱 {{ guild_name }}</div>
+                  {% endif %}
+                </div>
+              </div>
+            </td>
             <td class="mono">{{ discord_id }}</td>
-            <td>{{ display_name or username or '—' }}</td>
             <td>
               {% if is_admin_flag %}
                 <span class="badge admin">admin</span>
