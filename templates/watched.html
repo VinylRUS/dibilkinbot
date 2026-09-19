@@ -11,17 +11,33 @@
 
   <main class="container">
     <h2>🎬 Бэклог просмотренных фильмов</h2>
+    {% if request.query_params.get('deleted') %}
+      <div class="saved">✓ Запись удалена.</div>
+    {% endif %}
     <article class="card">
       <table>
-        <tr><th>Название</th><th>Дата</th><th>Оценка</th></tr>
-        {% for title, watched_at, rating in watched %}
+        <tr>
+          <th>Название</th>
+          <th>Дата</th>
+          <th>Оценка</th>
+          {% if is_admin %}<th></th>{% endif %}
+        </tr>
+        {% for w_id, title, watched_at, rating in watched %}
           <tr>
             <td>{{ title }}</td>
             <td class="mono">{{ watched_at[:16].replace('T', ' ') }}</td>
             <td>{{ '⭐' * rating if rating else '—' }}</td>
+            {% if is_admin %}
+              <td>
+                <form method="post" action="/watched/{{ w_id }}/delete" style="display:inline; margin:0;"
+                      onsubmit="return confirm('Удалить «{{ title }}» из бэклога?');">
+                  <button type="submit" style="background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0;font-size:0.8rem;">×</button>
+                </form>
+              </td>
+            {% endif %}
           </tr>
         {% else %}
-          <tr><td colspan="3" class="empty">Бэклог пуст.</td></tr>
+          <tr><td colspan="{{ 4 if is_admin else 3 }}" class="empty">Бэклог пуст.</td></tr>
         {% endfor %}
       </table>
     </article>

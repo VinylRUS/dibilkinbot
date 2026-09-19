@@ -39,9 +39,6 @@ class Settings:
     telegram_token: str | None
     telegram_chat_id: str | None
 
-    # Pointauc
-    pointauc_token: str | None
-
     # Kinopoisk (kinopoisk.dev)
     kinopoisk_token: str | None
 
@@ -104,7 +101,6 @@ class Settings:
             discord_token=os.environ.get("DISCORD_TOKEN") or None,
             telegram_token=os.environ.get("TELEGRAM_TOKEN") or None,
             telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID") or None,
-            pointauc_token=os.environ.get("POINTAUC_TOKEN") or None,
             kinopoisk_token=os.environ.get("KINOPOISK_TOKEN") or None,
         )
 

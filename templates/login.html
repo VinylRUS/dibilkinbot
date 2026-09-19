@@ -63,6 +63,12 @@
       <div class="error">Неверный логин или пароль.</div>
     {% elif error == 'admin_password' %}
       <div class="error">Этот Discord ID принадлежит администратору. Введите пароль администратора.</div>
+    {% elif error == 'not_member' %}
+      <div class="error">
+        ❌ Вы не участник сервера с этим ботом.<br>
+        Войдите в Discord-сервер, где стоит DeeBeelkin, и попробуйте снова.<br>
+        <em>(Если бот офлайн — попросите админа перезапустить процесс.)</em>
+      </div>
     {% endif %}
 
     <label for="login">Discord ID</label>

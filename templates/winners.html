@@ -11,9 +11,19 @@
 
   <main class="container">
     <h2>🎡 Победители колеса</h2>
+    {% if request.query_params.get('deleted') %}
+      <div class="saved">✓ Запись удалена.</div>
+    {% endif %}
     <article class="card">
       <table>
-        <tr><th>Фильм</th><th>Кинопоиск ID</th><th>Дата</th><th>Статус</th><th>Подтверждён</th></tr>
+        <tr>
+          <th>Фильм</th>
+          <th>Кинопоиск ID</th>
+          <th>Дата</th>
+          <th>Статус</th>
+          <th>Подтверждён</th>
+          {% if is_admin %}<th></th>{% endif %}
+        </tr>
         {% for w_id, lot_name, tmdb_id, confidence, detected_at, confirmed_at in winners %}
           <tr>
             <td>{{ lot_name }}</td>
@@ -21,9 +31,17 @@
             <td class="mono">{{ detected_at[:16].replace('T', ' ') }}</td>
             <td><span class="badge {{ confidence }}">{{ confidence }}</span></td>
             <td class="mono">{{ confirmed_at[:16].replace('T', ' ') if confirmed_at else '—' }}</td>
+            {% if is_admin %}
+              <td>
+                <form method="post" action="/winners/{{ w_id }}/delete" style="display:inline; margin:0;"
+                      onsubmit="return confirm('Удалить «{{ lot_name }}» из списка победителей?');">
+                  <button type="submit" style="background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0;font-size:0.8rem;">×</button>
+                </form>
+              </td>
+            {% endif %}
           </tr>
         {% else %}
-          <tr><td colspan="5" class="empty">Пока нет победителей. Крутаните колесо на pointauc.com.</td></tr>
+          <tr><td colspan="{{ 6 if is_admin else 5 }}" class="empty">Пока нет победителей. Крутаните колесо на /wheel.</td></tr>
         {% endfor %}
       </table>
     </article>

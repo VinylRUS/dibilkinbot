@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS users (
     discord_id INTEGER PRIMARY KEY,
     username TEXT,
     display_name TEXT,
+    avatar_url TEXT,
+    roles TEXT,                       -- JSON array of role names
+    top_role TEXT,
+    guild_name TEXT,                  -- имя сервера где бот его нашёл
     is_admin INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
     last_login_at TEXT
@@ -121,7 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_wheel_active ON wheel_items(is_active);
 
 
 async def init_db() -> None:
-    """Создать таблицы если их нет."""
+    """Создать таблицы если их нет. Плюс миграции (добавление новых колонок в существующие таблицы)."""
     try:
         settings.database_path.parent.mkdir(parents=True, exist_ok=True)
         log.info("DB dir: %s", settings.database_path.parent)
@@ -133,6 +137,23 @@ async def init_db() -> None:
         async with aiosqlite.connect(settings.database_path) as db:
             await db.executescript(SCHEMA)
             await db.commit()
+
+            # === Миграции: добавляем колонки если их ещё нет ===
+            # users: avatar_url, roles, top_role, guild_name (появились в v0.6.0)
+            async with db.execute("PRAGMA table_info(users)") as cur:
+                existing_cols = {row[1] for row in await cur.fetchall()}
+            new_cols = {
+                "avatar_url": "TEXT",
+                "roles": "TEXT",
+                "top_role": "TEXT",
+                "guild_name": "TEXT",
+            }
+            for col_name, col_type in new_cols.items():
+                if col_name not in existing_cols:
+                    log.info("Migrating users: adding column %s", col_name)
+                    await db.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+            await db.commit()
+
         log.info("DB initialized at %s (size=%d bytes)",
                  settings.database_path, settings.database_path.stat().st_size)
     except Exception as e:
@@ -212,9 +233,17 @@ async def is_watched(title: str) -> bool:
 async def list_watched(limit: int = 50) -> list[tuple]:
     async with _connect() as db:
         async with db.execute(
-            "SELECT title, watched_at, rating FROM watched ORDER BY watched_at DESC LIMIT ?", (limit,)
+            "SELECT id, title, watched_at, rating FROM watched ORDER BY watched_at DESC LIMIT ?", (limit,)
         ) as cur:
             return await cur.fetchall()
+
+
+async def delete_watched(watched_id: int) -> bool:
+    """Удалить запись из watched по id. Возвращает True если удалено."""
+    async with _connect() as db:
+        cur = await db.execute("DELETE FROM watched WHERE id = ?", (watched_id,))
+        await db.commit()
+        return cur.rowcount > 0
 
 
 # === Quotes ===
@@ -274,17 +303,31 @@ async def add_movie_night(title: str | None, scheduled_at: datetime, created_by:
 
 # === Users ===
 
-async def upsert_user(discord_id: int, username: str | None = None, display_name: str | None = None) -> None:
+async def upsert_user(
+    discord_id: int,
+    username: str | None = None,
+    display_name: str | None = None,
+    avatar_url: str | None = None,
+    roles: list[str] | None = None,
+    top_role: str | None = None,
+    guild_name: str | None = None,
+) -> None:
     """Создать или обновить запись пользователя. Не трогает is_admin."""
+    import json
+    roles_json = json.dumps(roles, ensure_ascii=False) if roles else None
     async with _connect() as db:
         await db.execute(
-            "INSERT INTO users (discord_id, username, display_name, created_at, last_login_at) "
-            "VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO users (discord_id, username, display_name, avatar_url, roles, top_role, guild_name, created_at, last_login_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(discord_id) DO UPDATE SET "
             "  username = excluded.username, "
             "  display_name = excluded.display_name, "
+            "  avatar_url = COALESCE(excluded.avatar_url, users.avatar_url), "
+            "  roles = COALESCE(excluded.roles, users.roles), "
+            "  top_role = COALESCE(excluded.top_role, users.top_role), "
+            "  guild_name = COALESCE(excluded.guild_name, users.guild_name), "
             "  last_login_at = excluded.last_login_at",
-            (discord_id, username, display_name,
+            (discord_id, username, display_name, avatar_url, roles_json, top_role, guild_name,
              datetime.utcnow().isoformat(), datetime.utcnow().isoformat()),
         )
         await db.commit()
@@ -293,7 +336,8 @@ async def upsert_user(discord_id: int, username: str | None = None, display_name
 async def get_user(discord_id: int) -> tuple | None:
     async with _connect() as db:
         async with db.execute(
-            "SELECT discord_id, username, display_name, is_admin FROM users WHERE discord_id = ?",
+            "SELECT discord_id, username, display_name, is_admin, avatar_url, roles, top_role, guild_name, last_login_at "
+            "FROM users WHERE discord_id = ?",
             (discord_id,)
         ) as cur:
             return await cur.fetchone()
@@ -320,7 +364,7 @@ async def is_admin(discord_id: int) -> bool:
 async def list_users() -> list[tuple]:
     async with _connect() as db:
         async with db.execute(
-            "SELECT discord_id, username, display_name, is_admin, last_login_at "
+            "SELECT discord_id, username, display_name, is_admin, last_login_at, avatar_url, top_role, guild_name "
             "FROM users ORDER BY created_at DESC"
         ) as cur:
             return await cur.fetchall()
@@ -471,6 +515,14 @@ async def list_winners(limit: int = 20) -> list[tuple]:
             (limit,)
         ) as cur:
             return await cur.fetchall()
+
+
+async def delete_winner(winner_id: int) -> bool:
+    """Удалить запись из winners по id. Возвращает True если удалено."""
+    async with _connect() as db:
+        cur = await db.execute("DELETE FROM winners WHERE id = ?", (winner_id,))
+        await db.commit()
+        return cur.rowcount > 0
 
 
 async def get_recent_unconfirmed_winners(minutes: int = 5) -> list[tuple]:

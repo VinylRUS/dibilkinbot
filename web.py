@@ -120,22 +120,22 @@ async def login_submit(
     password: str = Form("", alias="password"),
 ):
     """Логин тремя способами:
-    1. Логин = ADMIN_LOGIN из env, пароль = ADMIN_PASSWORD (env-админ по логину/паролю)
-    2. Логин = Discord ID админа (env ADMIN_DISCORD_ID), пароль = ADMIN_PASSWORD (env-админ по Discord ID)
-    3. Логин = Discord ID (число), пароль пустой — авто-создание юзера с правами viewer
+    1. Логин = ADMIN_LOGIN из env (текст, не число), пароль = ADMIN_PASSWORD — env-админ по логину/паролю
+    2. Логин = Discord ID админа (env ADMIN_DISCORD_ID), пароль = ADMIN_PASSWORD — env-админ по Discord ID
+    3. Логин = любой Discord ID (число), пароль пустой — авто-создание юзера с правами viewer
 
-    Любой Discord ID принимается. Если это ID админа (env ADMIN_DISCORD_ID) — даём права админа.
-    Иначе — обычный viewer (видит только бэклог и победителей).
+    Для входа по Discord ID бот должен быть онлайн и проверить что юзер — участник сервера.
     """
     login = login.strip()
     password = password.strip()
 
-    # Способ 1: классический env-админ по логину+паролю (например login="admin", password="changeme")
-    is_env_admin_login = secrets.compare_digest(login, settings.admin_login)
     is_env_admin_pass = secrets.compare_digest(password, settings.admin_password)
+
+    # Способ 1: классический env-админ по логину+паролю (login="admin", password="changeme")
+    # Только если login не числовой — иначе попадает в способ 2/3 ниже
+    is_env_admin_login = secrets.compare_digest(login, settings.admin_login)
     if is_env_admin_login and is_env_admin_pass and not login.isdigit():
-        # Логин не числовой — сессионный админ без записи в БД (для первого входа)
-        user_payload = {"discord_id": 0, "username": login, "is_admin": True}
+        user_payload = {"discord_id": 0, "username": login, "is_admin": True, "avatar_url": None}
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
         resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
@@ -144,24 +144,39 @@ async def login_submit(
     # Способ 2 и 3: вход по Discord ID (число)
     if login.isdigit():
         discord_id = int(login)
-        is_admin = await db.is_admin(discord_id)
 
-        # Если это Discord ID админа (env ADMIN_DISCORD_ID) — требуем пароль ADMIN_PASSWORD
+        # Проверка участника сервера через бота (только если бот онлайн)
+        import bot as bot_module
+        is_member, member_info = await bot_module.is_guild_member(discord_id)
+        if not is_member:
+            return RedirectResponse(url="/login?error=not_member", status_code=303)
+
+        # Данные из Discord
+        display_name = member_info["display_name"]
+        username = member_info["username"]
+        avatar_url = member_info.get("avatar_url")
+        roles = member_info.get("roles", [])
+        top_role = member_info.get("top_role")
+        guild_name = member_info.get("guild_name")
+
+        # Проверка прав
+        is_admin = await db.is_admin(discord_id)
+        # Если это Discord ID админа (env ADMIN_DISCORD_ID) — требуем пароль
         if settings.admin_discord_id is not None and discord_id == settings.admin_discord_id:
             if not is_env_admin_pass:
                 return RedirectResponse(url="/login?error=admin_password", status_code=303)
             is_admin = True
 
-        # Авто-создание юзера в БД если его ещё нет
-        existing = await db.get_user(discord_id)
-        if existing:
-            username = existing[1] or str(discord_id)
-            display_name = existing[2] or f"User {discord_id}"
-        else:
-            username = str(discord_id)
-            display_name = f"User {discord_id}"
-
-        await db.upsert_user(discord_id, username=username, display_name=display_name)
+        # Авто-создание/обновление юзера в БД
+        await db.upsert_user(
+            discord_id,
+            username=username,
+            display_name=display_name,
+            avatar_url=avatar_url,
+            roles=roles,
+            top_role=top_role,
+            guild_name=guild_name,
+        )
         if is_admin:
             await db.set_admin(discord_id, True)
 
@@ -169,6 +184,10 @@ async def login_submit(
             "discord_id": discord_id,
             "username": display_name,
             "is_admin": is_admin,
+            "avatar_url": avatar_url,
+            "roles": roles,
+            "top_role": top_role,
+            "guild_name": guild_name,
         }
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
@@ -193,7 +212,6 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
     top_quotes = await db.top_quotes(limit=5)
 
     # Статусы токенов для виджетов
-    saved_pointauc = bool(await db.get_setting("pointauc_token"))
     saved_kp = bool(await db.get_setting("kinopoisk_token"))
     saved_tg = bool(await db.get_setting("telegram_token"))
 
@@ -203,7 +221,6 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         "recent_winners": recent_winners,
         "activity": activity,
         "top_quotes": top_quotes,
-        "saved_pointauc": saved_pointauc,
         "saved_kp": saved_kp,
         "saved_tg": saved_tg,
     })
@@ -214,7 +231,6 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
 KNOWN_TOKENS = [
     ("discord_token", "Discord Bot Token"),
     ("telegram_token", "Telegram Bot Token"),
-    ("pointauc_token", "Pointauc Personal Token"),
     ("kinopoisk_token", "Kinopoisk API Token (X-API-KEY от @poiskkinodev_bot)"),
 ]
 
@@ -238,13 +254,11 @@ async def tokens_save(
     _user: dict = Depends(require_admin),
     discord_token: str = Form(""),
     telegram_token: str = Form(""),
-    pointauc_token: str = Form(""),
     kinopoisk_token: str = Form(""),
 ):
     updates = {
         "discord_token": discord_token.strip(),
         "telegram_token": telegram_token.strip(),
-        "pointauc_token": pointauc_token.strip(),
         "kinopoisk_token": kinopoisk_token.strip(),
     }
     for key, val in updates.items():
@@ -342,7 +356,20 @@ async def winners_page(request: Request, _user: dict = Depends(require_user)):
     return templates.TemplateResponse(request, "winners.html", {
         "user": _user,
         "winners": winners,
+        "is_admin": _user.get("is_admin", False),
     })
+
+
+@app.post("/winners/{winner_id}/delete")
+async def delete_winner_endpoint(
+    winner_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Удалить запись победителя (только админ)."""
+    deleted = await db.delete_winner(winner_id)
+    if not deleted:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return RedirectResponse(url="/winners?deleted=1", status_code=303)
 
 
 # === Watched page (для всех залогиненных) ===
@@ -353,7 +380,20 @@ async def watched_page(request: Request, _user: dict = Depends(require_user)):
     return templates.TemplateResponse(request, "watched.html", {
         "user": _user,
         "watched": watched,
+        "is_admin": _user.get("is_admin", False),
     })
+
+
+@app.post("/watched/{watched_id}/delete")
+async def delete_watched_endpoint(
+    watched_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Удалить запись из бэклога просмотренного (только админ)."""
+    deleted = await db.delete_watched(watched_id)
+    if not deleted:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return RedirectResponse(url="/watched?deleted=1", status_code=303)
 
 
 # === Users management (admin only) ===
@@ -509,6 +549,88 @@ async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str
     except Exception as e:
         import logging
         logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
+
+
+@app.post("/api/wheel/spin_elimination")
+async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
+    """Режим 'на выбывание': спин удаляет ОДНОГО случайного лота.
+    Когда остаётся 1 лот — он финальный победитель.
+
+    Логика:
+    - Если осталось >2 лотов: удаляем случайного, возвращаем updated list
+    - Если осталось 2 лота: удаляем случайного, оставшийся становится победителем
+      (с confidence='confirmed', уведомление в Discord, удаление из колеса)
+    - Если <2: ошибка
+    """
+    import random
+    items = await db.list_wheel_items(active_only=True)
+    if len(items) < 2:
+        return JSONResponse({"error": "need at least 2 items"}, status_code=400)
+
+    spin_id = str(uuid.uuid4())[:8]
+
+    # Если ровно 2 — финальный раунд, победитель = тот кто ОСТАЛСЯ
+    if len(items) == 2:
+        # Случайно удаляем одного — оставшийся победитель
+        eliminated = random.choice(items)
+        winner = next(it for it in items if it["id"] != eliminated["id"])
+
+        await db.remove_wheel_item(eliminated["id"])
+        await db.remove_wheel_item(winner["id"])
+        await db.reassign_colors()
+
+        # Записываем победителя в winners
+        await db.add_winner(
+            lot_id=str(winner["id"]),
+            lot_name=winner["name"],
+            tmdb_id=winner.get("tmdb_id"),
+            confidence="confirmed",
+        )
+
+        # Рассылаем события
+        await ws_manager.broadcast_spin_started(items, spin_id)
+        remaining = []  # колесо пустое
+
+        import asyncio
+        asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id))
+
+        return JSONResponse({
+            "spin_id": spin_id,
+            "mode": "elimination_final",
+            "eliminated": eliminated,
+            "winner": winner,
+            "remaining_count": 0,
+        })
+
+    # Обычный раунд выбывания — удаляем одного случайного
+    eliminated = random.choice(items)
+    await db.remove_wheel_item(eliminated["id"])
+    await db.reassign_colors()
+    remaining = await db.list_wheel_items(active_only=True)
+
+    # Broadcast: спин начался (для анимации), затем обновлённый список
+    await ws_manager.broadcast_spin_started(items, spin_id)
+
+    import asyncio
+    asyncio.create_task(_delayed_elimination_result(eliminated, remaining, spin_id))
+
+    return JSONResponse({
+        "spin_id": spin_id,
+        "mode": "elimination",
+        "eliminated": eliminated,
+        "remaining_count": len(remaining),
+    })
+
+
+async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], spin_id: str) -> None:
+    """Через 5 секунд разослать результат elimination-спина (кого удалили)."""
+    import asyncio
+    await asyncio.sleep(5)
+    await ws_manager.broadcast({
+        "type": "elimination_result",
+        "payload": {"eliminated": eliminated, "remaining_count": len(remaining)},
+    })
+    await ws_manager.broadcast_wheel_updated(remaining)
 
 
 # === WebSocket для реал-тайм обновлений ===

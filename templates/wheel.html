@@ -7,6 +7,22 @@
   <link rel="stylesheet" href="/static/style.css">
   <style>
     body { background: #000; color: #fff; overflow: hidden; }
+    .back-link {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: rgba(0,0,0,0.6);
+      color: var(--accent);
+      padding: 8px 16px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 0.9rem;
+      border: 1px solid var(--accent);
+      z-index: 100;
+      backdrop-filter: blur(8px);
+      transition: all 0.15s;
+    }
+    .back-link:hover { background: var(--accent); color: #1A1A1A; }
     .wheel-page {
       max-width: 1400px;
       margin: 0 auto;
@@ -75,6 +91,31 @@
     .spin-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+    .spin-elimination-btn {
+      background: transparent;
+      color: var(--accent);
+      border: 2px solid var(--accent);
+      padding: 14px 32px;
+      border-radius: 50px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-left: 12px;
+    }
+    .spin-elimination-btn:hover:not(:disabled) {
+      background: var(--accent);
+      color: #1A1A1A;
+    }
+    .spin-elimination-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .buttons-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
     .winner-banner {
       background: var(--accent);
@@ -204,6 +245,7 @@
   </style>
 </head>
 <body>
+  <a href="/" class="back-link">← В панель</a>
   <main class="wheel-page">
     <!-- Колесо -->
     <section class="wheel-area">
@@ -212,7 +254,10 @@
         <div class="pointer"></div>
         <canvas id="wheel-canvas" width="600" height="600"></canvas>
       </div>
-      <button id="spin-btn" class="spin-btn" disabled>КРУТИТЬ</button>
+      <div class="buttons-row">
+        <button id="spin-btn" class="spin-btn" disabled>КРУТИТЬ</button>
+        <button id="spin-elimination-btn" class="spin-elimination-btn" disabled title="Крутить на выбывание — удаляет одного, последний оставшийся = победитель">🎯 НА ВЫБЫВАНИЕ</button>
+      </div>
       <div id="winner-banner" class="winner-banner"></div>
     </section>
 
@@ -326,14 +371,17 @@
       count.textContent = items.length;
       list.innerHTML = '';
 
+      const elimBtn = document.getElementById('spin-elimination-btn');
       if (items.length === 0) {
         empty.style.display = 'block';
         clearBtn.style.display = 'none';
         spinBtn.disabled = true;
+        if (elimBtn) elimBtn.disabled = true;
       } else {
         empty.style.display = 'none';
         clearBtn.style.display = items.length > 0 ? 'block' : 'none';
         spinBtn.disabled = items.length < 2 || spinning;
+        if (elimBtn) elimBtn.disabled = items.length < 2 || spinning;
 
         items.forEach((item, idx) => {
           const li = document.createElement('li');
@@ -529,7 +577,74 @@
     });
 
     document.getElementById('spin-btn').addEventListener('click', spin);
+    document.getElementById('spin-elimination-btn').addEventListener('click', spinElimination);
     document.getElementById('clear-btn').addEventListener('click', clearWheel);
+
+    // === Elimination spin ===
+    async function spinElimination() {
+      if (spinning || items.length < 2) return;
+      spinning = true;
+      document.getElementById('spin-btn').disabled = true;
+      document.getElementById('spin-elimination-btn').disabled = true;
+      document.getElementById('winner-banner').classList.remove('show');
+
+      const r = await fetch('/api/wheel/spin_elimination', { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) {
+        alert(data.error || 'Ошибка спина');
+        spinning = false;
+        document.getElementById('spin-btn').disabled = items.length < 2;
+        document.getElementById('spin-elimination-btn').disabled = items.length < 2;
+        return;
+      }
+
+      const eliminated = data.eliminated;
+      const isFinal = data.mode === 'elimination_final';
+      const winner = data.winner;
+
+      // Найти индекс eliminated в текущем массиве для анимации
+      const elimIdx = items.findIndex(it => it.id === eliminated.id);
+      if (elimIdx === -1) {
+        await fetchItems();
+        spinning = false;
+        document.getElementById('spin-btn').disabled = items.length < 2;
+        document.getElementById('spin-elimination-btn').disabled = items.length < 2;
+        return;
+      }
+
+      // Анимация — крутим к eliminated сектору (как будто он "выбывает")
+      const anglePer = (Math.PI * 2) / items.length;
+      const elimCenterAngle = elimIdx * anglePer + anglePer / 2;
+      const extraTurns = 5 + Math.floor(Math.random() * 3);
+      const targetRotation = currentRotation + extraTurns * Math.PI * 2
+        + (-Math.PI / 2 - elimCenterAngle) - (currentRotation % (Math.PI * 2));
+
+      animateSpin(targetRotation, 5000, () => {
+        const banner = document.getElementById('winner-banner');
+        if (isFinal) {
+          // Финал — победитель объявлен
+          banner.textContent = `🏆 Финальный победитель: ${winner.name}!`;
+          banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
+        } else {
+          // Промежуточный раунд — кого выбили
+          banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${data.remaining_count})`;
+          banner.style.background = 'var(--red)';
+          banner.style.color = '#fff';
+        }
+        banner.classList.add('show');
+
+        fetchItems();
+        spinning = false;
+        document.getElementById('spin-btn').disabled = items.length < 2;
+        document.getElementById('spin-elimination-btn').disabled = items.length < 2;
+
+        // Сбросить стиль баннера через 5 сек
+        setTimeout(() => {
+          banner.style.background = '';
+          banner.style.color = '';
+        }, 5000);
+      });
+    }
 
     // Initial state из SSR
     items = {{ items | tojson }};

@@ -13,10 +13,9 @@ from discord.ext import commands
 import crypto
 import db
 import kinopoisk as tmdb
+from kinopoisk import lookup_by_id
 import telegram
 from config import settings
-from pointauc import PointaucClient, PointaucError
-from pointauc_watcher import LotsWatcher
 from telegram import send_message, tg_escape
 
 log = logging.getLogger("bot")
@@ -24,6 +23,66 @@ log = logging.getLogger("bot")
 intents = discord.Intents.default()
 intents.message_content = False
 intents.guilds = True
+intents.members = True  # нужен для проверки что юзер — участник сервера при логине в панель
+
+
+# === Проверка member сервера ===
+
+async def is_guild_member(discord_id: int) -> tuple[bool, dict | None]:
+    """Проверить, является ли discord_id участником какого-либо сервера с ботом.
+
+    Возвращает (True, member_info_dict) если да, иначе (False, None).
+    member_info содержит: display_name, username, avatar_url, top_role_name, roles.
+    """
+    if not _bot_running:
+        return False, None
+    bot = _get_bot()
+    if bot is None:
+        return False, None
+
+    for guild in bot.guilds:
+        member = guild.get_member(discord_id)
+        if member is None:
+            # нет в кеше — пробуем fetch
+            try:
+                member = await guild.fetch_member(discord_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+        if member is not None:
+            # Собираем информацию о пользователе
+            roles = [r.name for r in member.roles if r.name != "@everyone"]
+            top_role = member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None
+            return True, {
+                "display_name": member.display_name or member.name,
+                "username": str(member),
+                "avatar_url": str(member.display_avatar.url) if member.display_avatar else None,
+                "guild_name": guild.name,
+                "guild_id": guild.id,
+                "roles": roles,
+                "top_role": top_role,
+                "joined_at": member.joined_at.isoformat() if member.joined_at else None,
+                "is_owner": guild.owner_id == discord_id,
+            }
+    return False, None
+
+
+# Глобальные ссылки для доступа из web.py
+_bot_running = False
+_bot_ref = None
+
+
+def _get_bot():
+    return _bot_ref
+
+
+def _set_bot(b):
+    global _bot_ref
+    _bot_ref = b
+
+
+def _set_bot_running(running: bool):
+    global _bot_running
+    _bot_running = running
 
 
 # === Токены: приоритет из БД (зашифрованы), fallback на env ===
@@ -33,13 +92,6 @@ async def get_token(key: str, env_value: str | None) -> str | None:
     if raw:
         return crypto.decrypt(raw)
     return env_value
-
-
-async def get_pointauc_client() -> PointaucClient | None:
-    token = await get_token("pointauc_token", settings.pointauc_token)
-    if not token:
-        return None
-    return PointaucClient(token)
 
 
 async def get_tg_config() -> tuple[str | None, str | None]:
@@ -68,7 +120,7 @@ class KinovecherBot(commands.Bot):
             intents=intents,
             help_command=None,
         )
-        self.lots_watcher: LotsWatcher | None = None
+        self._user_cache = {}  # discord_id → last_seen_username (для оптимизации)
 
     async def setup_hook(self) -> None:
         cogs = [
@@ -94,6 +146,8 @@ class KinovecherBot(commands.Bot):
                 log.info("  /%s", cmd.name)
 
     async def on_ready(self) -> None:
+        _set_bot(self)
+        _set_bot_running(True)
         log.info("Bot logged in as %s (id=%s)", self.user, self.user.id)
         log.info("Bot sees %d guild(s):", len(self.guilds))
         for g in self.guilds:
@@ -105,12 +159,6 @@ class KinovecherBot(commands.Bot):
         if not all_cmds:
             log.error("⚠️ Tree is EMPTY at on_ready! Cogs failed to load.")
             return
-
-        # Запуск LotsWatcher'а (один раз)
-        if self.lots_watcher is None:
-            self.lots_watcher = LotsWatcher(on_lot_removed=self._handle_lot_removed)
-            self.lots_watcher.start(get_pointauc_client)
-            log.info("LotsWatcher started")
 
         if not self.guilds:
             log.warning("Bot is in 0 guilds. Cache may be cold — restart in 30s.")
@@ -155,7 +203,7 @@ class KinovecherBot(commands.Bot):
             log.warning("Winners channel %s not found", winners_channel_id_str)
             return
 
-        # Строим embed — похож на тот что был в Pointauc-версии, но confidence=confirmed
+        # Строим embed победителя с метаданными Кинопоиска если есть
         embed = await self._build_winner_embed_local(winner)
         try:
             await channel.send(embed=embed)
@@ -205,83 +253,6 @@ class KinovecherBot(commands.Bot):
         else:
             embed.description = f"_{winner['name']}_"
             embed.add_field(name="Кинопоиск", value="Метаданные не найдены — бот не сможет показать постер", inline=False)
-
-        return embed
-
-    async def _handle_lot_removed(self, lot_name: str, lot_id: str | None) -> None:
-        """Callback из LotsWatcher — лот исчез из колеса, потенциально победитель."""
-        log.info("Potential winner: lot_name='%s' lot_id=%s", lot_name, lot_id)
-
-        # Если уже просмотрен — пропускаем (юзер мог /watched раньше, чем детектился lot_removed)
-        if await db.is_watched(lot_name):
-            log.info("'%s' already watched — skipping winner event", lot_name)
-            return
-
-        # Ищем метаданные в кеше (могли быть добавлены через /wheel add)
-        # Поиск в movie_meta по query_title=lot_name
-        cached = await db.get_movie_meta(lot_name)
-        tmdb_id = cached[0] if cached else None
-
-        # Записываем победителя как unconfirmed
-        winner_id = await db.add_winner(lot_id, lot_name, tmdb_id, confidence="unconfirmed")
-
-        # Постим в канал #winners (если настроен)
-        winners_channel_id_str = await db.get_setting("channel_winners_id")
-        channel = None
-        if winners_channel_id_str and winners_channel_id_str.isdigit():
-            channel = self.get_channel(int(winners_channel_id_str))
-
-        if channel is not None:
-            embed = await self._build_winner_embed(lot_name, tmdb_id, winner_id, confirmed=False)
-            try:
-                await channel.send(embed=embed)
-            except Exception as e:
-                log.error("Failed to post winner to channel: %s", e)
-
-        # TG-кросс-пост победителя (в отдельный чат, если задан)
-        tg_winners_chat = await db.get_setting("tg_winners_chat_id")
-        if tg_winners_chat:
-            await tg_crosspost(
-                f"🎡 <b>Победитель колеса</b> (unconfirmed)\n<b>{tg_escape(lot_name)}</b>",
-                chat_id=tg_winners_chat,
-            )
-
-    async def _build_winner_embed(self, lot_name: str, tmdb_id: int | None,
-                                   winner_id: int, confirmed: bool) -> discord.Embed:
-        """Построить embed для победителя. Если есть Кинопоиск meta — с постером."""
-        embed = discord.Embed(
-            title=f"🎡 Победитель колеса — {lot_name}",
-            color=0x2ECC71 if confirmed else 0xF39C12,
-            timestamp=datetime.utcnow(),
-        )
-        embed.set_footer(text=f"{'✓ confirmed' if confirmed else '⚠️ unconfirmed'} · winner #{winner_id} · используй /watched для подтверждения")
-
-        if tmdb_id:
-            meta = await tmdb.lookup_by_id(tmdb_id)
-            if meta:
-                if meta.get("year"):
-                    embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
-                if meta.get("poster_url"):
-                    embed.set_image(url=meta["poster_url"])
-                if meta.get("tagline"):
-                    embed.description = f"_{meta['tagline']}_"
-                if meta.get("plot"):
-                    plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
-                    embed.add_field(name="Описание", value=plot, inline=False)
-                rating_str = f"⭐ {meta['vote_average']}/10"
-                if meta.get("vote_count"):
-                    rating_str += f" ({meta['vote_count']} голосов)"
-                embed.add_field(name="Рейтинг", value=rating_str, inline=True)
-                if meta.get("genres"):
-                    embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=True)
-                if meta.get("runtime"):
-                    embed.add_field(name="Длительность", value=f"{meta['runtime']} мин", inline=True)
-                if meta.get("imdb_id"):
-                    embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
-                embed.add_field(name="Кинопоиск", value="[Источник](https://kinopoisk.dev/) · *использует kinopoisk.dev API*", inline=False)
-        else:
-            embed.description = f"_{lot_name}_"
-            embed.add_field(name="Кинопоиск", value="Метаданные не найдены — добавь через /wheel add для постера", inline=False)
 
         return embed
 
@@ -572,7 +543,7 @@ class MovieNightCog(commands.Cog):
             try:
                 event = await guild.create_scheduled_event(
                     name=description or "Киновечер",
-                    description=description or "Собираемся смотреть фильм с колеса Pointauc.",
+                    description=description or "Собираемся смотреть фильм с колеса.",
                     start_time=dt,
                     entity_type=discord.EntityType.external,
                     location="Discord voice channel",
@@ -597,7 +568,7 @@ class MovieNightCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"🎬 Киновечер — {dt.strftime('%d.%m.%Y %H:%M UTC')}",
-            description=description or "Смотрим фильм с колеса Pointauc.",
+            description=description or "Смотрим фильм с колеса.",
             color=0xE74C3C,
             timestamp=datetime.utcnow(),
         )
