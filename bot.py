@@ -224,8 +224,11 @@ class KinovecherBot(commands.Bot):
             )
 
     async def _build_winner_embed_local(self, winner: dict) -> "discord.Embed":
-        """Построить embed для победителя локального колеса. С метаданными Кинопоиска если есть."""
-        from kinopoisk import lookup_by_id
+        """Построить embed для победителя локального колеса.
+        Если есть kp_id — подтягиваем метаданные из БД/Кинопоиска.
+        Если kp_id нет (фильм добавлен без метаданных) — пробуем найти по названию прямо сейчас.
+        """
+        from kinopoisk import lookup_by_id, lookup_movie
         embed = discord.Embed(
             title=f"🎡 Победитель колеса — {winner['name']}",
             color=0x2ECC71,  # зелёный — confirmed
@@ -233,9 +236,30 @@ class KinovecherBot(commands.Bot):
         )
         embed.set_footer(text=f"✓ confirmed · автоматически из веб-панели")
 
-        tmdb_id = winner.get("tmdb_id")
-        if tmdb_id:
-            meta = await lookup_by_id(tmdb_id)
+        # kp_id — это ID фильма в Кинопоиске (поле называется tmdb_id для совместимости со старой схемой БД)
+        kp_id = winner.get("tmdb_id")
+
+        # Если kp_id нет — пробуем найти метаданные по названию прямо сейчас
+        if not kp_id:
+            log.info("Winner '%s' has no kp_id — trying lookup_movie() by name", winner["name"])
+            meta = await lookup_movie(winner["name"])
+            if meta:
+                kp_id = meta.get("tmdb_id")
+                log.info("Found kp_id=%s for '%s' via lookup_movie", kp_id, winner["name"])
+                # Обновляем запись в wheel_items чтобы не искать повторно
+                try:
+                    async with db._connect() as conn:
+                        await conn.execute(
+                            "UPDATE wheel_items SET tmdb_id = ? WHERE id = ?",
+                            (kp_id, winner["id"]),
+                        )
+                        await conn.commit()
+                except Exception as e:
+                    log.warning("Failed to update wheel_items.tmdb_id: %s", e)
+
+        # Если kp_id есть (изначально или после lookup) — подтягиваем полные метаданные
+        if kp_id:
+            meta = await lookup_by_id(kp_id)
             if meta:
                 if meta.get("year"):
                     embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
