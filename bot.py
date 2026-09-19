@@ -298,23 +298,49 @@ class QuotesCog(commands.Cog):
             )
             return
 
-        # Автор как mention или текст
+        # Если author — это <@ID>, достаём Member из гильдии, берём display_name.
+        # Если не Member — оставляем как plain text (кто-то мог передать имя текстом).
+        author_display = author  # что пойдёт в embed и БД
         author_user_id = None
+        author_member = None
         if author.startswith("<@") and author.endswith(">"):
             try:
                 author_user_id = int(author.strip("<@!>"))
             except ValueError:
                 pass
 
-        quote_id = await db.add_quote(author, author_user_id, text, interaction.user.id)
+            if author_user_id is not None and interaction.guild is not None:
+                author_member = interaction.guild.get_member(author_user_id)
+                if author_member is not None:
+                    author_display = author_member.display_name
+                else:
+                    # Member не в кеше — попробуем fetch через API (медленнее, но точно)
+                    try:
+                        author_member = await interaction.guild.fetch_member(author_user_id)
+                        author_display = author_member.display_name
+                    except (discord.NotFound, discord.Forbidden):
+                        # Не вышло — оставляем ID как fallback, но не сырой <@...>
+                        author_display = f"User {author_user_id}"
 
-        # Embed
+        quote_id = await db.add_quote(author_display, author_user_id, text, interaction.user.id)
+
+        # Embed: упоминание записавшего в footer (через display_name),
+        # автор в set_author (display_name участника или исходный текст),
+        # плюс отдельное поле с реальным mention автора — Discord парсит mentions в field values.
         embed = discord.Embed(
             description=f"_{text}_",
             color=0xF1C40F,
             timestamp=datetime.utcnow(),
         )
-        embed.set_author(name=author)
+        embed.set_author(name=author_display)
+        if author_member is not None:
+            # Кликабельная ссылка на профиль автора (внешний jump-URL не работает для пользователей,
+            # но mention в поле — парсится)
+            embed.add_field(
+                name="Автор",
+                value=author_member.mention,
+                inline=True,
+            )
         embed.set_footer(text=f"Записал: {interaction.user.display_name} · #{quote_id}")
 
         await channel.send(embed=embed)
@@ -411,6 +437,7 @@ class MovieNightCog(commands.Cog):
             timestamp=datetime.utcnow(),
         )
         embed.add_field(name="Когда", value=f"<t:{int(dt.timestamp())}:F>", inline=False)
+        embed.add_field(name="Кто ведёт", value=interaction.user.mention, inline=False)
         if event_link:
             embed.add_field(name="Событие", value=f"[Открыть]({event_link})", inline=False)
         embed.set_footer(text=f"Анонсировал: {interaction.user.display_name}")
