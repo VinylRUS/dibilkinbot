@@ -32,8 +32,11 @@ COPY . /app/
 
 ENV DATABASE_PATH=/app/data/bot.db
 ENV PYTHONUNBUFFERED=1
-ENV PATH="/opt/venv/bin:$PATH"
+
+# ВАЖНО: используем прямой путь к python из venv — надёжнее чем PATH на BotHost.
+# (BotHost иногда перезаписывает PATH при деплое, и CMD ["python", ...] находит системный python без uvicorn.)
+ENV VENV_PYTHON=/opt/venv/bin/python
 
 EXPOSE 8000
 
-CMD ["python", "main.py"]
+CMD ["/opt/venv/bin/python", "main.py"]
