@@ -22,7 +22,12 @@ serializer = URLSafeTimedSerializer(settings.app_secret, salt="panel-session")
 
 app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_url=None)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-app.mount("/static", StaticFiles(directory=str(Path(__file__).parent.parent / "static")), name="static")
+
+# Монтируем /static только если папка существует (иначе StaticFiles падает при старте).
+# Это безопасно — пустой папки просто не будет, и 404 на /static/* будет штатным.
+_STATIC_DIR = Path(__file__).parent.parent / "static"
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 # === Session ===
