@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Kinovecher · Панель</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1e1e2e;
+      color: #cdd6f4;
+    }
+    .nav {
+      background: #181825;
+      padding: 14px 24px;
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      border-bottom: 1px solid #313244;
+    }
+    .nav .brand { font-weight: 700; font-size: 16px; color: #89b4fa; margin-right: auto; }
+    .nav a { color: #a6adc8; text-decoration: none; font-size: 14px; }
+    .nav a:hover { color: #cdd6f4; }
+    .nav .user { color: #a6adc8; font-size: 13px; }
+    .container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+    h2 { font-size: 18px; margin: 32px 0 16px 0; font-weight: 600; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    .card {
+      background: #313244;
+      padding: 18px 20px;
+      border-radius: 8px;
+      border: 1px solid #45475a;
+    }
+    .card h3 { margin: 0 0 12px 0; font-size: 14px; color: #a6adc8; font-weight: 500; }
+    .stat { font-size: 22px; font-weight: 700; color: #89b4fa; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #45475a; }
+    th { color: #a6adc8; font-weight: 500; }
+    td.mono { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 500;
+    }
+    .badge.green { background: rgba(166,227,161,0.15); color: #a6e3a1; }
+    .badge.gray { background: rgba(166,173,200,0.15); color: #a6adc8; }
+    .empty { color: #6c7086; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <span class="brand">Kinovecher</span>
+    <a href="/">Дашборд</a>
+    <a href="/tokens">Токены</a>
+    <a href="/channels">Каналы</a>
+    <a href="/features">Фичи</a>
+    <span class="user">·  {{ user }}</span>
+    <a href="/logout">Выйти</a>
+  </div>
+
+  <div class="container">
+    <h2>Статус</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Discord бот</h3>
+        {% set dt = settings | selectattr(0, 'equalto', 'discord_token') | first %}
+        <div class="stat">{{ "🟢 запущен" if dt and dt[3] else "🔴 токен не задан" }}</div>
+      </div>
+      <div class="card">
+        <h3>Pointauc</h3>
+        {% set pt = settings | selectattr(0, 'equalto', 'pointauc_token') | first %}
+        <div class="stat">{{ "🟢 подключён" if pt and pt[3] else "🔴 токен не задан" }}</div>
+      </div>
+      <div class="card">
+        <h3>Telegram</h3>
+        {% set tg = settings | selectattr(0, 'equalto', 'telegram_token') | first %}
+        <div class="stat">{{ "🟢 настроен" if tg and tg[3] else "🔴 токен не задан" }}</div>
+      </div>
+    </div>
+
+    <h2>Сохранённые настройки</h2>
+    <div class="card">
+      <table>
+        <tr><th>Ключ</th><th>Значение</th><th>Секрет</th></tr>
+        {% for key, value, is_secret, present in settings %}
+          <tr>
+            <td class="mono">{{ key }}</td>
+            <td>{{ value }}</td>
+            <td>
+              {% if is_secret %}<span class="badge gray">secret</span>{% endif %}
+              {% if present %}<span class="badge green">✓</span>{% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">Пока ничего не сохранено.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <h2>Последние просмотренные (топ-10)</h2>
+    <div class="card">
+      <table>
+        <tr><th>Название</th><th>Дата</th><th>Оценка</th></tr>
+        {% for title, watched_at, rating in recent_watched %}
+          <tr>
+            <td>{{ title }}</td>
+            <td class="mono">{{ watched_at[:10] }}</td>
+            <td>{{ "⭐" * rating if rating else "—" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">Бэклог пуст.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <h2>Топ авторов цитат</h2>
+    <div class="card">
+      <table>
+        <tr><th>Автор</th><th>Цитат</th></tr>
+        {% for author, cnt in top_quotes %}
+          <tr><td>{{ author }}</td><td>{{ cnt }}</td></tr>
+        {% else %}
+          <tr><td colspan="2" class="empty">Цитат пока нет.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,370 @@
+"""Discord-бот со slash-командами: /wheel, /watched, /funword, /movienight."""
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from . import crypto, db
+from .config import settings
+from .pointauc import PointaucClient, PointaucError
+from .telegram import send_message
+
+log = logging.getLogger("bot")
+
+intents = discord.Intents.default()
+intents.message_content = False
+intents.guilds = True
+# members не нужен — закрытый сервер, модерации нет
+
+
+# === Токены: приоритет из БД (зашифрованы), fallback на env ===
+
+async def get_token(key: str, env_value: str | None) -> str | None:
+    raw = await db.get_setting(key)
+    if raw:
+        return crypto.decrypt(raw)
+    return env_value
+
+
+# === Бот ===
+
+class KinovecherBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",  # не используется, только slash
+            intents=intents,
+            help_command=None,
+        )
+
+    async def setup_hook(self) -> None:
+        await self.add_cog(WheelCog(self))
+        await self.add_cog(WatchedCog(self))
+        await self.add_cog(QuotesCog(self))
+        await self.add_cog(MovieNightCog(self))
+
+    async def on_ready(self) -> None:
+        log.info("Bot logged in as %s (id=%s)", self.user, self.user.id)
+        # Пер-guild sync для мгновенного появления команд (закрытый сервер = 1 гильдия)
+        for guild in self.guilds:
+            try:
+                synced = await self.tree.sync(guild=discord.Object(id=guild.id))
+                log.info("Synced %d commands to guild %s", len(synced), guild.id)
+            except Exception as e:
+                log.warning("Failed to sync to guild %s: %s", guild.id, e)
+
+
+# === Помощники ===
+
+async def get_pointauc_client() -> PointaucClient | None:
+    token = await get_token("pointauc_token", settings.pointauc_token)
+    if not token:
+        return None
+    return PointaucClient(token)
+
+
+async def get_tg_config() -> tuple[str | None, str | None]:
+    tg_token = await get_token("telegram_token", settings.telegram_token)
+    tg_chat = await db.get_setting("telegram_chat_id") or settings.telegram_chat_id
+    return tg_token, tg_chat
+
+
+async def tg_crosspost(text: str) -> None:
+    """Отправить сообщение в TG-бэклог. Молча пропускает если не настроено."""
+    tg_token, tg_chat = await get_tg_config()
+    if not tg_token or not tg_chat:
+        log.debug("TG not configured, skipping crosspost")
+        return
+    await send_message(tg_token, tg_chat, text)
+
+
+# === COG: Wheel ===
+
+class WheelCog(commands.Cog):
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    wheel = app_commands.Group(name="wheel", description="Колесо фильмов (Pointauc)")
+
+    @wheel.command(name="add", description="Добавить фильм в колесо Pointauc")
+    @app_commands.describe(title="Название фильма")
+    async def wheel_add(self, interaction: discord.Interaction, title: str):
+        title = title.strip()
+        if not title:
+            await interaction.response.send_message("Название не может быть пустым.", ephemeral=True)
+            return
+
+        # Не добавлять просмотренные
+        if await db.is_watched(title):
+            await interaction.response.send_message(
+                f"«{title}» уже просмотрен — его нельзя вернуть в колесо.",
+                ephemeral=True,
+            )
+            return
+
+        client = await get_pointauc_client()
+        if client is None:
+            await interaction.response.send_message(
+                "❌ Pointauc token не настроен. Укажите его в веб-панели.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            bid_ids = await client.add_bid(title, cost=0)
+        except PointaucError as e:
+            await interaction.followup.send(f"⚠️ Pointauc error: {e}", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"✅ «{title}» добавлен в колесо.\nBid ID: `{bid_ids[0] if bid_ids else '—'}`\n"
+            "Крутка — на pointauc.com. Победителя зафиксируй через `/watched`.",
+            ephemeral=True,
+        )
+
+    @wheel.command(name="list", description="Показать текущие пункты колеса (Pointauc)")
+    async def wheel_list(self, interaction: discord.Interaction):
+        client = await get_pointauc_client()
+        if client is None:
+            await interaction.response.send_message(
+                "❌ Pointauc token не настроен в веб-панели.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            lots = await client.list_lots()
+        except PointaucError as e:
+            await interaction.followup.send(f"⚠️ Pointauc error: {e}", ephemeral=True)
+            return
+
+        if not lots:
+            await interaction.followup.send("Колесо пустое.", ephemeral=True)
+            return
+
+        lines = [f"**Колесо Pointauc** ({len(lots)} шт.):"]
+        for i, lot in enumerate(lots, 1):
+            name = lot.get("name") or lot.get("Name") or "—"
+            amount = lot.get("amount") or lot.get("Amount") or 0
+            lines.append(f"{i}. **{name}** — сумма: {amount}")
+
+        text = "\n".join(lines)
+        if len(text) > 1900:
+            text = text[:1900] + "\n... (обрезано)"
+        await interaction.followup.send(text, ephemeral=True)
+
+
+# === COG: Watched ===
+
+class WatchedCog(commands.Cog):
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    @app_commands.command(name="watched", description="Пометить фильм просмотренным + пост в TG-бэклог")
+    @app_commands.describe(
+        title="Название фильма (точно как в колесе)",
+        rating="Оценка 1-10 (опционально)",
+    )
+    async def watched(self, interaction: discord.Interaction, title: str, rating: int | None = None):
+        title = title.strip()
+        if rating is not None and not (1 <= rating <= 10):
+            await interaction.response.send_message("Оценка должна быть 1-10.", ephemeral=True)
+            return
+
+        added = await db.add_watched(title, rating, interaction.user.id)
+        if not added:
+            await interaction.response.send_message(
+                f"«{title}» уже помечен просмотренным ранее.",
+                ephemeral=True,
+            )
+            return
+
+        # Пост в TG
+        stars = "⭐" * rating if rating else "—"
+        tg_text = (
+            f"🎬 <b>{title}</b>\n"
+            f"Дата: {datetime.utcnow().strftime('%Y-%m-%d')}\n"
+            f"Оценка: {stars}"
+        )
+        await tg_crosspost(tg_text)
+
+        await interaction.response.send_message(
+            f"✅ «{title}» добавлен в бэклог просмотренного. "
+            f"{'Оценка: ' + stars if rating else 'Без оценки.'}",
+            ephemeral=False,  # команда публичная — сервер видит
+        )
+
+
+# === COG: Quotes ===
+
+class QuotesCog(commands.Cog):
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    @app_commands.command(name="funword", description="Записать цитату в #цитатник")
+    @app_commands.describe(author="Автор цитаты (@упоминание или имя)", text="Текст цитаты")
+    async def funword(self, interaction: discord.Interaction, author: str, text: str):
+        text = text.strip()
+        author = author.strip()
+        if not text or not author:
+            await interaction.response.send_message("Автор и текст обязательны.", ephemeral=True)
+            return
+
+        # Канал цитатника из настроек
+        quotes_channel_id_str = await db.get_setting("channel_quotes_id")
+        if not quotes_channel_id_str or not quotes_channel_id_str.isdigit():
+            await interaction.response.send_message(
+                "❌ Канал #цитатник не привязан в веб-панели.",
+                ephemeral=True,
+            )
+            return
+
+        channel = self.bot.get_channel(int(quotes_channel_id_str))
+        if channel is None:
+            await interaction.response.send_message(
+                "❌ Канал #цитатник недоступен боту.",
+                ephemeral=True,
+            )
+            return
+
+        # Автор как mention или текст
+        author_user_id = None
+        if author.startswith("<@") and author.endswith(">"):
+            try:
+                author_user_id = int(author.strip("<@!>"))
+            except ValueError:
+                pass
+
+        quote_id = await db.add_quote(author, author_user_id, text, interaction.user.id)
+
+        # Embed
+        embed = discord.Embed(
+            description=f"_{text}_",
+            color=0xF1C40F,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_author(name=author)
+        embed.set_footer(text=f"Записал: {interaction.user.display_name} · #{quote_id}")
+
+        await channel.send(embed=embed)
+        await interaction.response.send_message(
+            f"✅ Цитата #{quote_id} улетела в {channel.mention}.",
+            ephemeral=True,
+        )
+
+        # Опциональный кросс-пост в TG
+        tg_quotes_enabled = await db.get_setting("tg_crosspost_quotes")
+        if tg_quotes_enabled == "1":
+            tg_text = f"💬 <b>{author}</b>\n\n<i>{text}</i>"
+            await tg_crosspost(tg_text)
+
+
+# === COG: MovieNight ===
+
+class MovieNightCog(commands.Cog):
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    @app_commands.command(name="movienight", description="Анонс киновечера + Scheduled Event + пинг роли")
+    @app_commands.describe(
+        date="Дата в формате ГГГГ-ММ-ДД (например 2025-12-31)",
+        time="Время в формате ЧЧ:ММ (например 20:00), часовой пояс UTC",
+        description="Короткое описание (опционально)",
+    )
+    async def movienight(
+        self,
+        interaction: discord.Interaction,
+        date: str,
+        time: str,
+        description: str | None = None,
+    ):
+        # Парсим дату/время
+        try:
+            dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Формат даты/времени неверный. Пример: 2025-12-31 20:00",
+                ephemeral=True,
+            )
+            return
+
+        if dt < datetime.utcnow():
+            await interaction.response.send_message(
+                "❌ Дата в прошлом. Укажи будущую дату.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=False, thinking=False)
+
+        # Канал анонсов + роль для пинга
+        announce_channel_id_str = await db.get_setting("channel_announce_id")
+        role_id_str = await db.get_setting("role_movie_ping_id")
+
+        # Создаём Scheduled Event
+        guild = interaction.guild
+        event = None
+        if guild:
+            try:
+                event = await guild.create_scheduled_event(
+                    name=description or "Киновечер",
+                    description=description or "Собираемся смотреть фильм с колеса Pointauc.",
+                    start_time=dt,
+                    entity_type=discord.EntityType.external,
+                    location="Discord voice channel",
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                )
+            except Exception as e:
+                log.warning("Failed to create scheduled event: %s", e)
+
+        # Записываем в БД
+        await db.add_movie_night(
+            title=description,
+            scheduled_at=dt,
+            created_by=interaction.user.id,
+            event_id=event.id if event else None,
+        )
+
+        # Постим анонс
+        announce_channel = None
+        if announce_channel_id_str and announce_channel_id_str.isdigit():
+            announce_channel = self.bot.get_channel(int(announce_channel_id_str))
+
+        role_mention = f"<@&{role_id_str}>" if role_id_str and role_id_str.isdigit() else "@Киновечер"
+        event_link = f"https://discord.com/events/{guild.id}/{event.id}" if event and guild else ""
+
+        embed = discord.Embed(
+            title=f"🎬 Киновечер — {dt.strftime('%d.%m.%Y %H:%M UTC')}",
+            description=description or "Смотрим фильм с колеса Pointauc.",
+            color=0xE74C3C,
+            timestamp=datetime.utcnow(),
+        )
+        embed.add_field(name="Когда", value=f"<t:{int(dt.timestamp())}:F>", inline=False)
+        if event_link:
+            embed.add_field(name="Событие", value=f"[Открыть]({event_link})", inline=False)
+        embed.set_footer(text=f"Анонсировал: {interaction.user.display_name}")
+
+        if announce_channel:
+            await announce_channel.send(content=role_mention, embed=embed, allowed_mentions=discord.AllowedMentions(roles=True))
+            await interaction.followup.send(
+                f"✅ Анонс киновечера опубликован в {announce_channel.mention}.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(embed=embed, content=role_mention)
+
+        # Опциональный кросс-пост в TG
+        tg_announce_enabled = await db.get_setting("tg_crosspost_announce")
+        if tg_announce_enabled == "1":
+            tg_text = (
+                f"🎬 <b>Киновечер</b>\n"
+                f"Когда: {dt.strftime('%d.%m.%Y %H:%M UTC')}\n"
+                f"{description or ''}"
+            )
+            await tg_crosspost(tg_text)

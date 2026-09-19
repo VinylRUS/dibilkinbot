@@ -1,0 +1,19 @@
+# Discord / Bot
+discord.py>=2.4.0,<3.0
+python-dotenv>=1.0.0
+
+# Web panel
+fastapi>=0.110.0,<1.0
+uvicorn[standard]>=0.27.0,<1.0
+jinja2>=3.1.0
+python-multipart>=0.0.9
+itsdangerous>=2.1.2
+
+# HTTP / Pointauc / Telegram
+httpx>=0.27.0,<1.0
+
+# DB
+aiosqlite>=0.19.0,<1.0
+
+# Crypto (token encryption)
+cryptography>=42.0.0,<46.0

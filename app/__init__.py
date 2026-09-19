@@ -1,0 +1,1 @@
+"""Kinovecher bot package."""
