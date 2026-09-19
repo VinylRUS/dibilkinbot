@@ -1,9 +1,14 @@
 # Dockerfile для BotHost Pro.
+# Согласно документации BotHost (https://bothost.ru/docs/custom-dockerfile.md,
+# https://bothost.ru/docs/database-storage.md), Python совместим с bind-mount на /app
+# без изменений — исходники запускаются напрямую.
 #
-# Стратегия: копируем ВЕСЬ build context (корень репо), но .dockerignore
-# исключает data/, __pycache__/, .venv/, .env и т.п.
-# Так нам не нужно беспокоиться о том, что пустая папка static/ не сохранилась
-# через Git — она создаётся через mkdir -p внутри образа.
+# Структура при работе на BotHost:
+#   /app/           ← BotHost bind-mount'ит сюда Git source при старте контейнера
+#   /app/data/      ← персистентный volume, BotHost НЕ затирает при git-push
+#   /app/data/bot.db ← SQLite, переживает редеплой
+#
+# Локальная разработка: образ просто использует код из build context.
 
 FROM python:3.11-slim
 
@@ -11,24 +16,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# IMPORTANT (BotHost gotcha): /app монтируется BotHost'ом из Git.
-# Кладём код в /srv/app — там bind-mount его не затрёт.
-WORKDIR /srv/app
+# Устанавливаем зависимости (это не зависит от bind-mount — venv в /opt)
+COPY requirements.txt /tmp/requirements.txt
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
-COPY requirements.txt /srv/app/requirements.txt
-RUN python -m venv /srv/venv \
-    && /srv/venv/bin/pip install --no-cache-dir -r /srv/app/requirements.txt
+# Создаём персистентную папку BotHost (если ещё не создана) с правами на запись
+RUN mkdir -p /app/data && chmod 777 /app/data
 
-# Копируем весь build context. .dockerignore исключает data/, venv и т.п.
-COPY . /srv/app/
-
-# Гарантируем существование служебных папок (на случай если Git не сохранил пустые)
-RUN mkdir -p /srv/app/static /srv/app/templates /app/data \
-    && chmod -R 777 /app/data
+# Копируем код. На BotHost это перетрётся bind-mount'ом Git source — это нормально.
+# Локально (без bind-mount) код будет жить в /app/.
+WORKDIR /app
+COPY . /app/
 
 ENV DATABASE_PATH=/app/data/bot.db
 ENV PYTHONUNBUFFERED=1
-ENV PATH="/srv/venv/bin:$PATH"
+ENV PATH="/opt/venv/bin:$PATH"
 
 EXPOSE 8000
 

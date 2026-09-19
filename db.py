@@ -44,15 +44,26 @@ CREATE TABLE IF NOT EXISTS settings (
 
 async def init_db() -> None:
     """Создать таблицы если их нет. Вызывается при старте приложения."""
-    # Гарантируем существование директории (даже если config.py не создал)
+    import logging
+    log = logging.getLogger("db")
+
+    # Гарантируем существование директории (config.py уже делал, но на всякий случай)
     try:
         settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    except (OSError, PermissionError):
-        pass  # уже обработано в config.py — fallback на /tmp
+        log.info("DB dir created/exists: %s", settings.database_path.parent)
+    except (OSError, PermissionError) as e:
+        log.error("CANNOT CREATE DB DIR %s: %s", settings.database_path.parent, e)
+        raise
 
-    async with aiosqlite.connect(settings.database_path) as db:
-        await db.executescript(SCHEMA)
-        await db.commit()
+    try:
+        async with aiosqlite.connect(settings.database_path) as db:
+            await db.executescript(SCHEMA)
+            await db.commit()
+        log.info("DB initialized at %s (size=%d bytes)",
+                 settings.database_path, settings.database_path.stat().st_size)
+    except Exception as e:
+        log.error("DB INIT FAILED at %s: %s", settings.database_path, e)
+        raise
 
 
 def _connect():
