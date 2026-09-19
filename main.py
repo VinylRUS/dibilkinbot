@@ -54,7 +54,12 @@ async def run_bot() -> KinovecherBot | None:
 async def main() -> None:
     # 1. Инициализируем БД (синхронно относительно старта бота — чтобы токены читались корректно)
     await db.init_db()
-    log.info("DB initialized at %s", settings.database_path)
+    log.info("=" * 60)
+    log.info("DATABASE PATH: %s", settings.database_path)
+    log.info("DATABASE exists: %s", settings.database_path.exists())
+    if settings.database_path.exists():
+        log.info("DATABASE size: %d bytes", settings.database_path.stat().st_size)
+    log.info("=" * 60)
 
     # 2. Запускаем бота в фоне (если есть токен)
     await run_bot()

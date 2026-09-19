@@ -23,7 +23,8 @@ RUN python -m venv /srv/venv \
 COPY . /srv/app/
 
 # Гарантируем существование служебных папок (на случай если Git не сохранил пустые)
-RUN mkdir -p /srv/app/static /srv/app/templates /app/data
+RUN mkdir -p /srv/app/static /srv/app/templates /app/data \
+    && chmod -R 777 /app/data
 
 ENV DATABASE_PATH=/app/data/bot.db
 ENV PYTHONUNBUFFERED=1

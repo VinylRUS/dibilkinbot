@@ -46,9 +46,26 @@ class Settings:
                 'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
             )
 
-        db_path_env = os.environ.get("DATABASE_PATH", "data/bot.db")
-        db_path = Path(db_path_env)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Дефолт — абсолютный путь к персистентной папке BotHost.
+        # Если env не задана, используем /app/data/bot.db (а не относительный data/bot.db,
+        # который оказался бы внутри образа и терялся бы при пересборке).
+        db_path_str = os.environ.get("DATABASE_PATH") or "/app/data/bot.db"
+        db_path = Path(db_path_str)
+
+        # Пытаемся создать родительскую директорию. Если не вышло (нет прав на /app/data) —
+        # fallback на /tmp, чтобы бот хотя бы запустился (БД будет неперсистентной, но это лучше чем краш).
+        try:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            # Тест записи — создаём пустой файл если его нет
+            db_path.touch(exist_ok=True)
+        except (OSError, PermissionError) as e:
+            import sys
+            print(f"[config] WARNING: cannot write to {db_path} ({e}), falling back to /tmp/bot.db", file=sys.stderr)
+            db_path = Path("/tmp/bot.db")
+            try:
+                db_path.touch(exist_ok=True)
+            except OSError:
+                pass
 
         return cls(
             port=port,
