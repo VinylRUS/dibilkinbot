@@ -27,6 +27,7 @@ class Settings:
     app_secret: str  # Fernet key
     admin_login: str
     admin_password: str
+    admin_discord_id: int | None  # Discord ID главного админа (через env, высший приоритет)
 
     # DB
     database_path: Path
@@ -98,6 +99,7 @@ class Settings:
             app_secret=app_secret,
             admin_login=os.environ.get("ADMIN_LOGIN", "admin"),
             admin_password=os.environ.get("ADMIN_PASSWORD", "changeme"),
+            admin_discord_id=int(os.environ["ADMIN_DISCORD_ID"]) if os.environ.get("ADMIN_DISCORD_ID", "").strip().isdigit() else None,
             database_path=db_path,
             discord_token=os.environ.get("DISCORD_TOKEN") or None,
             telegram_token=os.environ.get("TELEGRAM_TOKEN") or None,

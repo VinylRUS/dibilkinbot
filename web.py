@@ -119,48 +119,61 @@ async def login_submit(
     login: str = Form(...),
     password: str = Form("", alias="password"),
 ):
-    """Логин двумя способами:
-    1. Логин = ADMIN_LOGIN из env, пароль = ADMIN_PASSWORD (env-админ)
-    2. Логин = Discord ID (число), пароль пустой (только для юзеров в БД)
+    """Логин тремя способами:
+    1. Логин = ADMIN_LOGIN из env, пароль = ADMIN_PASSWORD (env-админ по логину/паролю)
+    2. Логин = Discord ID админа (env ADMIN_DISCORD_ID), пароль = ADMIN_PASSWORD (env-админ по Discord ID)
+    3. Логин = Discord ID (число), пароль пустой — авто-создание юзера с правами viewer
+
+    Любой Discord ID принимается. Если это ID админа (env ADMIN_DISCORD_ID) — даём права админа.
+    Иначе — обычный viewer (видит только бэклог и победителей).
     """
     login = login.strip()
     password = password.strip()
 
-    # Способ 1: env-админ
+    # Способ 1: классический env-админ по логину+паролю (например login="admin", password="changeme")
     is_env_admin_login = secrets.compare_digest(login, settings.admin_login)
     is_env_admin_pass = secrets.compare_digest(password, settings.admin_password)
-    if is_env_admin_login and is_env_admin_pass:
-        # Создаём/обновляем запись юзера в БД с is_admin=1 (если login — число = Discord ID)
-        if login.isdigit():
-            discord_id = int(login)
-            await db.upsert_user(discord_id, username="admin", display_name="Admin")
-            await db.set_admin(discord_id, True)
-            user_payload = {"discord_id": discord_id, "username": "admin", "is_admin": True}
-        else:
-            # Логин не числовой — сессионный админ без записи в БД
-            user_payload = {"discord_id": 0, "username": login, "is_admin": True}
+    if is_env_admin_login and is_env_admin_pass and not login.isdigit():
+        # Логин не числовой — сессионный админ без записи в БД (для первого входа)
+        user_payload = {"discord_id": 0, "username": login, "is_admin": True}
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
         resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
         return resp
 
-    # Способ 2: Discord ID (только если цифры и юзер в БД)
+    # Способ 2 и 3: вход по Discord ID (число)
     if login.isdigit():
         discord_id = int(login)
-        user_row = await db.get_user(discord_id)
-        if user_row:
-            # Обновляем last_login
-            await db.upsert_user(discord_id, username=user_row[1], display_name=user_row[2])
-            is_adm = await db.is_admin(discord_id)
-            user_payload = {
-                "discord_id": discord_id,
-                "username": user_row[1] or str(discord_id),
-                "is_admin": is_adm,
-            }
-            token = create_session(user_payload)
-            resp = RedirectResponse(url="/", status_code=303)
-            resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
-            return resp
+        is_admin = await db.is_admin(discord_id)
+
+        # Если это Discord ID админа (env ADMIN_DISCORD_ID) — требуем пароль ADMIN_PASSWORD
+        if settings.admin_discord_id is not None and discord_id == settings.admin_discord_id:
+            if not is_env_admin_pass:
+                return RedirectResponse(url="/login?error=admin_password", status_code=303)
+            is_admin = True
+
+        # Авто-создание юзера в БД если его ещё нет
+        existing = await db.get_user(discord_id)
+        if existing:
+            username = existing[1] or str(discord_id)
+            display_name = existing[2] or f"User {discord_id}"
+        else:
+            username = str(discord_id)
+            display_name = f"User {discord_id}"
+
+        await db.upsert_user(discord_id, username=username, display_name=display_name)
+        if is_admin:
+            await db.set_admin(discord_id, True)
+
+        user_payload = {
+            "discord_id": discord_id,
+            "username": display_name,
+            "is_admin": is_admin,
+        }
+        token = create_session(user_payload)
+        resp = RedirectResponse(url="/", status_code=303)
+        resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
+        return resp
 
     return RedirectResponse(url="/login?error=invalid", status_code=303)
 

@@ -300,10 +300,19 @@ async def get_user(discord_id: int) -> tuple | None:
 
 
 async def is_admin(discord_id: int) -> bool:
-    """Админ — либо совпадает с env-ADMIN_LOGIN (если это число), либо is_admin=1 в БД."""
+    """Админ — если:
+    1. discord_id совпадает с env ADMIN_DISCORD_ID (высший приоритет), ИЛИ
+    2. discord_id совпадает с env ADMIN_LOGIN (если ADMIN_LOGIN — это число), ИЛИ
+    3. is_admin=1 в БД для этого юзера.
+    """
+    # 1. env ADMIN_DISCORD_ID (новая, приоритетная)
+    if settings.admin_discord_id is not None and settings.admin_discord_id == discord_id:
+        return True
+    # 2. env ADMIN_LOGIN если это число (legacy-поддержка)
     env_admin = settings.admin_login
     if env_admin.isdigit() and int(env_admin) == discord_id:
         return True
+    # 3. is_admin флаг в БД
     user = await get_user(discord_id)
     return bool(user and user[3] == 1)
 

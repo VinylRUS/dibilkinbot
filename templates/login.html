@@ -13,7 +13,7 @@
       padding: 32px;
       border-radius: 12px;
       width: 100%;
-      max-width: 400px;
+      max-width: 440px;
       box-shadow: var(--shadow);
     }
     h1 {
@@ -35,24 +35,53 @@
       font-size: 0.88rem;
       margin-bottom: 16px;
     }
-    .hint { color: var(--text-muted); font-size: 0.8rem; margin-top: 14px; text-align: center; }
+    .hint {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      margin-top: 14px;
+      line-height: 1.6;
+    }
+    .hint strong { color: var(--text); }
+    .hint code {
+      background: var(--card-alt);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.78rem;
+    }
+    .divider {
+      border-top: 1px dashed var(--border);
+      margin: 18px 0;
+      padding-top: 14px;
+    }
   </style>
 </head>
 <body>
   <form class="login-card" method="post" action="/login">
     <h1>DeeBeelkin</h1>
-    {% if error %}
+    {% if error == 'invalid' %}
       <div class="error">Неверный логин или пароль.</div>
+    {% elif error == 'admin_password' %}
+      <div class="error">Этот Discord ID принадлежит администратору. Введите пароль администратора.</div>
     {% endif %}
-    <label for="login">Логин или Discord ID</label>
-    <input id="login" name="login" type="text" autocomplete="username" required autofocus placeholder="admin или ваш Discord ID">
-    <label for="password">Пароль (только для админа)</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" placeholder="оставьте пустым если входите по Discord ID">
-    <button type="submit">Войти</button>
+
+    <label for="login">Discord ID</label>
+    <input id="login" name="login" type="text" autocomplete="username" required autofocus placeholder="123456789012345678">
     <p class="hint">
-      Вход для админа: логин+пароль из env-переменных.<br>
-      Вход для участников: ваш Discord ID (без пароля), если вас уже добавил админ.
+      Включите режим разработчика в Discord: Настройки → Расширенные → Режим разработчика.
+      ПКМ по своему имени → «Копировать ID пользователя».
     </p>
+
+    <div class="divider">
+      <label for="password">Пароль (только для админа)</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" placeholder="оставьте пустым если вы обычный участник">
+      <p class="hint">
+        <strong>Обычные участники:</strong> оставьте пароль пустым — войдёте с правами viewer.<br>
+        <strong>Админ:</strong> введите пароль из переменной окружения <code>ADMIN_PASSWORD</code>.
+      </p>
+    </div>
+
+    <button type="submit">Войти</button>
   </form>
 </body>
 </html>
