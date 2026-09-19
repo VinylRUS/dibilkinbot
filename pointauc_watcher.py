@@ -22,8 +22,8 @@ from pointauc import PointaucClient, PointaucError
 
 log = logging.getLogger("pointauc_watcher")
 
-POLL_INTERVAL = 5.0  # секунд
-LOT_NAME_NORMALIZE = lambda s: (s or "").strip().lower()
+POLL_INTERVAL = 5.0  # секунд между успешными запросами
+ERROR_BACKOFF = 30.0  # секунд ждать если была ошибка (ReadTimeout, ConnectError и т.п.)
 
 
 class LotsWatcher:
@@ -38,6 +38,7 @@ class LotsWatcher:
         self._task: asyncio.Task | None = None
         self._running = False
         self._last_error: str | None = None
+        self._consecutive_errors = 0
 
     async def _fetch_lots(self, client: PointaucClient) -> list[dict] | None:
         """Возвращает список лотов или None если не вышло (стример офлайн, нетокен, и т.д.)."""
@@ -51,10 +52,11 @@ class LotsWatcher:
                 self._last_error = msg
             return None
 
-    async def _tick(self, client: PointaucClient) -> None:
+    async def _tick(self, client: PointaucClient) -> bool:
+        """Один шаг опроса. Возвращает True если успешно, False если была ошибка."""
         lots = await self._fetch_lots(client)
         if lots is None:
-            return
+            return False
 
         # Сбрасываем флаг последней ошибки если успешно
         self._last_error = None
@@ -71,7 +73,7 @@ class LotsWatcher:
         if not current and self._known_lots:
             log.info("All lots cleared (was %d) — treating as bulk clear, not winner", len(self._known_lots))
             self._known_lots = {}
-            return
+            return True
 
         # Найти исчезнувшие лоты
         removed_ids = set(self._known_lots.keys()) - set(current.keys())
@@ -85,9 +87,11 @@ class LotsWatcher:
 
         # Обновить кеш (включая renames — если lot_id остался, но name поменялся)
         self._known_lots = current
+        return True
 
     async def _run_loop(self, get_client: Callable[[], Awaitable[PointaucClient | None]]) -> None:
-        log.info("LotsWatcher started, polling every %.1fs", POLL_INTERVAL)
+        log.info("LotsWatcher started, polling every %.1fs (backoff %.1fs on errors)",
+                 POLL_INTERVAL, ERROR_BACKOFF)
         while self._running:
             client = await get_client()
             if client is None:
@@ -95,10 +99,20 @@ class LotsWatcher:
                 await asyncio.sleep(30)
                 continue
             try:
-                await self._tick(client)
+                success = await self._tick(client)
+                if success:
+                    self._consecutive_errors = 0
+                    await asyncio.sleep(POLL_INTERVAL)
+                else:
+                    # Ошибка — backoff растёт с количеством последовательных ошибок
+                    self._consecutive_errors += 1
+                    backoff = min(ERROR_BACKOFF * self._consecutive_errors, 120)  # кап 2 минуты
+                    log.info("Backing off %.0fs before next poll (consecutive_errors=%d)",
+                             backoff, self._consecutive_errors)
+                    await asyncio.sleep(backoff)
             except Exception as e:
                 log.error("LotsWatcher tick unexpected error: %s", e, exc_info=True)
-            await asyncio.sleep(POLL_INTERVAL)
+                await asyncio.sleep(ERROR_BACKOFF)
         log.info("LotsWatcher stopped")
 
     def start(self, get_client: Callable[[], Awaitable[PointaucClient | None]]) -> None:

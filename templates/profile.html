@@ -1,62 +1,27 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Профиль · Kinovecher</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
-  <style>
-    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
-    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
-    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
-    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; }
-    nav.top a:hover { color: #cdd6f4; }
-    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
-    nav.top .right a { margin-left: 12px; }
-    .container { max-width: 720px; margin: 0 auto; padding: 28px 24px; }
-    h2 { font-size: 1.3rem; margin: 0 0 14px; }
-    article.card { background: #313244; border: 1px solid #45475a; padding: 22px; border-radius: 8px; margin: 0; }
-    .field { padding: 10px 0; border-bottom: 1px solid #45475a; display: flex; justify-content: space-between; }
-    .field:last-of-type { border-bottom: none; }
-    .field .label { color: #a6adc8; font-size: 0.85rem; }
-    .field .value { color: #cdd6f4; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.74rem; font-weight: 500; }
-    .badge.admin { background: rgba(243,139,168,0.15); color: #f5a3b8; }
-    .badge.user { background: rgba(166,173,200,0.15); color: #a6adc8; }
-    .badge.linked { background: rgba(166,227,161,0.15); color: #a6e3a1; }
-    .badge.unlinked { background: rgba(249,226,164,0.15); color: #f9e2af; }
-    .hint { font-size: 0.8rem; color: #6c7086; margin-top: 14px; }
-  </style>
+  <title>Профиль · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <nav class="top">
-    <span class="brand">🎡 Kinovecher</span>
-    <a href="/">Дашборд</a>
-    <a href="/winners">Победители</a>
-    <a href="/watched">Бэклог</a>
-    {% if user.is_admin %}
-      <a href="/tokens">Токены</a>
-      <a href="/channels">Каналы</a>
-      <a href="/features">Фичи</a>
-      <a href="/users">Юзеры</a>
-    {% endif %}
-    <a href="/profile">Профиль</a>
-    <span class="right">👤 {{ user.username }} · <a href="/logout">Выйти</a></span>
-  </nav>
+  {% include "_nav.html" %}
 
   <main class="container">
     <h2>👤 Профиль</h2>
     <article class="card">
-      <div class="field">
-        <span class="label">Discord ID</span>
-        <span class="value">{{ user.discord_id }}</span>
+      <div class="activity-row">
+        <span class="hint">Discord ID</span>
+        <span class="mono">{{ user.discord_id }}</span>
       </div>
-      <div class="field">
-        <span class="label">Имя</span>
-        <span class="value">{{ user.username }}</span>
+      <div class="activity-row">
+        <span class="hint">Имя</span>
+        <span class="mono">{{ user.username }}</span>
       </div>
-      <div class="field">
-        <span class="label">Роль</span>
+      <div class="activity-row">
+        <span class="hint">Роль</span>
         <span>
           {% if user.is_admin %}
             <span class="badge admin">admin</span>
@@ -65,17 +30,17 @@
           {% endif %}
         </span>
       </div>
-      <div class="field">
-        <span class="label">Telegram</span>
+      <div class="activity-row">
+        <span class="hint">Telegram</span>
         <span>
           {% if tg_link and tg_link[5] %}
-            <span class="badge linked">✓ @{{ tg_link[2] or 'без username' }} (id: {{ tg_link[1] }})</span>
+            <span class="badge confirmed">✓ @{{ tg_link[2] or 'без username' }} (id: {{ tg_link[1] }})</span>
           {% else %}
-            <span class="badge unlinked">не привязан</span>
+            <span class="badge unconfirmed">не привязан</span>
           {% endif %}
         </span>
       </div>
-      <p class="hint">
+      <p class="hint" style="margin-top: 14px;">
         Чтобы привязать Telegram: в Discord используй команду <code>/linktg</code>, получишь код — отправь его боту в Telegram.
       </p>
     </article>

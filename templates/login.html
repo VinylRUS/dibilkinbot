@@ -1,45 +1,58 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Вход · Kinovecher</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
+  <title>Вход · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
   <style>
-    body { background: #1e1e2e; color: #cdd6f4; }
-    .container { max-width: 420px; margin: 80px auto; padding: 0 20px; }
-    h1 { text-align: center; font-size: 1.6rem; color: #89b4fa; }
-    article { background: #313244; border: 1px solid #45475a; padding: 28px; border-radius: 12px; }
-    label { color: #a6adc8; font-size: 0.85rem; }
-    input { background: #1e1e2e; border-color: #45475a; color: #cdd6f4; }
-    input:focus { border-color: #89b4fa; }
-    button { background: #89b4fa; color: #1e1e2e; border: none; font-weight: 600; }
-    button:hover { background: #74c7ec; }
-    .error { background: #f38ba8; color: #1e1e2e; padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 14px; }
-    .hint { color: #6c7086; font-size: 0.8rem; margin-top: 14px; text-align: center; }
+    body { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .login-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 32px;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: var(--shadow);
+    }
+    h1 {
+      margin: 0 0 24px 0;
+      font-size: 1.6rem;
+      color: var(--accent);
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    h1::before { content: "🐝"; font-size: 1.4rem; }
+    .error {
+      background: var(--badge-unconfirmed-bg);
+      color: var(--red);
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      margin-bottom: 16px;
+    }
+    .hint { color: var(--text-muted); font-size: 0.8rem; margin-top: 14px; text-align: center; }
   </style>
 </head>
 <body>
-  <main class="container">
-    <h1>Kinovecher</h1>
-    <article>
-      {% if error %}
-        <div class="error">Неверный логин или пароль.</div>
-      {% endif %}
-      <form method="post" action="/login">
-        <label for="login">Логин или Discord ID</label>
-        <input id="login" name="login" type="text" autocomplete="username" required autofocus placeholder="admin или ваш Discord ID">
-
-        <label for="password">Пароль (только для админа)</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" placeholder="оставьте пустым если входите по Discord ID">
-
-        <button type="submit">Войти</button>
-      </form>
-      <p class="hint">
-        Вход для админа: логин+пароль из env-переменных.<br>
-        Вход для участников: ваш Discord ID (без пароля), если вас уже добавил админ.
-      </p>
-    </article>
-  </main>
+  <form class="login-card" method="post" action="/login">
+    <h1>DeeBeelkin</h1>
+    {% if error %}
+      <div class="error">Неверный логин или пароль.</div>
+    {% endif %}
+    <label for="login">Логин или Discord ID</label>
+    <input id="login" name="login" type="text" autocomplete="username" required autofocus placeholder="admin или ваш Discord ID">
+    <label for="password">Пароль (только для админа)</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" placeholder="оставьте пустым если входите по Discord ID">
+    <button type="submit">Войти</button>
+    <p class="hint">
+      Вход для админа: логин+пароль из env-переменных.<br>
+      Вход для участников: ваш Discord ID (без пароля), если вас уже добавил админ.
+    </p>
+  </form>
 </body>
 </html>

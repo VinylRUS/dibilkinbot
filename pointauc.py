@@ -24,7 +24,9 @@ class PointaucError(Exception):
 
 
 class PointaucClient:
-    def __init__(self, token: str, timeout: float = 15.0):
+    def __init__(self, token: str, timeout: float = 30.0):
+        # 30 сек — Pointauc иногда тупит, особенно когда стример не онлайн.
+        # 15 сек слишком мало для нестабильного соединения.
         self._token = token
         self._timeout = timeout
 

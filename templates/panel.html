@@ -1,79 +1,32 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Kinovecher · Панель</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
-  <style>
-    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
-    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
-    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
-    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; padding: 4px 0; }
-    nav.top a:hover { color: #cdd6f4; }
-    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
-    nav.top .right a { margin-left: 12px; }
-    .container { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
-    h2 { font-size: 1.3rem; margin: 28px 0 14px; color: #cdd6f4; }
-    h2:first-child { margin-top: 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-    article.card { background: #313244; border: 1px solid #45475a; padding: 16px 18px; border-radius: 8px; margin: 0; }
-    article.card h3 { margin: 0 0 8px; font-size: 0.8rem; color: #a6adc8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
-    .stat { font-size: 1.5rem; font-weight: 700; color: #89b4fa; }
-    .stat.green { color: #a6e3a1; }
-    .stat.red { color: #f38ba8; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; background: #313244; border-radius: 8px; overflow: hidden; }
-    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #45475a; }
-    th { color: #a6adc8; font-weight: 500; font-size: 0.82rem; }
-    td.mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 500; }
-    .badge.unconfirmed { background: rgba(249,226,164,0.15); color: #f9e2af; }
-    .badge.confirmed { background: rgba(166,227,161,0.15); color: #a6e3a1; }
-    .empty { color: #6c7086; font-style: italic; padding: 14px; text-align: center; }
-    .activity-row { padding: 8px 14px; border-bottom: 1px solid #45475a; font-size: 0.88rem; display: flex; justify-content: space-between; gap: 12px; }
-    .activity-row:last-child { border-bottom: none; }
-    .activity-type { font-weight: 600; }
-    .activity-type.winner { color: #f9e2af; }
-    .activity-type.watched { color: #a6e3a1; }
-  </style>
+  <title>DeeBeelkin · Панель</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <nav class="top">
-    <span class="brand">🎡 Kinovecher</span>
-    <a href="/">Дашборд</a>
-    <a href="/winners">Победители</a>
-    <a href="/watched">Бэклог</a>
-    {% if user.is_admin %}
-      <a href="/tokens">Токены</a>
-      <a href="/channels">Каналы</a>
-      <a href="/features">Фичи</a>
-      <a href="/users">Юзеры</a>
-    {% endif %}
-    <a href="/profile">Профиль</a>
-    <span class="right">
-      👤 {{ user.username }}
-      <a href="/logout">Выйти</a>
-    </span>
-  </nav>
+  {% include "_nav.html" %}
 
   <main class="container">
     <h2>Статус</h2>
     <div class="grid">
       <article class="card">
         <h3>Discord бот</h3>
-        <div class="stat">🟢 запущен</div>
+        <div class="stat green">🟢 запущен</div>
       </article>
       <article class="card">
         <h3>Pointauc</h3>
-        <div class="stat">{{ '🟢 подключён' if saved_pointauc else '🔴 нет токена' }}</div>
+        <div class="stat {{ 'green' if saved_pointauc else 'red' }}">{{ '🟢 подключён' if saved_pointauc else '🔴 нет токена' }}</div>
       </article>
       <article class="card">
         <h3>Кинопоиск</h3>
-        <div class="stat">{{ '🟢 настроен' if saved_kp else '🔴 нет токена' }}</div>
+        <div class="stat {{ 'green' if saved_kp else 'red' }}">{{ '🟢 настроен' if saved_kp else '🔴 нет токена' }}</div>
       </article>
       <article class="card">
         <h3>Telegram</h3>
-        <div class="stat">{{ '🟢 настроен' if saved_tg else '🔴 нет токена' }}</div>
+        <div class="stat {{ 'green' if saved_tg else 'red' }}">{{ '🟢 настроен' if saved_tg else '🔴 нет токена' }}</div>
       </article>
     </div>
 
@@ -106,7 +59,7 @@
           <td><span class="badge {{ confidence }}">{{ confidence }}</span></td>
         </tr>
       {% else %}
-        <tr><td colspan="3" class="empty">Пока нет победителей.</td></tr>
+        <tr><td colspan="3" class="empty">Пока нет победителей. Крутаните колесо на pointauc.com.</td></tr>
       {% endfor %}
     </table>
 

@@ -85,9 +85,30 @@ async def healthz():
     return {"ok": True}
 
 
+@app.post("/theme")
+async def set_theme(theme: str = Form(...)):
+    """Установить тему (light/dark). Записывает куку и редиректит обратно."""
+    if theme not in ("light", "dark"):
+        theme = "light"
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.set_cookie("theme", theme, max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax")
+    return resp
+
+
+def _theme(request: Request) -> str:
+    """Текущая тема из куки (light по умолчанию)."""
+    return request.cookies.get("theme", "light")
+
+
+# Регистрируем глобально для всех шаблонов, чтобы не передавать явно
+templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "light")
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request, error: Optional[str] = None):
-    return templates.TemplateResponse(request, "login.html", {"error": error})
+    return templates.TemplateResponse(request, "login.html", {
+        "error": error,
+    })
 
 
 @app.post("/login")

@@ -1,46 +1,13 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Токены · Kinovecher</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
-  <style>
-    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
-    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
-    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
-    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; }
-    nav.top a:hover { color: #cdd6f4; }
-    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
-    nav.top .right a { margin-left: 12px; }
-    .container { max-width: 720px; margin: 0 auto; padding: 28px 24px; }
-    h2 { font-size: 1.3rem; margin: 0 0 14px; }
-    article.card { background: #313244; border: 1px solid #45475a; padding: 22px; border-radius: 8px; margin: 0; }
-    label { color: #a6adc8; font-size: 0.85rem; display: block; margin: 14px 0 4px; }
-    label .status { float: right; font-size: 0.78rem; }
-    label .ok { color: #a6e3a1; }
-    label .no { color: #f38ba8; }
-    input { background: #1e1e2e; border-color: #45475a; color: #cdd6f4; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-    input:focus { border-color: #89b4fa; }
-    .hint { font-size: 0.78rem; color: #6c7086; margin-top: 4px; }
-    button { background: #89b4fa; color: #1e1e2e; border: none; font-weight: 600; margin-top: 22px; }
-    button:hover { background: #74c7ec; }
-    .saved { background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 10px 14px; border-radius: 6px; font-size: 0.88rem; margin-bottom: 14px; }
-  </style>
+  <title>Токены · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <nav class="top">
-    <span class="brand">🎡 Kinovecher</span>
-    <a href="/">Дашборд</a>
-    <a href="/winners">Победители</a>
-    <a href="/watched">Бэклог</a>
-    <a href="/tokens">Токены</a>
-    <a href="/channels">Каналы</a>
-    <a href="/features">Фичи</a>
-    <a href="/users">Юзеры</a>
-    <a href="/profile">Профиль</a>
-    <span class="right">👤 {{ user.username }} · <a href="/logout">Выйти</a></span>
-  </nav>
+  {% include "_nav.html" %}
 
   <main class="container">
     <h2>🔑 Токены</h2>

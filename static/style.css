@@ -1,0 +1,299 @@
+/* === DeeBeelkin — общий CSS для всех страниц панели ===
+   Поддерживает две темы через [data-theme="..."] на <html>:
+     - light  → Вариант А «Тёплый, но читаемый»
+     - dark   → Вариант В «Тёмная с медовыми акцентами» (карточки потемнее)
+   Кука `theme` хранит выбор пользователя. По умолчанию — light.
+*/
+
+/* ===== Тема: light (по умолчанию) ===== */
+:root,
+[data-theme="light"] {
+  --bg: #F4EAD3;
+  --card: #FAFAFA;
+  --card-alt: #F8F2E2;
+  --text: #2B2B2B;
+  --text-muted: #6B5D4F;
+  --accent: #FFB703;
+  --accent-hover: #FB8500;
+  --accent-text: #2B2B2B;
+  --accent-soft: rgba(255, 183, 3, 0.2);
+  --border: #D4C4B3;
+  --green: #4F7942;
+  --red: #C44536;
+  --shadow: 0 1px 3px rgba(0,0,0,0.04);
+  --nav-bg: linear-gradient(135deg, #FFB703 0%, #FB8500 100%);
+  --nav-text: #2B2B2B;
+  --nav-border: #8B5A1C;
+  --badge-unconfirmed-bg: rgba(255, 183, 3, 0.2);
+  --badge-unconfirmed-text: #8B5A1C;
+  --badge-confirmed-bg: rgba(79, 121, 66, 0.15);
+  --badge-confirmed-text: #4F7942;
+}
+
+/* ===== Тема: dark (карточки потемнее, чем в исходном варианте В) ===== */
+[data-theme="dark"] {
+  --bg: #252525;
+  --card: #2F2A24;
+  --card-alt: #3A332B;
+  --text: #FFFFFF;
+  --text-muted: #B0B0B0;
+  --accent: #FFB703;
+  --accent-hover: #FFC940;
+  --accent-text: #1A1A1A;
+  --accent-soft: rgba(255, 183, 3, 0.15);
+  --border: #4A413A;
+  --green: #6FAE5A;
+  --red: #E55A4E;
+  --shadow: 0 4px 16px rgba(0,0,0,0.5);
+  --nav-bg: #1A1A1A;
+  --nav-text: #B0B0B0;
+  --nav-border: #FFB703;
+  --badge-unconfirmed-bg: rgba(255, 183, 3, 0.2);
+  --badge-unconfirmed-text: #FFB703;
+  --badge-confirmed-bg: rgba(111, 174, 90, 0.2);
+  --badge-confirmed-text: #6FAE5A;
+}
+
+/* ===== Базовые стили ===== */
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ===== Навбар ===== */
+nav.top {
+  background: var(--nav-bg);
+  padding: 12px 24px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  border-bottom: 2px solid var(--nav-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+nav.top .brand {
+  font-weight: 800;
+  color: var(--accent);
+  margin-right: auto;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+[data-theme="light"] nav.top .brand {
+  color: var(--nav-text);
+}
+nav.top .brand::before {
+  content: "🐝";
+  font-size: 1.4rem;
+}
+nav.top a {
+  color: var(--nav-text);
+  text-decoration: none;
+  font-size: 0.88rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: background 0.15s;
+  font-weight: 500;
+}
+nav.top a:hover { background: rgba(255, 255, 255, 0.12); }
+[data-theme="light"] nav.top a:hover { background: rgba(43, 43, 43, 0.1); }
+nav.top .right {
+  color: var(--nav-text);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+nav.top .right a { padding: 4px 10px; }
+
+/* Кнопка переключения темы в навбаре */
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-weight: 500;
+}
+.theme-toggle:hover {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* ===== Контейнер и заголовки ===== */
+.container { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+h2 {
+  font-size: 1.3rem;
+  margin: 28px 0 14px;
+  color: var(--text);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+h2:first-child { margin-top: 0; }
+h2::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+[data-theme="dark"] h2::before {
+  box-shadow: 0 0 8px rgba(255, 183, 3, 0.6);
+}
+
+/* ===== Карточки и сетки ===== */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+article.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 16px 18px;
+  border-radius: 10px;
+  margin: 0;
+  box-shadow: var(--shadow);
+}
+article.card h3 {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ===== Статус-блоки ===== */
+.stat { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+.stat.green { color: var(--green); }
+.stat.red { color: var(--red); }
+
+/* ===== Таблицы ===== */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  background: var(--card);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--text-muted); font-weight: 500; font-size: 0.82rem; background: var(--card-alt); }
+td.mono { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.82rem; }
+
+/* ===== Бейджи ===== */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+.badge.unconfirmed { background: var(--badge-unconfirmed-bg); color: var(--badge-unconfirmed-text); }
+.badge.confirmed { background: var(--badge-confirmed-bg); color: var(--badge-confirmed-text); }
+.badge.admin { background: rgba(243,139,168,0.15); color: #F5A3B8; }
+.badge.user { background: var(--accent-soft); color: var(--text-muted); }
+
+/* ===== Лента активности ===== */
+.activity-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.activity-row:last-child { border-bottom: none; }
+.activity-type { font-weight: 600; }
+.activity-type.winner { color: var(--accent); }
+.activity-type.watched { color: var(--green); }
+.empty { color: var(--text-muted); font-style: italic; padding: 14px; text-align: center; }
+
+/* ===== Формы ===== */
+label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  display: block;
+  margin: 14px 0 4px;
+}
+label .status { float: right; font-size: 0.78rem; }
+label .ok { color: var(--green); }
+label .no { color: var(--red); }
+input[type="text"], input[type="password"] {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+input[type="text"]:focus, input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.hint { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; }
+button {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  padding: 11px 20px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 22px;
+  transition: background 0.15s;
+}
+button:hover { background: var(--accent-hover); }
+.saved {
+  background: var(--badge-confirmed-bg);
+  color: var(--badge-confirmed-text);
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  margin-bottom: 14px;
+}
+
+/* ===== Switch (тоггл) ===== */
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--border);
+  border-radius: 24px;
+  transition: 0.2s;
+}
+.slider:before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: 0.2s;
+}
+input:checked + .slider { background: var(--accent); }
+input:checked + .slider:before {
+  transform: translateX(20px);
+  background: var(--accent-text);
+}

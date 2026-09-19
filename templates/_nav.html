@@ -1,0 +1,24 @@
+{# Общий навбар для всех страниц панели.
+   Принимает переменные: user (dict с is_admin), active (опционально — текущая страница) #}
+<nav class="top">
+  <span class="brand">DeeBeelkin</span>
+  <a href="/" {% if active == 'dashboard' %}style="color: var(--accent);"{% endif %}>Дашборд</a>
+  <a href="/winners" {% if active == 'winners' %}style="color: var(--accent);"{% endif %}>Победители</a>
+  <a href="/watched" {% if active == 'watched' %}style="color: var(--accent);"{% endif %}>Бэклог</a>
+  {% if user.is_admin %}
+    <a href="/tokens" {% if active == 'tokens' %}style="color: var(--accent);"{% endif %}>Токены</a>
+    <a href="/channels" {% if active == 'channels' %}style="color: var(--accent);"{% endif %}>Каналы</a>
+    <a href="/features" {% if active == 'features' %}style="color: var(--accent);"{% endif %}>Фичи</a>
+    <a href="/users" {% if active == 'users' %}style="color: var(--accent);"{% endif %}>Юзеры</a>
+  {% endif %}
+  <a href="/profile" {% if active == 'profile' %}style="color: var(--accent);"{% endif %}>Профиль</a>
+  <form method="post" action="/theme" style="display:inline; margin: 0;">
+    <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="theme-toggle">
+      {{ '☀️' if theme_from_request(request) == 'dark' else '🌙' }}
+    </button>
+  </form>
+  <span class="right">
+    👤 {{ user.username }}
+    <a href="/logout">Выйти</a>
+  </span>
+</nav>
