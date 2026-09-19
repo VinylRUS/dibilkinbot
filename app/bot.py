@@ -42,20 +42,84 @@ class KinovecherBot(commands.Bot):
         )
 
     async def setup_hook(self) -> None:
-        await self.add_cog(WheelCog(self))
-        await self.add_cog(WatchedCog(self))
-        await self.add_cog(QuotesCog(self))
-        await self.add_cog(MovieNightCog(self))
+        """Регистрирует cog'и с явным логированием ошибок каждой."""
+        cogs = [
+            ("WheelCog", WheelCog),
+            ("WatchedCog", WatchedCog),
+            ("QuotesCog", QuotesCog),
+            ("MovieNightCog", MovieNightCog),
+        ]
+        for name, cls in cogs:
+            try:
+                await self.add_cog(cls(self))
+                log.info("✓ Cog loaded: %s", name)
+            except Exception as e:
+                log.error("✗ Failed to load cog %s: %r", name, e, exc_info=True)
+
+        # Логируем состояние дерева сразу после загрузки
+        all_cmds = self.tree.get_commands()
+        log.info("Tree after setup_hook: %d commands", len(all_cmds))
+        for cmd in all_cmds:
+            if isinstance(cmd, app_commands.Group):
+                log.info("  /%s (group, subs: %s)", cmd.name, [s.name for s in cmd.commands])
+            else:
+                log.info("  /%s", cmd.name)
 
     async def on_ready(self) -> None:
         log.info("Bot logged in as %s (id=%s)", self.user, self.user.id)
-        # Пер-guild sync для мгновенного появления команд (закрытый сервер = 1 гильдия)
-        for guild in self.guilds:
+        log.info("Bot sees %d guild(s):", len(self.guilds))
+        for g in self.guilds:
+            log.info("  - '%s' (id=%s)", g.name, g.id)
+
+        # Дублируем логирование дерева — на случай если on_ready сработал раньше, чем закончился setup_hook
+        all_cmds = self.tree.get_commands()
+        log.info("Tree at on_ready: %d commands", len(all_cmds))
+
+        if not all_cmds:
+            log.error(
+                "⚠️ Tree is EMPTY at on_ready! Cogs failed to load. "
+                "See '✗ Failed to load cog' errors above."
+            )
+            return
+
+        if not self.guilds:
+            log.warning("Bot is in 0 guilds. Cache may be cold — restart in 30s.")
             try:
-                synced = await self.tree.sync(guild=discord.Object(id=guild.id))
-                log.info("Synced %d commands to guild %s", len(synced), guild.id)
+                synced = await self.tree.sync()
+                log.info("Global sync: %d commands (may take up to 1 hour to appear)", len(synced))
             except Exception as e:
-                log.warning("Failed to sync to guild %s: %s", guild.id, e)
+                log.error("Global sync failed: %s", e, exc_info=True)
+            return
+
+        for guild in self.guilds:
+            # 1. Сначала копируем глобальные команды в guild-специфичные
+            try:
+                self.tree.copy_global_to(guild=guild)
+                log.info("copy_global_to OK for guild '%s'", guild.name)
+            except Exception as e:
+                log.warning("copy_global_to failed for '%s': %s", guild.name, e)
+
+            # 2. Синхронизируем
+            try:
+                synced = await self.tree.sync(guild=guild)
+                names = []
+                for c in synced:
+                    if isinstance(c, app_commands.Group):
+                        names.append(f"{c.name}/({len(c.commands)} subs)")
+                    else:
+                        names.append(c.name)
+                log.info("✓ Synced %d commands to guild '%s': %s",
+                         len(synced), guild.name, names)
+            except discord.Forbidden as e:
+                log.error(
+                    "✗ Forbidden syncing to guild '%s' (id=%s): %s. "
+                    "RE-INVITE bot with scopes: bot + applications.commands "
+                    "(Discord Developer Portal → OAuth2 → URL Generator).",
+                    guild.name, guild.id, e,
+                )
+            except Exception as e:
+                log.error("✗ Failed to sync to guild '%s' (id=%s): %s",
+                          guild.name, guild.id, e, exc_info=True)
 
 
 # === Помощники ===
