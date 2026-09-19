@@ -2,18 +2,20 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 import crypto
 import db
+import ws_manager
 from config import settings
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -373,3 +375,149 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         "user": _user,
         "tg_link": tg_link,
     })
+
+
+# === Wheel (собственное колесо в панели) ===
+
+@app.get("/wheel", response_class=HTMLResponse)
+async def wheel_page(request: Request, _user: dict = Depends(require_user)):
+    """Страница с Canvas-анимацией колеса. Для стримера — открыть на отдельном мониторе."""
+    items = await db.list_wheel_items(active_only=True)
+    return templates.TemplateResponse(request, "wheel.html", {
+        "user": _user,
+        "items": items,
+    })
+
+
+@app.get("/api/wheel/items")
+async def api_wheel_items(_user: dict = Depends(require_user)):
+    """Получить текущие лоты колеса (JSON)."""
+    items = await db.list_wheel_items(active_only=True)
+    return JSONResponse({"items": items, "count": len(items)})
+
+
+@app.post("/api/wheel/items")
+async def api_add_wheel_item(
+    request: Request,
+    _user: dict = Depends(require_user),
+    name: str = Form(...),
+    tmdb_id: int | None = Form(None),
+):
+    """Добавить лот в колесо. Триггерит broadcast всем WS-клиентам."""
+    name = name.strip()
+    if not name:
+        return JSONResponse({"error": "name required"}, status_code=400)
+    discord_id = _user.get("discord_id", 0)
+    item_id = await db.add_wheel_item(name, tmdb_id, discord_id)
+    items = await db.list_wheel_items(active_only=True)
+    await ws_manager.broadcast_wheel_updated(items)
+    return JSONResponse({"id": item_id, "items": items, "count": len(items)})
+
+
+@app.delete("/api/wheel/items/{item_id}")
+async def api_remove_wheel_item(
+    item_id: int,
+    _user: dict = Depends(require_user),
+):
+    """Удалить лот (soft-delete). Триггерит broadcast."""
+    removed = await db.remove_wheel_item(item_id)
+    if not removed:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    await db.reassign_colors()
+    items = await db.list_wheel_items(active_only=True)
+    await ws_manager.broadcast_wheel_updated(items)
+    return JSONResponse({"removed": True, "items": items, "count": len(items)})
+
+
+@app.post("/api/wheel/clear")
+async def api_clear_wheel(_user: dict = Depends(require_admin)):
+    """Очистить всё колесо (только админ)."""
+    count = await db.clear_wheel()
+    items = await db.list_wheel_items(active_only=True)
+    await ws_manager.broadcast_wheel_updated(items)
+    return JSONResponse({"cleared": count, "items": items})
+
+
+@app.post("/api/wheel/spin")
+async def api_spin_wheel(_user: dict = Depends(require_user)):
+    """Запустить спин. Сервер выбирает победителя и рассылает результат через WS."""
+    import random
+    items = await db.list_wheel_items(active_only=True)
+    if len(items) < 2:
+        return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
+
+    # Случайный победитель
+    winner = random.choice(items)
+    spin_id = str(uuid.uuid4())[:8]
+
+    # Рассылаем событие спина (клиенты начинают анимацию)
+    await ws_manager.broadcast_spin_started(items, spin_id)
+
+    # Записываем в БД как confirmed (мы точно знаем победителя)
+    await db.add_winner(
+        lot_id=str(winner["id"]),
+        lot_name=winner["name"],
+        tmdb_id=winner.get("tmdb_id"),
+        confidence="confirmed",
+    )
+
+    # Удаляем победителя из колеса (он уже не участвует в следующем спине)
+    await db.remove_wheel_item(winner["id"])
+    await db.reassign_colors()
+
+    # Финальный список после удаления победителя
+    remaining = await db.list_wheel_items(active_only=True)
+
+    # Задержка чтобы дать анимации докрутиться (5 секунд)
+    import asyncio
+    asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id))
+
+    return JSONResponse({
+        "spin_id": spin_id,
+        "winner": winner,
+        "remaining_count": len(remaining),
+    })
+
+
+async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str) -> None:
+    """Через 5 секунд разослать финальный результат спина."""
+    import asyncio
+    await asyncio.sleep(5)
+    await ws_manager.broadcast_spin_result(winner, spin_id)
+    # Также обновить список лотов (победитель удалён)
+    await ws_manager.broadcast_wheel_updated(remaining)
+
+    # Уведомить Discord через бота
+    try:
+        from main import get_bot_instance
+        bot = get_bot_instance()
+        if bot:
+            await bot.on_wheel_spin_completed(winner)
+    except Exception as e:
+        import logging
+        logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
+
+
+# === WebSocket для реал-тайм обновлений ===
+
+@app.websocket("/ws/wheel")
+async def ws_wheel(websocket: WebSocket):
+    """WebSocket для подписки на обновления колеса."""
+    import json
+    await ws_manager.connect(websocket)
+    try:
+        # При первом подключении сразу шлём текущее состояние
+        items = await db.list_wheel_items(active_only=True)
+        await websocket.send_text(json.dumps({
+            "type": "wheel_updated",
+            "payload": {"items": items, "count": len(items)},
+        }, ensure_ascii=False))
+        # Держим соединение, ждём сообщений (клиент может слать ping)
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket)
+    except Exception as e:
+        import logging
+        logging.getLogger("ws_manager").debug("WS error: %s", e)
+        await ws_manager.disconnect(websocket)

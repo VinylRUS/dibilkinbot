@@ -3,6 +3,7 @@
 <nav class="top">
   <span class="brand">DeeBeelkin</span>
   <a href="/" {% if active == 'dashboard' %}style="color: var(--accent);"{% endif %}>Дашборд</a>
+  <a href="/wheel" {% if active == 'wheel' %}style="color: var(--accent);"{% endif %}>🎡 Колесо</a>
   <a href="/winners" {% if active == 'winners' %}style="color: var(--accent);"{% endif %}>Победители</a>
   <a href="/watched" {% if active == 'watched' %}style="color: var(--accent);"{% endif %}>Бэклог</a>
   {% if user.is_admin %}

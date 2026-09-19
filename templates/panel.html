@@ -17,8 +17,11 @@
         <div class="stat green">🟢 запущен</div>
       </article>
       <article class="card">
-        <h3>Pointauc</h3>
-        <div class="stat {{ 'green' if saved_pointauc else 'red' }}">{{ '🟢 подключён' if saved_pointauc else '🔴 нет токена' }}</div>
+        <h3>Колесо фильмов</h3>
+        <a href="/wheel" style="text-decoration:none;">
+          <div class="stat" style="color: var(--accent);">🎡 открыть</div>
+        </a>
+        <p class="hint" style="margin-top: 6px;">Локальное колесо, без Pointauc</p>
       </article>
       <article class="card">
         <h3>Кинопоиск</h3>

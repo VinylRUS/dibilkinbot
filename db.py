@@ -105,6 +105,18 @@ CREATE TABLE IF NOT EXISTS winners (
     confirmed_by INTEGER             -- Discord ID подтвердившего
 );
 CREATE INDEX IF NOT EXISTS idx_winners_detected ON winners(detected_at DESC);
+
+-- === НОВОЕ v3: собственное колесо (без Pointauc) ===
+CREATE TABLE IF NOT EXISTS wheel_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,              -- название фильма (как в колесе)
+    tmdb_id INTEGER,                  -- связка с movie_meta (если найдено через Кинопоиск)
+    color TEXT,                       -- HEX цвет сектора на колесе (авто-генерация если NULL)
+    added_by INTEGER NOT NULL,        -- Discord ID добавившего
+    added_at TEXT NOT NULL,           -- ISO8601
+    is_active INTEGER DEFAULT 1      -- 1 = в колесе, 0 = удалён (soft delete для истории)
+);
+CREATE INDEX IF NOT EXISTS idx_wheel_active ON wheel_items(is_active);
 """
 
 
@@ -494,3 +506,98 @@ async def recent_activity(limit: int = 20) -> list[dict]:
     # Сортируем по ts DESC, берём top N
     items.sort(key=lambda x: x["ts"], reverse=True)
     return items[:limit]
+
+
+# === Wheel Items (собственное колесо, без Pointauc) ===
+
+# Палитра цветов секторов — тёплая, "медовая"
+WHEEL_COLORS = [
+    "#FFB703", "#FB8500", "#FF6B35", "#F4A261",
+    "#E76F51", "#F9C74F", "#90BE6D", "#43AA8B",
+    "#577590", "#277DA1", "#6A4C93", "#1982C4",
+]
+
+
+def _pick_color(index: int) -> str:
+    """Циклически выбрать цвет из палитры."""
+    return WHEEL_COLORS[index % len(WHEEL_COLORS)]
+
+
+async def add_wheel_item(name: str, tmdb_id: int | None, added_by: int) -> int:
+    """Добавить лот в колесо. Возвращает id нового лота."""
+    async with _connect() as db:
+        # Считаем сколько уже активных лотов — для выбора цвета
+        async with db.execute("SELECT COUNT(*) FROM wheel_items WHERE is_active = 1") as cur:
+            row = await cur.fetchone()
+            count = row[0] if row else 0
+        color = _pick_color(count)
+        cur = await db.execute(
+            "INSERT INTO wheel_items (name, tmdb_id, color, added_by, added_at, is_active) "
+            "VALUES (?, ?, ?, ?, ?, 1)",
+            (name, tmdb_id, color, added_by, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def list_wheel_items(active_only: bool = True) -> list[dict]:
+    """Список лотов колеса. Возвращает list of dicts: id, name, tmdb_id, color, added_by, added_at."""
+    async with _connect() as db:
+        if active_only:
+            sql = "SELECT id, name, tmdb_id, color, added_by, added_at FROM wheel_items WHERE is_active = 1 ORDER BY id"
+        else:
+            sql = "SELECT id, name, tmdb_id, color, added_by, added_at FROM wheel_items ORDER BY id DESC"
+        async with db.execute(sql) as cur:
+            rows = await cur.fetchall()
+        return [
+            {"id": r[0], "name": r[1], "tmdb_id": r[2], "color": r[3],
+             "added_by": r[4], "added_at": r[5]}
+            for r in rows
+        ]
+
+
+async def remove_wheel_item(item_id: int) -> bool:
+    """Soft-delete лота (is_active = 0). Возвращает True если удалён, False если не найден."""
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE wheel_items SET is_active = 0 WHERE id = ? AND is_active = 1",
+            (item_id,),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def clear_wheel() -> int:
+    """Удалить все лоты (soft-delete). Возвращает сколько удалил."""
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE wheel_items SET is_active = 0 WHERE is_active = 1"
+        )
+        await db.commit()
+        return cur.rowcount
+
+
+async def get_wheel_item(item_id: int) -> dict | None:
+    """Получить конкретный лот по id."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT id, name, tmdb_id, color FROM wheel_items WHERE id = ? AND is_active = 1",
+            (item_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return None
+            return {"id": row[0], "name": row[1], "tmdb_id": row[2], "color": row[3]}
+
+
+async def reassign_colors() -> None:
+    """Пересчитать цвета для всех активных лотов (после удаления чтобы порядок был красивый)."""
+    items = await list_wheel_items(active_only=True)
+    async with _connect() as db:
+        for i, item in enumerate(items):
+            await db.execute(
+                "UPDATE wheel_items SET color = ? WHERE id = ?",
+                (_pick_color(i), item["id"]),
+            )
+        await db.commit()
+

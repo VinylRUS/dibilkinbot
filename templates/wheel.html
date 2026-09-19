@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>🎡 Колесо · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { background: #000; color: #fff; overflow: hidden; }
+    .wheel-page {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 24px;
+      min-height: 100vh;
+    }
+    .wheel-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+    }
+    .wheel-title {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--accent);
+      text-align: center;
+      text-shadow: 0 0 20px rgba(255, 183, 3, 0.5);
+    }
+    .wheel-canvas-wrap {
+      position: relative;
+      width: 600px;
+      height: 600px;
+      max-width: 90vw;
+      max-height: 90vw;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .pointer {
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 25px solid transparent;
+      border-right: 25px solid transparent;
+      border-top: 40px solid var(--accent);
+      filter: drop-shadow(0 4px 8px rgba(255, 183, 3, 0.6));
+      z-index: 10;
+    }
+    .spin-btn {
+      background: var(--accent);
+      color: #1A1A1A;
+      border: none;
+      padding: 18px 60px;
+      border-radius: 50px;
+      font-size: 1.4rem;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 24px rgba(255, 183, 3, 0.5);
+      letter-spacing: 0.05em;
+    }
+    .spin-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 32px rgba(255, 183, 3, 0.7);
+    }
+    .spin-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .winner-banner {
+      background: var(--accent);
+      color: #1A1A1A;
+      padding: 18px 40px;
+      border-radius: 12px;
+      font-size: 1.6rem;
+      font-weight: 800;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(255, 183, 3, 0.5);
+      animation: pulse 0.6s ease-in-out;
+      display: none;
+    }
+    .winner-banner.show { display: block; }
+    @keyframes pulse {
+      0% { transform: scale(0.5); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .sidebar {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 20px;
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+    }
+    [data-theme="light"] .sidebar { color: var(--text); }
+    [data-theme="dark"] .sidebar { color: #fff; }
+    .sidebar h2 {
+      font-size: 1.2rem;
+      margin: 0 0 16px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .sidebar h2::before { display: none; }
+    .add-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .add-form input {
+      flex: 1;
+      padding: 10px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .add-form button {
+      background: var(--accent);
+      color: #1A1A1A;
+      border: none;
+      padding: 0 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin: 0;
+    }
+    .items-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .item-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      background: var(--bg);
+      transition: background 0.15s;
+    }
+    .item-row:hover { background: var(--card-alt); }
+    .item-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .item-name {
+      flex: 1;
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+    .item-remove {
+      background: transparent;
+      border: none;
+      color: var(--red);
+      cursor: pointer;
+      padding: 4px 8px;
+      font-size: 1.2rem;
+      margin: 0;
+      opacity: 0.6;
+      transition: opacity 0.15s;
+    }
+    .item-remove:hover { opacity: 1; }
+    .empty-state {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 40px 20px;
+      font-style: italic;
+    }
+    .clear-btn {
+      width: 100%;
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      margin-top: 12px;
+      font-weight: 500;
+    }
+    .clear-btn:hover { background: var(--red); color: #fff; }
+    .count-badge {
+      display: inline-block;
+      background: var(--accent);
+      color: #1A1A1A;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wheel-page">
+    <!-- Колесо -->
+    <section class="wheel-area">
+      <h1 class="wheel-title">🎡 Колесо фильмов</h1>
+      <div class="wheel-canvas-wrap">
+        <div class="pointer"></div>
+        <canvas id="wheel-canvas" width="600" height="600"></canvas>
+      </div>
+      <button id="spin-btn" class="spin-btn" disabled>КРУТИТЬ</button>
+      <div id="winner-banner" class="winner-banner"></div>
+    </section>
+
+    <!-- Список лотов -->
+    <aside class="sidebar">
+      <h2>Лоты в колесе <span id="count" class="count-badge">0</span></h2>
+      <form id="add-form" class="add-form">
+        <input type="text" id="item-name" placeholder="Название фильма..." autocomplete="off">
+        <button type="submit">+ Добавить</button>
+      </form>
+      <ul id="items-list" class="items-list"></ul>
+      <div id="empty-state" class="empty-state">Добавьте фильмы в колесо 🎬</div>
+      <button id="clear-btn" class="clear-btn" style="display:none">Очистить колесо</button>
+    </aside>
+  </main>
+
+  <script>
+    // === State ===
+    let items = [];
+    let spinning = false;
+    let currentRotation = 0;
+
+    // === Canvas ===
+    const canvas = document.getElementById('wheel-canvas');
+    const ctx = canvas.getContext('2d');
+    const canvasSize = 600;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+
+    const center = canvasSize / 2;
+    const radius = canvasSize / 2 - 20;
+
+    function drawWheel(rotation = 0) {
+      ctx.clearRect(0, 0, canvasSize, canvasSize);
+
+      if (items.length === 0) {
+        // Пустое колесо — серый круг
+        ctx.beginPath();
+        ctx.arc(center, center, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#333';
+        ctx.fill();
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#999';
+        ctx.font = '20px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Колесо пустое', center, center);
+        return;
+      }
+
+      const anglePer = (Math.PI * 2) / items.length;
+      ctx.save();
+      ctx.translate(center, center);
+      ctx.rotate(rotation);
+
+      for (let i = 0; i < items.length; i++) {
+        const startAngle = i * anglePer;
+        const endAngle = startAngle + anglePer;
+
+        // Сектор
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, radius, startAngle, endAngle);
+        ctx.closePath();
+        ctx.fillStyle = items[i].color || '#FFB703';
+        ctx.fill();
+        ctx.strokeStyle = '#1A1A1A';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Текст
+        ctx.save();
+        ctx.rotate(startAngle + anglePer / 2);
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#1A1A1A';
+        const fontSize = items.length > 15 ? 12 : (items.length > 8 ? 14 : 16);
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        const name = items[i].name.length > 30 ? items[i].name.slice(0, 28) + '…' : items[i].name;
+        ctx.fillText(name, radius - 20, 0);
+        ctx.restore();
+      }
+
+      // Центральный круг (декоративный)
+      ctx.beginPath();
+      ctx.arc(0, 0, 40, 0, Math.PI * 2);
+      ctx.fillStyle = '#1A1A1A';
+      ctx.fill();
+      ctx.strokeStyle = '#FFB703';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = '#FFB703';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🐝', 0, 0);
+
+      ctx.restore();
+    }
+
+    // === Render items list ===
+    function renderList() {
+      const list = document.getElementById('items-list');
+      const empty = document.getElementById('empty-state');
+      const clearBtn = document.getElementById('clear-btn');
+      const count = document.getElementById('count');
+      const spinBtn = document.getElementById('spin-btn');
+
+      count.textContent = items.length;
+      list.innerHTML = '';
+
+      if (items.length === 0) {
+        empty.style.display = 'block';
+        clearBtn.style.display = 'none';
+        spinBtn.disabled = true;
+      } else {
+        empty.style.display = 'none';
+        clearBtn.style.display = items.length > 0 ? 'block' : 'none';
+        spinBtn.disabled = items.length < 2 || spinning;
+
+        items.forEach((item, idx) => {
+          const li = document.createElement('li');
+          li.className = 'item-row';
+          li.innerHTML = `
+            <span class="item-color" style="background:${item.color || '#FFB703'}"></span>
+            <span class="item-name">${escapeHtml(item.name)}</span>
+            <button class="item-remove" data-id="${item.id}" title="Удалить">×</button>
+          `;
+          list.appendChild(li);
+        });
+
+        // Bind remove buttons
+        list.querySelectorAll('.item-remove').forEach(btn => {
+          btn.addEventListener('click', () => removeItem(btn.dataset.id));
+        });
+      }
+
+      drawWheel(currentRotation);
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    // === API calls ===
+    async function fetchItems() {
+      const r = await fetch('/api/wheel/items');
+      const data = await r.json();
+      items = data.items || [];
+      renderList();
+    }
+
+    async function addItem(name) {
+      const formData = new FormData();
+      formData.append('name', name);
+      const r = await fetch('/api/wheel/items', { method: 'POST', body: formData });
+      const data = await r.json();
+      if (r.ok) {
+        items = data.items || [];
+        renderList();
+        return true;
+      }
+      alert(data.error || 'Ошибка');
+      return false;
+    }
+
+    async function removeItem(id) {
+      const r = await fetch(`/api/wheel/items/${id}`, { method: 'DELETE' });
+      const data = await r.json();
+      if (r.ok) {
+        items = data.items || [];
+        renderList();
+      }
+    }
+
+    async function clearWheel() {
+      if (!confirm('Удалить все фильмы из колеса?')) return;
+      const r = await fetch('/api/wheel/clear', { method: 'POST' });
+      const data = await r.json();
+      if (r.ok) {
+        items = data.items || [];
+        renderList();
+      }
+    }
+
+    // === Spin animation ===
+    function easeOutCubic(t) {
+      return 1 - Math.pow(1 - t, 3);
+    }
+
+    function animateSpin(targetRotation, duration, onComplete) {
+      const startRotation = currentRotation;
+      const totalRotation = targetRotation - startRotation;
+      const startTime = performance.now();
+
+      function frame(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = easeOutCubic(progress);
+        currentRotation = startRotation + totalRotation * eased;
+        drawWheel(currentRotation);
+        if (progress < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          onComplete();
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+
+    async function spin() {
+      if (spinning || items.length < 2) return;
+      spinning = true;
+      document.getElementById('spin-btn').disabled = true;
+      document.getElementById('winner-banner').classList.remove('show');
+
+      // Скрываем результат от клиента — он узнает победителя по завершении анимации
+      // Сервер уже выбрал победителя и recorded в БД, нам только нужно показать анимацию
+
+      const r = await fetch('/api/wheel/spin', { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) {
+        alert(data.error || 'Ошибка спина');
+        spinning = false;
+        document.getElementById('spin-btn').disabled = false;
+        return;
+      }
+
+      const winner = data.winner;
+      // Найти индекс победителя в текущем массиве items (до того как сервер его удалит)
+      const winnerIdx = items.findIndex(it => it.id === winner.id);
+      if (winnerIdx === -1) {
+        // Что-то не так — просто обновим состояние
+        await fetchItems();
+        spinning = false;
+        document.getElementById('spin-btn').disabled = false;
+        return;
+      }
+
+      // Рассчитать угол, чтобы победитель остановился сверху (под указателем)
+      const anglePer = (Math.PI * 2) / items.length;
+      const winnerCenterAngle = winnerIdx * anglePer + anglePer / 2;
+      // Указатель сверху (угол = -PI/2 в стандартной системе canvas, но у нас rotate начинается с 0 справа)
+      // Хотим чтобы winnerCenterAngle оказался сверху → нужно повернуть на (-PI/2 - winnerCenterAngle)
+      // Плюс несколько полных оборотов (5-7)
+      const extraTurns = 5 + Math.floor(Math.random() * 3); // 5-7 полных оборотов
+      const targetRotation = currentRotation + extraTurns * Math.PI * 2
+        + (-Math.PI / 2 - winnerCenterAngle) - (currentRotation % (Math.PI * 2));
+
+      animateSpin(targetRotation, 5000, () => {
+        // Анимация завершена — показать победителя
+        const banner = document.getElementById('winner-banner');
+        banner.textContent = `🎉 Победитель: ${winner.name}!`;
+        banner.classList.add('show');
+
+        // Обновить список (победитель удалён на сервере)
+        fetchItems();
+        spinning = false;
+        document.getElementById('spin-btn').disabled = items.length < 2;
+      });
+    }
+
+    // === WebSocket ===
+    function connectWS() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${location.host}/ws/wheel`);
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'wheel_updated') {
+          items = msg.payload.items || [];
+          renderList();
+        } else if (msg.type === 'spin_started') {
+          // Кто-то другой крутит — обновим items (могли добавиться/удалиться)
+          if (msg.payload.items) {
+            items = msg.payload.items;
+            renderList();
+          }
+        } else if (msg.type === 'spin_result') {
+          // Кто-то другой докрутил — покажем победителя
+          if (!spinning && msg.payload.winner) {
+            const banner = document.getElementById('winner-banner');
+            banner.textContent = `🎉 Победитель: ${msg.payload.winner.name}!`;
+            banner.classList.add('show');
+            setTimeout(() => banner.classList.remove('show'), 5000);
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        // Переподключение через 3 сек
+        setTimeout(connectWS, 3000);
+      };
+
+      ws.onerror = (e) => {
+        console.error('WS error', e);
+        ws.close();
+      };
+    }
+
+    // === Event listeners ===
+    document.getElementById('add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('item-name');
+      const name = input.value.trim();
+      if (!name) return;
+      if (await addItem(name)) {
+        input.value = '';
+      }
+    });
+
+    document.getElementById('spin-btn').addEventListener('click', spin);
+    document.getElementById('clear-btn').addEventListener('click', clearWheel);
+
+    // Initial state из SSR
+    items = {{ items | tojson }};
+    renderList();
+    connectWS();
+  </script>
+</body>
+</html>

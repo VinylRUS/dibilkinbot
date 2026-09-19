@@ -141,6 +141,73 @@ class KinovecherBot(commands.Bot):
             except Exception as e:
                 log.error("✗ Failed to sync to guild '%s': %s", guild.name, e, exc_info=True)
 
+    async def on_wheel_spin_completed(self, winner: dict) -> None:
+        """Вызывается из web.py после завершения спина колеса.
+        Отправляет embed с победителем в Discord-канал #winners (если настроен).
+        """
+        log.info("Wheel spin completed, winner: %s", winner)
+        winners_channel_id_str = await db.get_setting("channel_winners_id")
+        if not winners_channel_id_str or not winners_channel_id_str.isdigit():
+            log.info("No channel_winners_id set, skipping Discord post")
+            return
+        channel = self.get_channel(int(winners_channel_id_str))
+        if channel is None:
+            log.warning("Winners channel %s not found", winners_channel_id_str)
+            return
+
+        # Строим embed — похож на тот что был в Pointauc-версии, но confidence=confirmed
+        embed = await self._build_winner_embed_local(winner)
+        try:
+            await channel.send(embed=embed)
+        except Exception as e:
+            log.error("Failed to post winner to channel: %s", e)
+
+        # TG кросс-пост победителя в отдельный чат (если задан)
+        tg_winners_chat = await db.get_setting("tg_winners_chat_id")
+        if tg_winners_chat:
+            await tg_crosspost(
+                f"🎡 <b>Победитель колеса!</b>\n<b>{tg_escape(winner['name'])}</b>",
+                chat_id=tg_winners_chat,
+            )
+
+    async def _build_winner_embed_local(self, winner: dict) -> "discord.Embed":
+        """Построить embed для победителя локального колеса. С метаданными Кинопоиска если есть."""
+        from kinopoisk import lookup_by_id
+        embed = discord.Embed(
+            title=f"🎡 Победитель колеса — {winner['name']}",
+            color=0x2ECC71,  # зелёный — confirmed
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text=f"✓ confirmed · автоматически из веб-панели")
+
+        tmdb_id = winner.get("tmdb_id")
+        if tmdb_id:
+            meta = await lookup_by_id(tmdb_id)
+            if meta:
+                if meta.get("year"):
+                    embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
+                if meta.get("poster_url"):
+                    embed.set_image(url=meta["poster_url"])
+                if meta.get("tagline"):
+                    embed.description = f"_{meta['tagline']}_"
+                if meta.get("plot"):
+                    plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
+                    embed.add_field(name="Описание", value=plot, inline=False)
+                rating_str = f"⭐ {meta['vote_average']}/10"
+                if meta.get("vote_count"):
+                    rating_str += f" ({meta['vote_count']} голосов)"
+                embed.add_field(name="Рейтинг", value=rating_str, inline=True)
+                if meta.get("genres"):
+                    embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=True)
+                if meta.get("imdb_id"):
+                    embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
+                embed.add_field(name="Кинопоиск", value="[Источник](https://kinopoisk.dev/) · *использует kinopoisk.dev API*", inline=False)
+        else:
+            embed.description = f"_{winner['name']}_"
+            embed.add_field(name="Кинопоиск", value="Метаданные не найдены — бот не сможет показать постер", inline=False)
+
+        return embed
+
     async def _handle_lot_removed(self, lot_name: str, lot_id: str | None) -> None:
         """Callback из LotsWatcher — лот исчез из колеса, потенциально победитель."""
         log.info("Potential winner: lot_name='%s' lot_id=%s", lot_name, lot_id)
@@ -225,9 +292,9 @@ class WheelCog(commands.Cog):
     def __init__(self, bot: KinovecherBot):
         self.bot = bot
 
-    wheel = app_commands.Group(name="wheel", description="Колесо фильмов (Pointauc)")
+    wheel = app_commands.Group(name="wheel", description="Колесо фильмов")
 
-    @wheel.command(name="add", description="Добавить фильм в колесо Pointauc + метаданные из Кинопоиска")
+    @wheel.command(name="add", description="Добавить фильм в колесо + метаданные из Кинопоиска")
     @app_commands.describe(title="Название фильма (русское или оригинальное)")
     async def wheel_add(self, interaction: discord.Interaction, title: str):
         title = title.strip()
@@ -242,28 +309,25 @@ class WheelCog(commands.Cog):
             )
             return
 
-        client = await get_pointauc_client()
-        if client is None:
-            await interaction.response.send_message(
-                "❌ Pointauc token не настроен. Укажите его в веб-панели.",
-                ephemeral=True,
-            )
-            return
-
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        # Параллельно: добавляем в Pointauc + ищем метаданные в Кинопоиске
-        pointauc_task = asyncio.create_task(client.add_bid(title, cost=0))
-        tmdb_task = asyncio.create_task(tmdb.lookup_movie(title))
+        # Ищем метаданные в Кинопоиске
+        meta = await tmdb.lookup_movie(title)
 
+        # Если нашли метаданные — используем локализованный title для колеса
+        name_for_wheel = meta["title"] if meta else title
+        tmdb_id = meta["tmdb_id"] if meta else None
+
+        # Добавляем в локальную БД
+        item_id = await db.add_wheel_item(name_for_wheel, tmdb_id, interaction.user.id)
+
+        # Broadcast через WebSocket (если кто-то смотрит /wheel страницу)
         try:
-            bid_ids = await pointauc_task
-        except PointaucError as e:
-            tmdb_task.cancel()
-            await interaction.followup.send(f"⚠️ Pointauc error: {e}", ephemeral=True)
-            return
-
-        meta = await tmdb_task
+            import ws_manager
+            items = await db.list_wheel_items(active_only=True)
+            await ws_manager.broadcast_wheel_updated(items)
+        except Exception as e:
+            log.debug("WS broadcast failed: %s", e)
 
         # Строим ответ с метаданными если есть
         if meta:
@@ -285,60 +349,60 @@ class WheelCog(commands.Cog):
                 embed.add_field(name="Описание", value=plot, inline=False)
             if meta.get("poster_url"):
                 embed.set_thumbnail(url=meta["poster_url"])
-            embed.set_footer(text=f"Pointauc bid: {bid_ids[0] if bid_ids else '—'} · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoisk.dev API*")
+            embed.set_footer(text=f"Веб-панель: /wheel · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoisk.dev API*")
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(
-                f"✅ «{title}» добавлен в колесо.\nBid ID: `{bid_ids[0] if bid_ids else '—'}`\n"
-                "_Кинопоиск метаданные недоступны — задайте токен в панели, либо фильм не найден._",
+                f"✅ «{title}» добавлен в колесо.\n"
+                "_Кинопоиск метаданные недоступны — задайте токен в панели, либо фильм не найден._\n"
+                "Открыть колесо: /wheel в веб-панели",
                 ephemeral=True,
             )
 
-    @wheel.command(name="list", description="Показать текущие пункты колеса (Pointauc)")
+    @wheel.command(name="list", description="Показать текущие пункты колеса")
     async def wheel_list(self, interaction: discord.Interaction):
-        # Если LotsWatcher активен — отдаём из кеша (быстро)
-        if self.bot.lots_watcher and self.bot.lots_watcher.get_known_lots():
-            lots = self.bot.lots_watcher.get_known_lots()
-            lines = [f"**Колесо Pointauc** ({len(lots)} шт., из кеша):"]
-            for i, (lot_id, name) in enumerate(lots.items(), 1):
-                lines.append(f"{i}. **{name}**")
-            text = "\n".join(lines)
-            if len(text) > 1900:
-                text = text[:1900] + "\n... (обрезано)"
-            await interaction.response.send_message(text, ephemeral=True)
-            return
-
-        # Fallback: прямой запрос
-        client = await get_pointauc_client()
-        if client is None:
+        items = await db.list_wheel_items(active_only=True)
+        if not items:
             await interaction.response.send_message(
-                "❌ Pointauc token не настроен в веб-панели.",
+                "Колесо пустое. Добавь через `/wheel add <название>` или через веб-панель /wheel",
                 ephemeral=True,
             )
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            lots = await client.list_lots()
-        except PointaucError as e:
-            await interaction.followup.send(f"⚠️ Pointauc error: {e}", ephemeral=True)
-            return
-
-        if not lots:
-            await interaction.followup.send("Колесо пустое.", ephemeral=True)
-            return
-
-        lines = [f"**Колесо Pointauc** ({len(lots)} шт.):"]
-        for i, lot in enumerate(lots, 1):
-            name = lot.get("name") or lot.get("Name") or "—"
-            amount = lot.get("amount") or lot.get("Amount") or 0
-            lines.append(f"{i}. **{name}** — сумма: {amount}")
-
+        lines = [f"**Колесо** ({len(items)} шт.):"]
+        for i, item in enumerate(items, 1):
+            lines.append(f"{i}. **{item['name']}**")
         text = "\n".join(lines)
         if len(text) > 1900:
             text = text[:1900] + "\n... (обрезано)"
-        await interaction.followup.send(text, ephemeral=True)
+        await interaction.response.send_message(
+            text + "\n\nКрутить: /wheel в веб-панели",
+            ephemeral=True,
+        )
 
+    @wheel.command(name="remove", description="Удалить фильм из колеса (по номеру из /wheel list)")
+    @app_commands.describe(number="Номер фильма в списке /wheel list")
+    async def wheel_remove(self, interaction: discord.Interaction, number: int):
+        items = await db.list_wheel_items(active_only=True)
+        if number < 1 or number > len(items):
+            await interaction.response.send_message(
+                f"Номер должен быть от 1 до {len(items)}",
+                ephemeral=True,
+            )
+            return
+        item = items[number - 1]
+        await db.remove_wheel_item(item["id"])
+        await db.reassign_colors()
+        try:
+            import ws_manager
+            updated = await db.list_wheel_items(active_only=True)
+            await ws_manager.broadcast_wheel_updated(updated)
+        except Exception:
+            pass
+        await interaction.response.send_message(
+            f"✅ «{item['name']}» удалён из колеса.",
+            ephemeral=True,
+        )
 
 # === COG: Watched ===
 
