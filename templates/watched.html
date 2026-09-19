@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Бэклог · Kinovecher</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
+  <style>
+    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
+    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
+    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
+    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; }
+    nav.top a:hover { color: #cdd6f4; }
+    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
+    nav.top .right a { margin-left: 12px; }
+    .container { max-width: 960px; margin: 0 auto; padding: 28px 24px; }
+    h2 { font-size: 1.3rem; margin: 0 0 14px; }
+    article.card { background: #313244; border: 1px solid #45475a; padding: 18px; border-radius: 8px; margin: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #45475a; }
+    th { color: #a6adc8; font-weight: 500; font-size: 0.82rem; }
+    td.mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+    .empty { color: #6c7086; font-style: italic; padding: 14px; text-align: center; }
+  </style>
+</head>
+<body>
+  <nav class="top">
+    <span class="brand">🎡 Kinovecher</span>
+    <a href="/">Дашборд</a>
+    <a href="/winners">Победители</a>
+    <a href="/watched">Бэклог</a>
+    {% if user.is_admin %}
+      <a href="/tokens">Токены</a>
+      <a href="/channels">Каналы</a>
+      <a href="/features">Фичи</a>
+      <a href="/users">Юзеры</a>
+    {% endif %}
+    <a href="/profile">Профиль</a>
+    <span class="right">👤 {{ user.username }} · <a href="/logout">Выйти</a></span>
+  </nav>
+
+  <main class="container">
+    <h2>🎬 Бэклог просмотренных фильмов</h2>
+    <article class="card">
+      <table>
+        <tr><th>Название</th><th>Дата</th><th>Оценка</th></tr>
+        {% for title, watched_at, rating in watched %}
+          <tr>
+            <td>{{ title }}</td>
+            <td class="mono">{{ watched_at[:16].replace('T', ' ') }}</td>
+            <td>{{ '⭐' * rating if rating else '—' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">Бэклог пуст.</td></tr>
+        {% endfor %}
+      </table>
+    </article>
+  </main>
+</body>
+</html>

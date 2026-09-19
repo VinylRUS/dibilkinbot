@@ -2,77 +2,75 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Токены · Kinovecher</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
   <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #1e1e2e; color: #cdd6f4;
-    }
-    .nav { background: #181825; padding: 14px 24px; display: flex; gap: 24px; align-items: center; border-bottom: 1px solid #313244; }
-    .nav .brand { font-weight: 700; font-size: 16px; color: #89b4fa; margin-right: auto; }
-    .nav a { color: #a6adc8; text-decoration: none; font-size: 14px; }
-    .nav a:hover { color: #cdd6f4; }
-    .container { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
-    h2 { font-size: 18px; margin: 0 0 16px 0; }
-    .card { background: #313244; padding: 20px 24px; border-radius: 8px; border: 1px solid #45475a; }
-    label { display: block; font-size: 13px; margin: 16px 0 6px; color: #a6adc8; }
-    label .status { float: right; font-size: 12px; }
+    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
+    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
+    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
+    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; }
+    nav.top a:hover { color: #cdd6f4; }
+    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
+    nav.top .right a { margin-left: 12px; }
+    .container { max-width: 720px; margin: 0 auto; padding: 28px 24px; }
+    h2 { font-size: 1.3rem; margin: 0 0 14px; }
+    article.card { background: #313244; border: 1px solid #45475a; padding: 22px; border-radius: 8px; margin: 0; }
+    label { color: #a6adc8; font-size: 0.85rem; display: block; margin: 14px 0 4px; }
+    label .status { float: right; font-size: 0.78rem; }
     label .ok { color: #a6e3a1; }
     label .no { color: #f38ba8; }
-    input[type="password"] {
-      width: 100%; padding: 10px 12px; background: #1e1e2e;
-      border: 1px solid #45475a; border-radius: 6px; color: #cdd6f4;
-      font-size: 13px; font-family: ui-monospace, monospace;
-    }
-    input:focus { outline: none; border-color: #89b4fa; }
-    .hint { font-size: 12px; color: #6c7086; margin-top: 4px; }
-    button {
-      margin-top: 24px; padding: 11px 20px; background: #89b4fa; color: #1e1e2e;
-      border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
-    }
+    input { background: #1e1e2e; border-color: #45475a; color: #cdd6f4; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    input:focus { border-color: #89b4fa; }
+    .hint { font-size: 0.78rem; color: #6c7086; margin-top: 4px; }
+    button { background: #89b4fa; color: #1e1e2e; border: none; font-weight: 600; margin-top: 22px; }
     button:hover { background: #74c7ec; }
-    .saved {
-      background: rgba(166,227,161,0.15); color: #a6e3a1;
-      padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 16px;
-    }
+    .saved { background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 10px 14px; border-radius: 6px; font-size: 0.88rem; margin-bottom: 14px; }
   </style>
 </head>
 <body>
-  <div class="nav">
-    <span class="brand">Kinovecher</span>
+  <nav class="top">
+    <span class="brand">🎡 Kinovecher</span>
     <a href="/">Дашборд</a>
+    <a href="/winners">Победители</a>
+    <a href="/watched">Бэклог</a>
     <a href="/tokens">Токены</a>
     <a href="/channels">Каналы</a>
     <a href="/features">Фичи</a>
-  </div>
+    <a href="/users">Юзеры</a>
+    <a href="/profile">Профиль</a>
+    <span class="right">👤 {{ user.username }} · <a href="/logout">Выйти</a></span>
+  </nav>
 
-  <div class="container">
-    <h2>Токены</h2>
+  <main class="container">
+    <h2>🔑 Токены</h2>
 
     {% if request.query_params.get('saved') %}
-      <div class="saved">✓ Сохранено. Перезапустите процесс, чтобы бот подхватил новые токены (или дождитесь 30-секундного кеша для Pointauc/Telegram).</div>
+      <div class="saved">✓ Сохранено. Перезапустите процесс, чтобы бот подхватил новые токены.</div>
     {% endif %}
 
-    <form class="card" method="post" action="/tokens">
-      {% for key, label in tokens %}
-        <label>
-          {{ label }}
-          {% if saved.get(key) %}
-            <span class="status ok">✓ сохранён</span>
-          {% else %}
-            <span class="status no">— не задан</span>
-          {% endif %}
-        </label>
-        <input type="password" name="{{ key }}" placeholder="вставьте новый токен, чтобы перезаписать">
-        <div class="hint">
-          {% if key == 'discord_token' %}Получить: https://discord.com/developers/applications → Bot → Reset Token.{% endif %}
-          {% if key == 'telegram_token' %}Получить: @BotFather → /newbot или /token.{% endif %}
-          {% if key == 'pointauc_token' %}Получить: https://pointauc.com/settings → Personal Token.{% endif %}
-        </div>
-      {% endfor %}
-      <button type="submit">Сохранить</button>
-    </form>
-  </div>
+    <article class="card">
+      <form method="post" action="/tokens">
+        {% for key, label in tokens %}
+          <label>
+            {{ label }}
+            {% if saved.get(key) %}
+              <span class="status ok">✓ сохранён</span>
+            {% else %}
+              <span class="status no">— не задан</span>
+            {% endif %}
+          </label>
+          <input type="password" name="{{ key }}" placeholder="вставьте новый токен, чтобы перезаписать">
+          <p class="hint">
+            {% if key == 'discord_token' %}Discord Developer Portal → приложение → Bot → Reset Token{% endif %}
+            {% if key == 'telegram_token' %}@BotFather → /newbot или /token{% endif %}
+            {% if key == 'pointauc_token' %}https://pointauc.com/settings → Personal Token{% endif %}
+            {% if key == 'tmdb_token' %}https://www.themoviedb.org/settings/api → API Read Access Token (Bearer){% endif %}
+          </p>
+        {% endfor %}
+        <button type="submit">Сохранить</button>
+      </form>
+    </article>
+  </main>
 </body>
 </html>

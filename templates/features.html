@@ -2,81 +2,83 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Фичи · Kinovecher</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
   <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #1e1e2e; color: #cdd6f4;
-    }
-    .nav { background: #181825; padding: 14px 24px; display: flex; gap: 24px; align-items: center; border-bottom: 1px solid #313244; }
-    .nav .brand { font-weight: 700; font-size: 16px; color: #89b4fa; margin-right: auto; }
-    .nav a { color: #a6adc8; text-decoration: none; font-size: 14px; }
-    .nav a:hover { color: #cdd6f4; }
-    .container { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
-    h2 { font-size: 18px; margin: 0 0 16px 0; }
-    .card { background: #313244; padding: 20px 24px; border-radius: 8px; border: 1px solid #45475a; }
-    .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #45475a; }
+    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
+    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
+    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
+    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; }
+    nav.top a:hover { color: #cdd6f4; }
+    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
+    nav.top .right a { margin-left: 12px; }
+    .container { max-width: 720px; margin: 0 auto; padding: 28px 24px; }
+    h2 { font-size: 1.3rem; margin: 0 0 14px; }
+    article.card { background: #313244; border: 1px solid #45475a; padding: 22px; border-radius: 8px; margin: 0; }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid #45475a; gap: 12px; }
     .row:last-of-type { border-bottom: none; }
-    .row .name { font-size: 14px; }
-    .hint { font-size: 12px; color: #6c7086; margin-top: 2px; }
-    .switch { position: relative; width: 44px; height: 24px; }
+    .row .name { font-size: 0.95rem; }
+    .hint { font-size: 0.78rem; color: #6c7086; margin-top: 2px; }
+    .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
-    .slider {
-      position: absolute; cursor: pointer; inset: 0;
-      background: #45475a; border-radius: 24px; transition: 0.2s;
-    }
-    .slider:before {
-      content: ""; position: absolute; height: 18px; width: 18px;
-      left: 3px; bottom: 3px; background: #cdd6f4; border-radius: 50%; transition: 0.2s;
-    }
+    .slider { position: absolute; cursor: pointer; inset: 0; background: #45475a; border-radius: 24px; transition: 0.2s; }
+    .slider:before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #cdd6f4; border-radius: 50%; transition: 0.2s; }
     input:checked + .slider { background: #89b4fa; }
     input:checked + .slider:before { transform: translateX(20px); background: #1e1e2e; }
-    button {
-      margin-top: 24px; padding: 11px 20px; background: #89b4fa; color: #1e1e2e;
-      border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
-    }
+    button { background: #89b4fa; color: #1e1e2e; border: none; font-weight: 600; margin-top: 22px; }
     button:hover { background: #74c7ec; }
-    .saved {
-      background: rgba(166,227,161,0.15); color: #a6e3a1;
-      padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 16px;
-    }
+    .saved { background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 10px 14px; border-radius: 6px; font-size: 0.88rem; margin-bottom: 14px; }
+    .readonly-note { font-size: 0.8rem; color: #6c7086; font-style: italic; margin-top: 18px; }
   </style>
 </head>
 <body>
-  <div class="nav">
-    <span class="brand">Kinovecher</span>
+  <nav class="top">
+    <span class="brand">🎡 Kinovecher</span>
     <a href="/">Дашборд</a>
-    <a href="/tokens">Токены</a>
-    <a href="/channels">Каналы</a>
-    <a href="/features">Фичи</a>
-  </div>
+    <a href="/winners">Победители</a>
+    <a href="/watched">Бэклог</a>
+    {% if is_admin %}
+      <a href="/tokens">Токены</a>
+      <a href="/channels">Каналы</a>
+      <a href="/features">Фичи</a>
+      <a href="/users">Юзеры</a>
+    {% endif %}
+    <a href="/profile">Профиль</a>
+    <span class="right">👤 {{ user.username }} · <a href="/logout">Выйти</a></span>
+  </nav>
 
-  <div class="container">
-    <h2>Кросс-постинг в Telegram</h2>
+  <main class="container">
+    <h2>⚙️ Кросс-постинг в Telegram</h2>
 
     {% if request.query_params.get('saved') %}
       <div class="saved">✓ Сохранено.</div>
     {% endif %}
 
-    <form class="card" method="post" action="/features">
-      {% for key, label, default in features %}
-        <div class="row">
-          <div>
-            <div class="name">{{ label }}</div>
-            <div class="hint">
-              {% if key == 'tg_crosspost_quotes' %}Дублирует цитаты из /funword в TG-чат.{% endif %}
-              {% if key == 'tg_crosspost_announce' %}Дублирует анонсы /movienight в TG-чат.{% endif %}
+    <article class="card">
+      <form method="post" action="/features">
+        {% for key, label, default in features %}
+          <div class="row">
+            <div>
+              <div class="name">{{ label }}</div>
+              <div class="hint">
+                {% if key == 'tg_crosspost_quotes' %}Дублирует цитаты из /funword в TG-чат бэклога.{% endif %}
+                {% if key == 'tg_crosspost_announce' %}Дублирует анонсы /movienight в TG-чат бэклога.{% endif %}
+              </div>
             </div>
+            <label class="switch">
+              <input type="checkbox" name="{{ key }}" {% if values.get(key) == '1' %}checked{% endif %} value="true">
+              <span class="slider"></span>
+            </label>
           </div>
-          <label class="switch">
-            <input type="checkbox" name="{{ key }}" {% if values.get(key) == '1' %}checked{% endif %} value="true">
-            <span class="slider"></span>
-          </label>
-        </div>
-      {% endfor %}
-      <button type="submit">Сохранить</button>
-    </form>
-  </div>
+        {% endfor %}
+        {% if is_admin %}
+          <button type="submit">Сохранить</button>
+        {% else %}
+          <p class="readonly-note">Только для чтения. Изменения может вносить только администратор.</p>
+        {% endif %}
+      </form>
+    </article>
+  </main>
 </body>
 </html>

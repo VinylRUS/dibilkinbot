@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Юзеры · Kinovecher</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
+  <style>
+    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
+    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
+    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
+    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; }
+    nav.top a:hover { color: #cdd6f4; }
+    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
+    nav.top .right a { margin-left: 12px; }
+    .container { max-width: 960px; margin: 0 auto; padding: 28px 24px; }
+    h2 { font-size: 1.3rem; margin: 0 0 14px; }
+    article.card { background: #313244; border: 1px solid #45475a; padding: 18px; border-radius: 8px; margin: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #45475a; }
+    th { color: #a6adc8; font-weight: 500; font-size: 0.82rem; }
+    td.mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.74rem; font-weight: 500; }
+    .badge.admin { background: rgba(243,139,168,0.15); color: #f5a3b8; }
+    .badge.user { background: rgba(166,173,200,0.15); color: #a6adc8; }
+    .empty { color: #6c7086; font-style: italic; padding: 14px; text-align: center; }
+    .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; inset: 0; background: #45475a; border-radius: 20px; transition: 0.2s; }
+    .slider:before { content: ""; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: #cdd6f4; border-radius: 50%; transition: 0.2s; }
+    input:checked + .slider { background: #f38ba8; }
+    input:checked + .slider:before { transform: translateX(16px); background: #1e1e2e; }
+    .saved { background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 10px 14px; border-radius: 6px; font-size: 0.88rem; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <nav class="top">
+    <span class="brand">🎡 Kinovecher</span>
+    <a href="/">Дашборд</a>
+    <a href="/winners">Победители</a>
+    <a href="/watched">Бэклог</a>
+    <a href="/tokens">Токены</a>
+    <a href="/channels">Каналы</a>
+    <a href="/features">Фичи</a>
+    <a href="/users">Юзеры</a>
+    <a href="/profile">Профиль</a>
+    <span class="right">👤 {{ user.username }} · <a href="/logout">Выйти</a></span>
+  </nav>
+
+  <main class="container">
+    <h2>👥 Пользователи панели</h2>
+    {% if request.query_params.get('saved') %}
+      <div class="saved">✓ Изменения сохранены.</div>
+    {% endif %}
+    <article class="card">
+      <table>
+        <tr><th>Discord ID</th><th>Имя</th><th>Роль</th><th>Последний вход</th><th>Сделать админом</th></tr>
+        {% for discord_id, username, display_name, is_admin_flag, last_login_at in users %}
+          <tr>
+            <td class="mono">{{ discord_id }}</td>
+            <td>{{ display_name or username or '—' }}</td>
+            <td>
+              {% if is_admin_flag %}
+                <span class="badge admin">admin</span>
+              {% else %}
+                <span class="badge user">viewer</span>
+              {% endif %}
+            </td>
+            <td class="mono">{{ last_login_at[:16].replace('T', ' ') if last_login_at else '—' }}</td>
+            <td>
+              <form method="post" action="/users/{{ discord_id }}/admin" style="margin:0;">
+                <label class="switch">
+                  <input type="checkbox" name="make_admin" value="true" {% if is_admin_flag %}checked{% endif %} onchange="this.form.submit()">
+                  <span class="slider"></span>
+                </label>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="empty">Пока никто не входил. Когда юзеры залогинятся по Discord ID, они появятся здесь.</td></tr>
+        {% endfor %}
+      </table>
+    </article>
+  </main>
+</body>
+</html>

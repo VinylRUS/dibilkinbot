@@ -2,119 +2,130 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kinovecher · Панель</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/css@2/pico.min.css">
   <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #1e1e2e;
-      color: #cdd6f4;
-    }
-    .nav {
-      background: #181825;
-      padding: 14px 24px;
-      display: flex;
-      gap: 24px;
-      align-items: center;
-      border-bottom: 1px solid #313244;
-    }
-    .nav .brand { font-weight: 700; font-size: 16px; color: #89b4fa; margin-right: auto; }
-    .nav a { color: #a6adc8; text-decoration: none; font-size: 14px; }
-    .nav a:hover { color: #cdd6f4; }
-    .nav .user { color: #a6adc8; font-size: 13px; }
-    .container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
-    h2 { font-size: 18px; margin: 32px 0 16px 0; font-weight: 600; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-    .card {
-      background: #313244;
-      padding: 18px 20px;
-      border-radius: 8px;
-      border: 1px solid #45475a;
-    }
-    .card h3 { margin: 0 0 12px 0; font-size: 14px; color: #a6adc8; font-weight: 500; }
-    .stat { font-size: 22px; font-weight: 700; color: #89b4fa; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #45475a; }
-    th { color: #a6adc8; font-weight: 500; }
-    td.mono { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
-    .badge {
-      display: inline-block; padding: 2px 8px; border-radius: 10px;
-      font-size: 11px; font-weight: 500;
-    }
-    .badge.green { background: rgba(166,227,161,0.15); color: #a6e3a1; }
-    .badge.gray { background: rgba(166,173,200,0.15); color: #a6adc8; }
-    .empty { color: #6c7086; font-style: italic; }
+    body { background: #1e1e2e; color: #cdd6f4; margin: 0; }
+    nav.top { background: #181825; padding: 12px 24px; display: flex; gap: 18px; align-items: center; border-bottom: 1px solid #313244; position: sticky; top: 0; z-index: 10; }
+    nav.top .brand { font-weight: 700; color: #89b4fa; margin-right: auto; font-size: 1.05rem; }
+    nav.top a { color: #a6adc8; text-decoration: none; font-size: 0.9rem; padding: 4px 0; }
+    nav.top a:hover { color: #cdd6f4; }
+    nav.top .right { color: #a6adc8; font-size: 0.8rem; }
+    nav.top .right a { margin-left: 12px; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+    h2 { font-size: 1.3rem; margin: 28px 0 14px; color: #cdd6f4; }
+    h2:first-child { margin-top: 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    article.card { background: #313244; border: 1px solid #45475a; padding: 16px 18px; border-radius: 8px; margin: 0; }
+    article.card h3 { margin: 0 0 8px; font-size: 0.8rem; color: #a6adc8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat { font-size: 1.5rem; font-weight: 700; color: #89b4fa; }
+    .stat.green { color: #a6e3a1; }
+    .stat.red { color: #f38ba8; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; background: #313244; border-radius: 8px; overflow: hidden; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #45475a; }
+    th { color: #a6adc8; font-weight: 500; font-size: 0.82rem; }
+    td.mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 500; }
+    .badge.unconfirmed { background: rgba(249,226,164,0.15); color: #f9e2af; }
+    .badge.confirmed { background: rgba(166,227,161,0.15); color: #a6e3a1; }
+    .empty { color: #6c7086; font-style: italic; padding: 14px; text-align: center; }
+    .activity-row { padding: 8px 14px; border-bottom: 1px solid #45475a; font-size: 0.88rem; display: flex; justify-content: space-between; gap: 12px; }
+    .activity-row:last-child { border-bottom: none; }
+    .activity-type { font-weight: 600; }
+    .activity-type.winner { color: #f9e2af; }
+    .activity-type.watched { color: #a6e3a1; }
   </style>
 </head>
 <body>
-  <div class="nav">
-    <span class="brand">Kinovecher</span>
+  <nav class="top">
+    <span class="brand">🎡 Kinovecher</span>
     <a href="/">Дашборд</a>
-    <a href="/tokens">Токены</a>
-    <a href="/channels">Каналы</a>
-    <a href="/features">Фичи</a>
-    <span class="user">·  {{ user }}</span>
-    <a href="/logout">Выйти</a>
-  </div>
+    <a href="/winners">Победители</a>
+    <a href="/watched">Бэклог</a>
+    {% if user.is_admin %}
+      <a href="/tokens">Токены</a>
+      <a href="/channels">Каналы</a>
+      <a href="/features">Фичи</a>
+      <a href="/users">Юзеры</a>
+    {% endif %}
+    <a href="/profile">Профиль</a>
+    <span class="right">
+      👤 {{ user.username }}
+      <a href="/logout">Выйти</a>
+    </span>
+  </nav>
 
-  <div class="container">
+  <main class="container">
     <h2>Статус</h2>
     <div class="grid">
-      <div class="card">
+      <article class="card">
         <h3>Discord бот</h3>
-        {% set dt = settings | selectattr(0, 'equalto', 'discord_token') | first %}
-        <div class="stat">{{ "🟢 запущен" if dt and dt[3] else "🔴 токен не задан" }}</div>
-      </div>
-      <div class="card">
+        <div class="stat">🟢 запущен</div>
+      </article>
+      <article class="card">
         <h3>Pointauc</h3>
-        {% set pt = settings | selectattr(0, 'equalto', 'pointauc_token') | first %}
-        <div class="stat">{{ "🟢 подключён" if pt and pt[3] else "🔴 токен не задан" }}</div>
-      </div>
-      <div class="card">
+        <div class="stat">{{ '🟢 подключён' if saved_pointauc else '🔴 нет токена' }}</div>
+      </article>
+      <article class="card">
+        <h3>TMDB</h3>
+        <div class="stat">{{ '🟢 настроен' if saved_tmdb else '🔴 нет токена' }}</div>
+      </article>
+      <article class="card">
         <h3>Telegram</h3>
-        {% set tg = settings | selectattr(0, 'equalto', 'telegram_token') | first %}
-        <div class="stat">{{ "🟢 настроен" if tg and tg[3] else "🔴 токен не задан" }}</div>
-      </div>
+        <div class="stat">{{ '🟢 настроен' if saved_tg else '🔴 нет токена' }}</div>
+      </article>
     </div>
 
-    <h2>Сохранённые настройки</h2>
-    <div class="card">
-      <table>
-        <tr><th>Ключ</th><th>Значение</th><th>Секрет</th></tr>
-        {% for key, value, is_secret, present in settings %}
-          <tr>
-            <td class="mono">{{ key }}</td>
-            <td>{{ value }}</td>
-            <td>
-              {% if is_secret %}<span class="badge gray">secret</span>{% endif %}
-              {% if present %}<span class="badge green">✓</span>{% endif %}
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="3" class="empty">Пока ничего не сохранено.</td></tr>
-        {% endfor %}
-      </table>
-    </div>
+    <h2>Лента активности</h2>
+    <article class="card">
+      {% for item in activity %}
+        <div class="activity-row">
+          <span>
+            <span class="activity-type {{ item.type }}">{{ '🎡' if item.type == 'winner' else '🎬' }} {{ item.name }}</span>
+            {% if item.type == 'winner' %}
+              <span class="badge {{ item.confidence }}">{{ item.confidence }}</span>
+            {% elif item.rating %}
+              <span>· ⭐{{ item.rating }}/10</span>
+            {% endif %}
+          </span>
+          <span class="mono">{{ item.ts[:16].replace('T', ' ') }}</span>
+        </div>
+      {% else %}
+        <div class="empty">Пока нет событий.</div>
+      {% endfor %}
+    </article>
 
-    <h2>Последние просмотренные (топ-10)</h2>
-    <div class="card">
-      <table>
-        <tr><th>Название</th><th>Дата</th><th>Оценка</th></tr>
-        {% for title, watched_at, rating in recent_watched %}
-          <tr>
-            <td>{{ title }}</td>
-            <td class="mono">{{ watched_at[:10] }}</td>
-            <td>{{ "⭐" * rating if rating else "—" }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="3" class="empty">Бэклог пуст.</td></tr>
-        {% endfor %}
-      </table>
-    </div>
+    <h2>Последние победители колеса</h2>
+    <table>
+      <tr><th>Фильм</th><th>Дата</th><th>Статус</th></tr>
+      {% for w_id, lot_name, tmdb_id, confidence, detected_at, confirmed_at in recent_winners %}
+        <tr>
+          <td>{{ lot_name }}</td>
+          <td class="mono">{{ detected_at[:10] }}</td>
+          <td><span class="badge {{ confidence }}">{{ confidence }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3" class="empty">Пока нет победителей.</td></tr>
+      {% endfor %}
+    </table>
+
+    <h2>Последние просмотренные</h2>
+    <table>
+      <tr><th>Фильм</th><th>Дата</th><th>Оценка</th></tr>
+      {% for title, watched_at, rating in recent_watched %}
+        <tr>
+          <td>{{ title }}</td>
+          <td class="mono">{{ watched_at[:10] }}</td>
+          <td>{{ '⭐' * rating if rating else '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3" class="empty">Бэклог пуст.</td></tr>
+      {% endfor %}
+    </table>
 
     <h2>Топ авторов цитат</h2>
-    <div class="card">
+    <article class="card">
       <table>
         <tr><th>Автор</th><th>Цитат</th></tr>
         {% for author, cnt in top_quotes %}
@@ -123,7 +134,7 @@
           <tr><td colspan="2" class="empty">Цитат пока нет.</td></tr>
         {% endfor %}
       </table>
-    </div>
-  </div>
+    </article>
+  </main>
 </body>
 </html>

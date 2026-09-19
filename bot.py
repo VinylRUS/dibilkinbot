@@ -1,9 +1,10 @@
-"""Discord-бот со slash-командами: /wheel, /watched, /funword, /movienight."""
+"""Discord-бот: slash-команды /wheel, /watched, /funword, /movienight, /linktg + авто-detect победителей."""
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 
 import discord
 from discord import app_commands
@@ -11,16 +12,18 @@ from discord.ext import commands
 
 import crypto
 import db
+import tmdb
+import telegram
 from config import settings
 from pointauc import PointaucClient, PointaucError
-from telegram import send_message
+from pointauc_watcher import LotsWatcher
+from telegram import send_message, tg_escape
 
 log = logging.getLogger("bot")
 
 intents = discord.Intents.default()
 intents.message_content = False
 intents.guilds = True
-# members не нужен — закрытый сервер, модерации нет
 
 
 # === Токены: приоритет из БД (зашифрованы), fallback на env ===
@@ -31,99 +34,6 @@ async def get_token(key: str, env_value: str | None) -> str | None:
         return crypto.decrypt(raw)
     return env_value
 
-
-# === Бот ===
-
-class KinovecherBot(commands.Bot):
-    def __init__(self):
-        super().__init__(
-            command_prefix="!",  # не используется, только slash
-            intents=intents,
-            help_command=None,
-        )
-
-    async def setup_hook(self) -> None:
-        """Регистрирует cog'и с явным логированием ошибок каждой."""
-        cogs = [
-            ("WheelCog", WheelCog),
-            ("WatchedCog", WatchedCog),
-            ("QuotesCog", QuotesCog),
-            ("MovieNightCog", MovieNightCog),
-        ]
-        for name, cls in cogs:
-            try:
-                await self.add_cog(cls(self))
-                log.info("✓ Cog loaded: %s", name)
-            except Exception as e:
-                log.error("✗ Failed to load cog %s: %r", name, e, exc_info=True)
-
-        # Логируем состояние дерева сразу после загрузки
-        all_cmds = self.tree.get_commands()
-        log.info("Tree after setup_hook: %d commands", len(all_cmds))
-        for cmd in all_cmds:
-            if isinstance(cmd, app_commands.Group):
-                log.info("  /%s (group, subs: %s)", cmd.name, [s.name for s in cmd.commands])
-            else:
-                log.info("  /%s", cmd.name)
-
-    async def on_ready(self) -> None:
-        log.info("Bot logged in as %s (id=%s)", self.user, self.user.id)
-        log.info("Bot sees %d guild(s):", len(self.guilds))
-        for g in self.guilds:
-            log.info("  - '%s' (id=%s)", g.name, g.id)
-
-        # Дублируем логирование дерева — на случай если on_ready сработал раньше, чем закончился setup_hook
-        all_cmds = self.tree.get_commands()
-        log.info("Tree at on_ready: %d commands", len(all_cmds))
-
-        if not all_cmds:
-            log.error(
-                "⚠️ Tree is EMPTY at on_ready! Cogs failed to load. "
-                "See '✗ Failed to load cog' errors above."
-            )
-            return
-
-        if not self.guilds:
-            log.warning("Bot is in 0 guilds. Cache may be cold — restart in 30s.")
-            try:
-                synced = await self.tree.sync()
-                log.info("Global sync: %d commands (may take up to 1 hour to appear)", len(synced))
-            except Exception as e:
-                log.error("Global sync failed: %s", e, exc_info=True)
-            return
-
-        for guild in self.guilds:
-            # 1. Сначала копируем глобальные команды в guild-специфичные
-            try:
-                self.tree.copy_global_to(guild=guild)
-                log.info("copy_global_to OK for guild '%s'", guild.name)
-            except Exception as e:
-                log.warning("copy_global_to failed for '%s': %s", guild.name, e)
-
-            # 2. Синхронизируем
-            try:
-                synced = await self.tree.sync(guild=guild)
-                names = []
-                for c in synced:
-                    if isinstance(c, app_commands.Group):
-                        names.append(f"{c.name}/({len(c.commands)} subs)")
-                    else:
-                        names.append(c.name)
-                log.info("✓ Synced %d commands to guild '%s': %s",
-                         len(synced), guild.name, names)
-            except discord.Forbidden as e:
-                log.error(
-                    "✗ Forbidden syncing to guild '%s' (id=%s): %s. "
-                    "RE-INVITE bot with scopes: bot + applications.commands "
-                    "(Discord Developer Portal → OAuth2 → URL Generator).",
-                    guild.name, guild.id, e,
-                )
-            except Exception as e:
-                log.error("✗ Failed to sync to guild '%s' (id=%s): %s",
-                          guild.name, guild.id, e, exc_info=True)
-
-
-# === Помощники ===
 
 async def get_pointauc_client() -> PointaucClient | None:
     token = await get_token("pointauc_token", settings.pointauc_token)
@@ -138,13 +48,175 @@ async def get_tg_config() -> tuple[str | None, str | None]:
     return tg_token, tg_chat
 
 
-async def tg_crosspost(text: str) -> None:
-    """Отправить сообщение в TG-бэклог. Молча пропускает если не настроено."""
-    tg_token, tg_chat = await get_tg_config()
-    if not tg_token or not tg_chat:
-        log.debug("TG not configured, skipping crosspost")
+async def tg_crosspost(text: str, chat_id: str | None = None) -> None:
+    """Отправить сообщение в TG. Молча пропускает если не настроено."""
+    tg_token, default_chat = await get_tg_config()
+    if not tg_token:
         return
-    await send_message(tg_token, tg_chat, text)
+    target_chat = chat_id or default_chat
+    if not target_chat:
+        return
+    await send_message(tg_token, target_chat, text)
+
+
+# === Бот ===
+
+class KinovecherBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            help_command=None,
+        )
+        self.lots_watcher: LotsWatcher | None = None
+
+    async def setup_hook(self) -> None:
+        cogs = [
+            ("WheelCog", WheelCog),
+            ("WatchedCog", WatchedCog),
+            ("QuotesCog", QuotesCog),
+            ("MovieNightCog", MovieNightCog),
+            ("LinkCog", LinkCog),
+        ]
+        for name, cls in cogs:
+            try:
+                await self.add_cog(cls(self))
+                log.info("✓ Cog loaded: %s", name)
+            except Exception as e:
+                log.error("✗ Failed to load cog %s: %r", name, e, exc_info=True)
+
+        all_cmds = self.tree.get_commands()
+        log.info("Tree after setup_hook: %d commands", len(all_cmds))
+        for cmd in all_cmds:
+            if isinstance(cmd, app_commands.Group):
+                log.info("  /%s (group, subs: %s)", cmd.name, [s.name for s in cmd.commands])
+            else:
+                log.info("  /%s", cmd.name)
+
+    async def on_ready(self) -> None:
+        log.info("Bot logged in as %s (id=%s)", self.user, self.user.id)
+        log.info("Bot sees %d guild(s):", len(self.guilds))
+        for g in self.guilds:
+            log.info("  - '%s' (id=%s)", g.name, g.id)
+
+        all_cmds = self.tree.get_commands()
+        log.info("Tree at on_ready: %d commands", len(all_cmds))
+
+        if not all_cmds:
+            log.error("⚠️ Tree is EMPTY at on_ready! Cogs failed to load.")
+            return
+
+        # Запуск LotsWatcher'а (один раз)
+        if self.lots_watcher is None:
+            self.lots_watcher = LotsWatcher(on_lot_removed=self._handle_lot_removed)
+            self.lots_watcher.start(get_pointauc_client)
+            log.info("LotsWatcher started")
+
+        if not self.guilds:
+            log.warning("Bot is in 0 guilds. Cache may be cold — restart in 30s.")
+            try:
+                synced = await self.tree.sync()
+                log.info("Global sync: %d commands", len(synced))
+            except Exception as e:
+                log.error("Global sync failed: %s", e, exc_info=True)
+            return
+
+        for guild in self.guilds:
+            try:
+                self.tree.copy_global_to(guild=guild)
+            except Exception as e:
+                log.warning("copy_global_to failed for '%s': %s", guild.name, e)
+            try:
+                synced = await self.tree.sync(guild=guild)
+                names = []
+                for c in synced:
+                    if isinstance(c, app_commands.Group):
+                        names.append(f"{c.name}/({len(c.commands)} subs)")
+                    else:
+                        names.append(c.name)
+                log.info("✓ Synced %d commands to guild '%s': %s",
+                         len(synced), guild.name, names)
+            except discord.Forbidden as e:
+                log.error("✗ Forbidden syncing to guild '%s': %s. RE-INVITE with scope applications.commands.", guild.name, e)
+            except Exception as e:
+                log.error("✗ Failed to sync to guild '%s': %s", guild.name, e, exc_info=True)
+
+    async def _handle_lot_removed(self, lot_name: str, lot_id: str | None) -> None:
+        """Callback из LotsWatcher — лот исчез из колеса, потенциально победитель."""
+        log.info("Potential winner: lot_name='%s' lot_id=%s", lot_name, lot_id)
+
+        # Если уже просмотрен — пропускаем (юзер мог /watched раньше, чем детектился lot_removed)
+        if await db.is_watched(lot_name):
+            log.info("'%s' already watched — skipping winner event", lot_name)
+            return
+
+        # Ищем метаданные в кеше (могли быть добавлены через /wheel add)
+        # Поиск в movie_meta по query_title=lot_name
+        cached = await db.get_movie_meta(lot_name)
+        tmdb_id = cached[0] if cached else None
+
+        # Записываем победителя как unconfirmed
+        winner_id = await db.add_winner(lot_id, lot_name, tmdb_id, confidence="unconfirmed")
+
+        # Постим в канал #winners (если настроен)
+        winners_channel_id_str = await db.get_setting("channel_winners_id")
+        channel = None
+        if winners_channel_id_str and winners_channel_id_str.isdigit():
+            channel = self.get_channel(int(winners_channel_id_str))
+
+        if channel is not None:
+            embed = await self._build_winner_embed(lot_name, tmdb_id, winner_id, confirmed=False)
+            try:
+                await channel.send(embed=embed)
+            except Exception as e:
+                log.error("Failed to post winner to channel: %s", e)
+
+        # TG-кросс-пост победителя (в отдельный чат, если задан)
+        tg_winners_chat = await db.get_setting("tg_winners_chat_id")
+        if tg_winners_chat:
+            await tg_crosspost(
+                f"🎡 <b>Победитель колеса</b> (unconfirmed)\n<b>{tg_escape(lot_name)}</b>",
+                chat_id=tg_winners_chat,
+            )
+
+    async def _build_winner_embed(self, lot_name: str, tmdb_id: int | None,
+                                   winner_id: int, confirmed: bool) -> discord.Embed:
+        """Построить embed для победителя. Если есть TMDB meta — с постером."""
+        embed = discord.Embed(
+            title=f"🎡 Победитель колеса — {lot_name}",
+            color=0x2ECC71 if confirmed else 0xF39C12,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text=f"{'✓ confirmed' if confirmed else '⚠️ unconfirmed'} · winner #{winner_id} · используй /watched для подтверждения")
+
+        if tmdb_id:
+            meta = await tmdb.lookup_by_id(tmdb_id)
+            if meta:
+                if meta.get("year"):
+                    embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
+                if meta.get("poster_url"):
+                    embed.set_image(url=meta["poster_url"])
+                if meta.get("tagline"):
+                    embed.description = f"_{meta['tagline']}_"
+                if meta.get("plot"):
+                    plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
+                    embed.add_field(name="Описание", value=plot, inline=False)
+                rating_str = f"⭐ {meta['vote_average']}/10"
+                if meta.get("vote_count"):
+                    rating_str += f" ({meta['vote_count']} голосов)"
+                embed.add_field(name="Рейтинг", value=rating_str, inline=True)
+                if meta.get("genres"):
+                    embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=True)
+                if meta.get("runtime"):
+                    embed.add_field(name="Длительность", value=f"{meta['runtime']} мин", inline=True)
+                if meta.get("imdb_id"):
+                    embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
+                embed.add_field(name="TMDB", value="[Источник](https://www.themoviedb.org/) · *This product uses the TMDB API but is not endorsed or certified by TMDB.*", inline=False)
+        else:
+            embed.description = f"_{lot_name}_"
+            embed.add_field(name="TMDB", value="Метаданные не найдены — добавь через /wheel add для постера", inline=False)
+
+        return embed
 
 
 # === COG: Wheel ===
@@ -155,15 +227,14 @@ class WheelCog(commands.Cog):
 
     wheel = app_commands.Group(name="wheel", description="Колесо фильмов (Pointauc)")
 
-    @wheel.command(name="add", description="Добавить фильм в колесо Pointauc")
-    @app_commands.describe(title="Название фильма")
+    @wheel.command(name="add", description="Добавить фильм в колесо Pointauc + метаданные из TMDB")
+    @app_commands.describe(title="Название фильма (русское или оригинальное)")
     async def wheel_add(self, interaction: discord.Interaction, title: str):
         title = title.strip()
         if not title:
             await interaction.response.send_message("Название не может быть пустым.", ephemeral=True)
             return
 
-        # Не добавлять просмотренные
         if await db.is_watched(title):
             await interaction.response.send_message(
                 f"«{title}» уже просмотрен — его нельзя вернуть в колесо.",
@@ -180,20 +251,64 @@ class WheelCog(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
+
+        # Параллельно: добавляем в Pointauc + ищем метаданные в TMDB
+        pointauc_task = asyncio.create_task(client.add_bid(title, cost=0))
+        tmdb_task = asyncio.create_task(tmdb.lookup_movie(title))
+
         try:
-            bid_ids = await client.add_bid(title, cost=0)
+            bid_ids = await pointauc_task
         except PointaucError as e:
+            tmdb_task.cancel()
             await interaction.followup.send(f"⚠️ Pointauc error: {e}", ephemeral=True)
             return
 
-        await interaction.followup.send(
-            f"✅ «{title}» добавлен в колесо.\nBid ID: `{bid_ids[0] if bid_ids else '—'}`\n"
-            "Крутка — на pointauc.com. Победителя зафиксируй через `/watched`.",
-            ephemeral=True,
-        )
+        meta = await tmdb_task
+
+        # Строим ответ с метаданными если есть
+        if meta:
+            embed = discord.Embed(
+                title=f"✅ «{meta['title']}» добавлен в колесо",
+                color=0x2ECC71,
+                timestamp=datetime.utcnow(),
+            )
+            if meta.get("original_title") and meta["original_title"] != meta["title"]:
+                embed.add_field(name="Оригинал", value=meta["original_title"], inline=True)
+            if meta.get("year"):
+                embed.add_field(name="Год", value=meta["year"], inline=True)
+            if meta.get("vote_average"):
+                embed.add_field(name="Рейтинг", value=f"⭐ {meta['vote_average']}/10", inline=True)
+            if meta.get("genres"):
+                embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=False)
+            if meta.get("plot"):
+                plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
+                embed.add_field(name="Описание", value=plot, inline=False)
+            if meta.get("poster_url"):
+                embed.set_thumbnail(url=meta["poster_url"])
+            embed.set_footer(text=f"Pointauc bid: {bid_ids[0] if bid_ids else '—'} · TMDB id: {meta['tmdb_id']} · *uses TMDB API*")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.followup.send(
+                f"✅ «{title}» добавлен в колесо.\nBid ID: `{bid_ids[0] if bid_ids else '—'}`\n"
+                "_TMDB метаданные недоступны — задайте токен в панели, либо фильм не найден._",
+                ephemeral=True,
+            )
 
     @wheel.command(name="list", description="Показать текущие пункты колеса (Pointauc)")
     async def wheel_list(self, interaction: discord.Interaction):
+        # Если LotsWatcher активен — отдаём из кеша (быстро)
+        if self.bot.lots_watcher and self.bot.lots_watcher.get_known_lots():
+            lots = self.bot.lots_watcher.get_known_lots()
+            lines = [f"**Колесо Pointauc** ({len(lots)} шт., из кеша):"]
+            for i, (lot_id, name) in enumerate(lots.items(), 1):
+                lines.append(f"{i}. **{name}**")
+            text = "\n".join(lines)
+            if len(text) > 1900:
+                text = text[:1900] + "\n... (обрезано)"
+            await interaction.response.send_message(text, ephemeral=True)
+            return
+
+        # Fallback: прямой запрос
         client = await get_pointauc_client()
         if client is None:
             await interaction.response.send_message(
@@ -231,7 +346,7 @@ class WatchedCog(commands.Cog):
     def __init__(self, bot: KinovecherBot):
         self.bot = bot
 
-    @app_commands.command(name="watched", description="Пометить фильм просмотренным + пост в TG-бэклог")
+    @app_commands.command(name="watched", description="Подтвердить просмотр фильма + пост в TG-бэклог")
     @app_commands.describe(
         title="Название фильма (точно как в колесе)",
         rating="Оценка 1-10 (опционально)",
@@ -250,20 +365,32 @@ class WatchedCog(commands.Cog):
             )
             return
 
-        # Пост в TG
+        # Авто-подтверждение недавних unconfirmed победителей (за последние 30 мин)
+        recent_unconfirmed = await db.get_recent_unconfirmed_winners(minutes=30)
+        confirmed_winner = None
+        for w_id, lot_name, tmdb_id in recent_unconfirmed:
+            if lot_name.lower() == title.lower():
+                await db.confirm_winner(w_id, interaction.user.id)
+                confirmed_winner = (w_id, lot_name, tmdb_id)
+                break
+
+        # TG-бэклог
         stars = "⭐" * rating if rating else "—"
         tg_text = (
-            f"🎬 <b>{title}</b>\n"
+            f"🎬 <b>{tg_escape(title)}</b>\n"
             f"Дата: {datetime.utcnow().strftime('%Y-%m-%d')}\n"
             f"Оценка: {stars}"
         )
         await tg_crosspost(tg_text)
 
-        await interaction.response.send_message(
+        # Discord ответ
+        msg = (
             f"✅ «{title}» добавлен в бэклог просмотренного. "
-            f"{'Оценка: ' + stars if rating else 'Без оценки.'}",
-            ephemeral=False,  # команда публичная — сервер видит
+            f"{'Оценка: ' + stars if rating else 'Без оценки.'}"
         )
+        if confirmed_winner:
+            msg += f"\n\n✓ Подтверждён победитель колеса #{confirmed_winner[0]}."
+        await interaction.response.send_message(msg, ephemeral=False)
 
 
 # === COG: Quotes ===
@@ -281,7 +408,6 @@ class QuotesCog(commands.Cog):
             await interaction.response.send_message("Автор и текст обязательны.", ephemeral=True)
             return
 
-        # Канал цитатника из настроек
         quotes_channel_id_str = await db.get_setting("channel_quotes_id")
         if not quotes_channel_id_str or not quotes_channel_id_str.isdigit():
             await interaction.response.send_message(
@@ -292,15 +418,10 @@ class QuotesCog(commands.Cog):
 
         channel = self.bot.get_channel(int(quotes_channel_id_str))
         if channel is None:
-            await interaction.response.send_message(
-                "❌ Канал #цитатник недоступен боту.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("❌ Канал #цитатник недоступен боту.", ephemeral=True)
             return
 
-        # Если author — это <@ID>, достаём Member из гильдии, берём display_name.
-        # Если не Member — оставляем как plain text (кто-то мог передать имя текстом).
-        author_display = author  # что пойдёт в embed и БД
+        author_display = author
         author_user_id = None
         author_member = None
         if author.startswith("<@") and author.endswith(">"):
@@ -314,19 +435,14 @@ class QuotesCog(commands.Cog):
                 if author_member is not None:
                     author_display = author_member.display_name
                 else:
-                    # Member не в кеше — попробуем fetch через API (медленнее, но точно)
                     try:
                         author_member = await interaction.guild.fetch_member(author_user_id)
                         author_display = author_member.display_name
                     except (discord.NotFound, discord.Forbidden):
-                        # Не вышло — оставляем ID как fallback, но не сырой <@...>
                         author_display = f"User {author_user_id}"
 
         quote_id = await db.add_quote(author_display, author_user_id, text, interaction.user.id)
 
-        # Embed: упоминание записавшего в footer (через display_name),
-        # автор в set_author (display_name участника или исходный текст),
-        # плюс отдельное поле с реальным mention автора — Discord парсит mentions в field values.
         embed = discord.Embed(
             description=f"_{text}_",
             color=0xF1C40F,
@@ -334,13 +450,7 @@ class QuotesCog(commands.Cog):
         )
         embed.set_author(name=author_display)
         if author_member is not None:
-            # Кликабельная ссылка на профиль автора (внешний jump-URL не работает для пользователей,
-            # но mention в поле — парсится)
-            embed.add_field(
-                name="Автор",
-                value=author_member.mention,
-                inline=True,
-            )
+            embed.add_field(name="Автор", value=author_member.mention, inline=True)
         embed.set_footer(text=f"Записал: {interaction.user.display_name} · #{quote_id}")
 
         await channel.send(embed=embed)
@@ -349,10 +459,9 @@ class QuotesCog(commands.Cog):
             ephemeral=True,
         )
 
-        # Опциональный кросс-пост в TG
         tg_quotes_enabled = await db.get_setting("tg_crosspost_quotes")
         if tg_quotes_enabled == "1":
-            tg_text = f"💬 <b>{author}</b>\n\n<i>{text}</i>"
+            tg_text = f"💬 <b>{tg_escape(author_display)}</b>\n\n<i>{tg_escape(text)}</i>"
             await tg_crosspost(tg_text)
 
 
@@ -375,7 +484,6 @@ class MovieNightCog(commands.Cog):
         time: str,
         description: str | None = None,
     ):
-        # Парсим дату/время
         try:
             dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
         except ValueError:
@@ -386,19 +494,14 @@ class MovieNightCog(commands.Cog):
             return
 
         if dt < datetime.utcnow():
-            await interaction.response.send_message(
-                "❌ Дата в прошлом. Укажи будущую дату.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("❌ Дата в прошлом. Укажи будущую дату.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=False, thinking=False)
 
-        # Канал анонсов + роль для пинга
         announce_channel_id_str = await db.get_setting("channel_announce_id")
         role_id_str = await db.get_setting("role_movie_ping_id")
 
-        # Создаём Scheduled Event
         guild = interaction.guild
         event = None
         if guild:
@@ -414,7 +517,6 @@ class MovieNightCog(commands.Cog):
             except Exception as e:
                 log.warning("Failed to create scheduled event: %s", e)
 
-        # Записываем в БД
         await db.add_movie_night(
             title=description,
             scheduled_at=dt,
@@ -422,7 +524,6 @@ class MovieNightCog(commands.Cog):
             event_id=event.id if event else None,
         )
 
-        # Постим анонс
         announce_channel = None
         if announce_channel_id_str and announce_channel_id_str.isdigit():
             announce_channel = self.bot.get_channel(int(announce_channel_id_str))
@@ -451,12 +552,85 @@ class MovieNightCog(commands.Cog):
         else:
             await interaction.followup.send(embed=embed, content=role_mention)
 
-        # Опциональный кросс-пост в TG
         tg_announce_enabled = await db.get_setting("tg_crosspost_announce")
         if tg_announce_enabled == "1":
             tg_text = (
                 f"🎬 <b>Киновечер</b>\n"
                 f"Когда: {dt.strftime('%d.%m.%Y %H:%M UTC')}\n"
-                f"{description or ''}"
+                f"{tg_escape(description) if description else ''}"
             )
             await tg_crosspost(tg_text)
+
+
+# === COG: TG Link ===
+
+class LinkCog(commands.Cog):
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    @app_commands.command(name="linktg", description="Сгенерировать код для привязки Telegram-аккаунта")
+    async def linktg(self, interaction: discord.Interaction):
+        # Проверяем, не привязан ли уже
+        existing = await db.get_tg_link(interaction.user.id)
+        if existing and existing[5]:  # linked_at
+            await interaction.response.send_message(
+                f"✓ Ваш Telegram уже привязан: @{existing[2] or 'без username'}.\n"
+                "Если хотите перепривязать — попросите админа сбросить связь в панели.",
+                ephemeral=True,
+            )
+            return
+
+        # Генерируем 6-значный код
+        code = "".join(secrets.choice("0123456789") for _ in range(6))
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+        await db.create_tg_link_code(interaction.user.id, code, expires_at)
+
+        # Проверяем что TG-бот настроен
+        tg_token, _ = await get_tg_config()
+        if not tg_token:
+            await interaction.response.send_message(
+                "❌ TG-бот не настроен администратором. Невозможно привязать аккаунт.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(
+            f"🔑 Ваш код привязки: **`{code}`**\n\n"
+            "Инструкция:\n"
+            "1. Найдите бота в Telegram (имя бота уточните у админа)\n"
+            "2. Отправьте боту команду `/start <код>` или просто `<код>`\n"
+            "3. Код действителен 10 минут\n\n"
+            "После привязки вы будете получать персональные уведомления в TG.",
+            ephemeral=True,
+        )
+
+
+# === Обработка входящих сообщений в TG (для /linktg кода) ===
+# Это делается через long-polling в отдельной таске — добавляется в main.py.
+# Реализация — в tg_bot.py (см. ниже).
+
+async def handle_tg_link_message(text: str, tg_user_id: int, tg_username: str | None) -> str | None:
+    """Если text — это код привязки, пытаемся привязать. Возвращает ответное сообщение или None."""
+    text = text.strip()
+    if not text:
+        return None
+
+    # Принимаем "/start CODE" или просто "CODE"
+    if text.startswith("/start "):
+        code = text[7:].strip()
+    elif text.startswith("/start"):
+        return ("Привет! Я бот киновечеров. Чтобы привязать аккаунт, "
+                "отправьте код из команды /linktg в Discord.")
+    elif len(text) == 6 and text.isdigit():
+        code = text
+    else:
+        return None
+
+    discord_id = await db.verify_tg_link(code, tg_user_id, tg_username)
+    if discord_id is not None:
+        return (f"✅ Аккаунт привязан!\n"
+                f"Теперь вы будете получать персональные уведомления о киновечерах "
+                f"и победителях колеса.\n\nВаш Discord ID: {discord_id}")
+    else:
+        return "❌ Код недействителен или истёк. Сгенерируйте новый через /linktg в Discord."

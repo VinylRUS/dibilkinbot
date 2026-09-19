@@ -41,6 +41,9 @@ class Settings:
     # Pointauc
     pointauc_token: str | None
 
+    # TMDB (опционально из env, обычно задаётся через админ-панель)
+    tmdb_token: str | None
+
     @classmethod
     def from_env(cls) -> "Settings":
         port = int(os.environ.get("PORT", "8000"))
@@ -100,6 +103,7 @@ class Settings:
             telegram_token=os.environ.get("TELEGRAM_TOKEN") or None,
             telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID") or None,
             pointauc_token=os.environ.get("POINTAUC_TOKEN") or None,
+            tmdb_token=os.environ.get("TMDB_TOKEN") or None,
         )
 
 
