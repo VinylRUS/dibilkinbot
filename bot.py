@@ -75,6 +75,11 @@ def _get_bot():
     return _bot_ref
 
 
+def get_bot_instance():
+    """Публичный accessor для web.py / main.py — возвращает активный bot или None."""
+    return _bot_ref if _bot_running else None
+
+
 def _set_bot(b):
     global _bot_ref
     _bot_ref = b

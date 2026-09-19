@@ -542,8 +542,8 @@ async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str
 
     # Уведомить Discord через бота
     try:
-        from main import get_bot_instance
-        bot = get_bot_instance()
+        import bot as bot_module
+        bot = bot_module.get_bot_instance()
         if bot:
             await bot.on_wheel_spin_completed(winner)
     except Exception as e:
@@ -626,10 +626,10 @@ async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], s
     """Через 5 секунд разослать результат elimination-спина (кого удалили)."""
     import asyncio
     await asyncio.sleep(5)
-    await ws_manager.broadcast({
-        "type": "elimination_result",
-        "payload": {"eliminated": eliminated, "remaining_count": len(remaining)},
-    })
+    await ws_manager.broadcast(
+        "elimination_result",
+        {"eliminated": eliminated, "remaining_count": len(remaining)},
+    )
     await ws_manager.broadcast_wheel_updated(remaining)
 
 
