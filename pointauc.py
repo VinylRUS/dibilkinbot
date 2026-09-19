@@ -10,7 +10,11 @@ Endpoint'ы взяты из официальной .NET-либы Pointauc.Api (h
 """
 from __future__ import annotations
 
+import logging
+
 import httpx
+
+log = logging.getLogger("pointauc")
 
 POINTAUC_BASE = "https://pointauc.com/api/oshino"
 
@@ -41,7 +45,7 @@ class PointaucClient:
                 {
                     "message": message,
                     "cost": cost,
-                    "insertStrategy": "Force",  # создать новый lot, а не дописывать в существующий
+                    "insertStrategy": "Force",
                 }
             ]
         }
@@ -53,7 +57,8 @@ class PointaucClient:
                     headers=self._headers(),
                 )
             except httpx.RequestError as e:
-                raise PointaucError(f"Pointauc недоступен: {e}") from e
+                log.warning("add_bid RequestError: type=%s, str=%s, repr=%r", type(e).__name__, str(e), e)
+                raise PointaucError(f"Pointauc недоступен: {type(e).__name__}: {e}") from e
 
             if resp.status_code in (401, 403):
                 raise PointaucError("Pointauc: неверный или истёкший Personal Token")
@@ -78,7 +83,8 @@ class PointaucClient:
                     headers=self._headers(),
                 )
             except httpx.RequestError as e:
-                raise PointaucError(f"Pointauc недоступен: {e}") from e
+                log.warning("list_lots RequestError: type=%s, str=%s, repr=%r", type(e).__name__, str(e), e)
+                raise PointaucError(f"Pointauc недоступен: {type(e).__name__}: {e}") from e
 
             if resp.status_code in (401, 403):
                 raise PointaucError("Pointauc: неверный или истёкший Personal Token")

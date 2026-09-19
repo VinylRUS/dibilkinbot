@@ -36,14 +36,21 @@ def create_session(payload: dict) -> str:
 
 
 def read_session(token: str) -> dict | None:
+    """Возвращает payload (dict) из сессии или None."""
     try:
         data = serializer.loads(token, max_age=SESSION_TTL)
-        return data.get("u")
+        # В старом формате data = {"u": "admin_string", "t": ...}, новый формат data = {"u": dict, "t": ...}
+        # Поддерживаем оба: возвращаем только dict-payload, старый string-формат игнорируем
+        user = data.get("u") if isinstance(data, dict) else None
+        if isinstance(user, dict):
+            return user
+        return None
     except BadSignature:
         return None
 
 
 async def get_current_user(request: Request) -> dict | None:
+    """Возвращает user dict из сессии, или None если сессия невалидна/протухла/старого формата."""
     token = request.cookies.get("session")
     if not token:
         return None

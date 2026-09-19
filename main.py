@@ -22,6 +22,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     stream=sys.stdout,
 )
+# Глушим спам от httpx INFO логов (TG getUpdates каждый раз пишет "HTTP Request: POST ...")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("main")
 
 TG_API = "https://api.telegram.org/bot{token}/{method}"
