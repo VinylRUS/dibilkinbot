@@ -1,8 +1,9 @@
-# Dockerfile для BotHost Pro. Структура архива плоская (все .py в корне).
+# Dockerfile для BotHost Pro.
 #
-# BotHost разворачивает Git-репо в /app. Папка /app/data монтируется BotHost'ом
-# как персистентный volume — туда кладём SQLite. ВАЖНО: не копируем data/ из
-# build context в образ, иначе при git-push данные затрутся.
+# Стратегия: копируем ВЕСЬ build context (корень репо), но .dockerignore
+# исключает data/, __pycache__/, .venv/, .env и т.п.
+# Так нам не нужно беспокоиться о том, что пустая папка static/ не сохранилась
+# через Git — она создаётся через mkdir -p внутри образа.
 
 FROM python:3.11-slim
 
@@ -10,21 +11,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# IMPORTANT (BotHost gotcha): /app монтируется из Git. Бинарники и venv кладём
-# в /srv — они не должны перетираться bind-mount'ом.
+# IMPORTANT (BotHost gotcha): /app монтируется BotHost'ом из Git.
+# Кладём код в /srv/app — там bind-mount его не затрёт.
 WORKDIR /srv/app
 
 COPY requirements.txt /srv/app/requirements.txt
 RUN python -m venv /srv/venv \
     && /srv/venv/bin/pip install --no-cache-dir -r /srv/app/requirements.txt
 
-# Копируем только код и шаблоны — НЕ data/ (она персистентная на BotHost)
-COPY *.py /srv/app/
-COPY templates /srv/app/templates
-COPY static /srv/app/static
+# Копируем весь build context. .dockerignore исключает data/, venv и т.п.
+COPY . /srv/app/
 
-# Создаём /app/data на случай если BotHost не примонтировал volume
-RUN mkdir -p /app/data
+# Гарантируем существование служебных папок (на случай если Git не сохранил пустые)
+RUN mkdir -p /srv/app/static /srv/app/templates /app/data
 
 ENV DATABASE_PATH=/app/data/bot.db
 ENV PYTHONUNBUFFERED=1
