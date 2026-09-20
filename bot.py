@@ -247,56 +247,48 @@ class KinovecherBot(commands.Bot):
     async def on_wheel_spin_completed(self, winner: dict) -> None:
         """Вызывается из web.py после завершения спина колеса.
         Отправляет embed с победителем в Discord-канал #winners (если настроен).
+        Также постит в Telegram с постером и метаданными (если настроен).
         """
         log.info("Wheel spin completed, winner: %s", winner)
+
+        # 1. Получаем метаданные (один раз для Discord + Telegram)
+        meta = await self._resolve_winner_meta(winner)
+
+        # 2. Discord пост
         winners_channel_id_str = await db.get_setting("channel_winners_id")
-        if not winners_channel_id_str or not winners_channel_id_str.isdigit():
+        if winners_channel_id_str and winners_channel_id_str.isdigit():
+            channel = self.get_channel(int(winners_channel_id_str))
+            if channel is not None:
+                embed = self._build_winner_embed(winner, meta)
+                try:
+                    await channel.send(embed=embed)
+                except Exception as e:
+                    log.error("Failed to post winner to Discord channel: %s", e)
+            else:
+                log.warning("Winners channel %s not found", winners_channel_id_str)
+        else:
             log.info("No channel_winners_id set, skipping Discord post")
-            return
-        channel = self.get_channel(int(winners_channel_id_str))
-        if channel is None:
-            log.warning("Winners channel %s not found", winners_channel_id_str)
-            return
 
-        # Строим embed победителя с метаданными Кинопоиска если есть
-        embed = await self._build_winner_embed_local(winner)
-        try:
-            await channel.send(embed=embed)
-        except Exception as e:
-            log.error("Failed to post winner to channel: %s", e)
+        # 3. Telegram пост (с постером и метаданными если есть)
+        await self._post_winner_to_telegram(winner, meta)
 
-        # TG кросс-пост победителя в отдельный чат (если задан)
-        tg_winners_chat = await db.get_setting("tg_winners_chat_id")
-        if tg_winners_chat:
-            await tg_crosspost(
-                f"🎡 <b>Победитель колеса!</b>\n<b>{tg_escape(winner['name'])}</b>",
-                chat_id=tg_winners_chat,
-            )
-
-    async def _build_winner_embed_local(self, winner: dict) -> "discord.Embed":
-        """Построить embed для победителя локального колеса.
-        Если есть kp_id — подтягиваем метаданные из БД/Кинопоиска.
-        Если kp_id нет (фильм добавлен без метаданных) — пробуем найти по названию прямо сейчас.
+    async def _resolve_winner_meta(self, winner: dict) -> dict | None:
+        """Получить метаданные фильма из БД/Кинопоиска.
+        Если kp_id есть — lookup_by_id. Если нет — lookup_movie по названию.
+        Возвращает meta dict или None.
         """
         from kinopoisk import lookup_by_id, lookup_movie
-        embed = discord.Embed(
-            title=f"🎡 Победитель колеса — {winner['name']}",
-            color=0x2ECC71,  # зелёный — confirmed
-            timestamp=datetime.utcnow(),
-        )
-        embed.set_footer(text=f"✓ confirmed · автоматически из веб-панели")
 
-        # kp_id — это ID фильма в Кинопоиске (поле называется tmdb_id для совместимости со старой схемой БД)
         kp_id = winner.get("tmdb_id")
 
-        # Если kp_id нет — пробуем найти метаданные по названию прямо сейчас
+        # Если kp_id нет — пробуем найти по названию
         if not kp_id:
             log.info("Winner '%s' has no kp_id — trying lookup_movie() by name", winner["name"])
             meta = await lookup_movie(winner["name"])
             if meta:
                 kp_id = meta.get("tmdb_id")
                 log.info("Found kp_id=%s for '%s' via lookup_movie", kp_id, winner["name"])
-                # Обновляем запись в wheel_items чтобы не искать повторно
+                # Обновляем запись в wheel_items
                 try:
                     async with db._connect() as conn:
                         await conn.execute(
@@ -306,34 +298,144 @@ class KinovecherBot(commands.Bot):
                         await conn.commit()
                 except Exception as e:
                     log.warning("Failed to update wheel_items.tmdb_id: %s", e)
+                return meta
+            return None
 
-        # Если kp_id есть (изначально или после lookup) — подтягиваем полные метаданные
-        if kp_id:
-            meta = await lookup_by_id(kp_id)
-            if meta:
-                if meta.get("year"):
-                    embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
-                if meta.get("poster_url"):
-                    embed.set_image(url=meta["poster_url"])
-                if meta.get("tagline"):
-                    embed.description = f"_{meta['tagline']}_"
-                if meta.get("plot"):
-                    plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
-                    embed.add_field(name="Описание", value=plot, inline=False)
-                rating_str = f"⭐ {meta['vote_average']}/10"
-                if meta.get("vote_count"):
-                    rating_str += f" ({meta['vote_count']} голосов)"
-                embed.add_field(name="Рейтинг", value=rating_str, inline=True)
-                if meta.get("genres"):
-                    embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=True)
-                if meta.get("imdb_id"):
-                    embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
-                embed.add_field(name="Кинопоиск", value="[Источник](https://kinopoisk.dev/) · *использует kinopoisk.dev API*", inline=False)
+        # Если kp_id есть — lookup_by_id
+        return await lookup_by_id(kp_id)
+
+    def _build_winner_embed(self, winner: dict, meta: dict | None) -> "discord.Embed":
+        """Построить Discord embed из метаданных."""
+        embed = discord.Embed(
+            title=f"🎡 Победитель колеса — {winner['name']}",
+            color=0x2ECC71,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text="✓ confirmed · автоматически из веб-панели")
+
+        if meta:
+            if meta.get("year"):
+                embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
+            if meta.get("poster_url"):
+                embed.set_image(url=meta["poster_url"])
+            if meta.get("tagline"):
+                embed.description = f"_{meta['tagline']}_"
+            if meta.get("plot"):
+                plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
+                embed.add_field(name="Описание", value=plot, inline=False)
+            rating_str = f"⭐ {meta['vote_average']}/10"
+            if meta.get("vote_count"):
+                rating_str += f" ({meta['vote_count']} голосов)"
+            embed.add_field(name="Рейтинг", value=rating_str, inline=True)
+            if meta.get("genres"):
+                embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=True)
+            if meta.get("imdb_id"):
+                embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
+            embed.add_field(name="Кинопоиск", value="[Источник](https://kinopoiskapiunofficial.tech/)", inline=False)
         else:
             embed.description = f"_{winner['name']}_"
-            embed.add_field(name="Кинопоиск", value="Метаданные не найдены — бот не сможет показать постер", inline=False)
+            embed.add_field(name="Кинопоиск", value="Метаданные не найдены", inline=False)
 
         return embed
+
+    async def _post_winner_to_telegram(self, winner: dict, meta: dict | None) -> None:
+        """Пост победителя в Telegram.
+        Если есть метаданные (постер) → send_photo с HTML caption + кнопкой.
+        Если нет → send_message с простым текстом.
+        Использует tg_winners_chat_id + tg_winners_thread_id (если заданы).
+        Fallback на telegram_chat_id + telegram_thread_id.
+        """
+        # Выбираем чат: приоритет tg_winners_chat_id, потом telegram_chat_id
+        tg_chat = await db.get_setting("tg_winners_chat_id") or await db.get_setting("telegram_chat_id")
+        if not tg_chat:
+            log.info("No Telegram chat configured, skipping TG post")
+            return
+
+        # thread_id: приоритет tg_winners_thread_id, потом telegram_thread_id
+        tg_thread = await db.get_setting("tg_winners_thread_id") or await db.get_setting("telegram_thread_id")
+        tg_thread_id = int(tg_thread) if tg_thread and tg_thread.isdigit() else None
+
+        # Получаем токен
+        from telegram import send_message, send_photo
+        raw_token = await db.get_setting("telegram_token")
+        if raw_token:
+            tg_token = crypto.decrypt(raw_token)
+        else:
+            tg_token = settings.telegram_token
+        if not tg_token:
+            log.info("No Telegram token, skipping TG post")
+            return
+
+        # URL веб-панели для кнопки "Оценить"
+        panel_url = await db.get_setting("panel_base_url") or "https://your-panel-domain"
+        rate_button = {
+            "inline_keyboard": [[
+                {"text": "📊 Оценить в панели", "url": f"{panel_url}/winners"},
+            ]]
+        }
+
+        if meta and meta.get("poster_url"):
+            # Rich post: фото + HTML caption + кнопка
+            title = meta.get("title", winner["name"])
+            year = meta.get("year", "")
+            rating = meta.get("vote_average", 0)
+            votes = meta.get("vote_count", 0)
+            genres = meta.get("genres", [])
+            runtime = meta.get("runtime")
+            plot = meta.get("plot", "")
+            imdb_id = meta.get("imdb_id")
+
+            caption_parts = [
+                "🎡 <b>Победитель колеса!</b>\n",
+                f"🎬 <b>{tg_escape(title)}</b>",
+            ]
+            if year:
+                caption_parts.append(f"({tg_escape(year)})")
+            caption_parts.append("\n")
+
+            if rating:
+                rating_str = f"⭐ <b>{rating}</b>/10"
+                if votes:
+                    rating_str += f" ({votes:,} голосов)"
+                caption_parts.append(rating_str + "\n")
+
+            if genres:
+                caption_parts.append(f"🎭 {tg_escape(', '.join(genres))}\n")
+
+            if runtime:
+                caption_parts.append(f"⏱ {runtime} мин\n")
+
+            if plot:
+                # Обрезаем чтобы уложиться в 1024 символа caption лимита
+                max_plot = 500
+                if len(plot) > max_plot:
+                    plot = plot[:max_plot].rstrip() + "…"
+                caption_parts.append(f"\n{tg_escape(plot)}\n")
+
+            caption_parts.append(f"\n📺 <a href=\"https://kinopoisk.ru/film/{meta.get('tmdb_id', '')}/\">Кинопоиск</a>")
+            if imdb_id:
+                caption_parts.append(f" · <a href=\"https://www.imdb.com/title/tt{imdb_id}/\">IMDb</a>")
+
+            caption = "".join(caption_parts)
+
+            log.info("Posting winner to TG (photo+caption, %d chars)", len(caption))
+            await send_photo(
+                tg_token, tg_chat, meta["poster_url"], caption,
+                thread_id=tg_thread_id, reply_markup=rate_button,
+            )
+        else:
+            # Fallback: простой текст без постера
+            text = (
+                f"🎡 <b>Победитель колеса!</b>\n\n"
+                f"🎬 <b>{tg_escape(winner['name'])}</b>\n"
+                f"<i>Метаданные не найдены</i>"
+            )
+            log.info("Posting winner to TG (text only, no poster)")
+            await send_message(
+                tg_token, tg_chat, text,
+                thread_id=tg_thread_id,
+            )
+
 
 
 # === COG: Wheel ===

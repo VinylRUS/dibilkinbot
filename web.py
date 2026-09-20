@@ -348,7 +348,9 @@ KNOWN_CHANNELS = [
     ("channel_winners_id", "ID канала #winners (куда постить победителей колеса)"),
     ("role_movie_ping_id", "ID роли для пинга анонсов"),
     ("telegram_chat_id", "Telegram chat_id для бэклога просмотренных"),
+    ("telegram_thread_id", "Telegram thread_id (ID темы форума, опционально)"),
     ("tg_winners_chat_id", "Telegram chat_id для победителей колеса (опционально)"),
+    ("tg_winners_thread_id", "Telegram thread_id для победителей колеса (опционально)"),
 ]
 
 
@@ -371,7 +373,9 @@ async def channels_save(
     channel_winners_id: str = Form(""),
     role_movie_ping_id: str = Form(""),
     telegram_chat_id: str = Form(""),
+    telegram_thread_id: str = Form(""),
     tg_winners_chat_id: str = Form(""),
+    tg_winners_thread_id: str = Form(""),
 ):
     updates = {
         "channel_quotes_id": channel_quotes_id.strip(),
@@ -379,7 +383,9 @@ async def channels_save(
         "channel_winners_id": channel_winners_id.strip(),
         "role_movie_ping_id": role_movie_ping_id.strip(),
         "telegram_chat_id": telegram_chat_id.strip(),
+        "telegram_thread_id": telegram_thread_id.strip(),
         "tg_winners_chat_id": tg_winners_chat_id.strip(),
+        "tg_winners_thread_id": tg_winners_thread_id.strip(),
     }
     for key, val in updates.items():
         if val:
