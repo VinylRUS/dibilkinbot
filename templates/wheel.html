@@ -530,7 +530,8 @@
     // === WebSocket ===
     function connectWS() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${location.host}/ws/wheel`);
+      // Передаём guild_id как query-параметр чтобы WS получил правильный список лотов
+      const ws = new WebSocket(`${protocol}//${location.host}/ws/wheel?guild_id={{ current_guild_id | default(0) }}`);
 
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);

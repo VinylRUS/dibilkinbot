@@ -760,6 +760,7 @@ async def wheel_page(request: Request, _user: dict = Depends(require_user)):
     return templates.TemplateResponse(request, "wheel.html", {
         "user": _user,
         "items": items,
+        "current_guild_id": guild_id,
     })
 
 
@@ -954,13 +955,21 @@ async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], s
 
 @app.websocket("/ws/wheel")
 async def ws_wheel(websocket: WebSocket):
-    """WebSocket для подписки на обновления колеса."""
+    """WebSocket для подписки на обновления колеса.
+    guild_id передаётся как query-параметр: /ws/wheel?guild_id=123
+    """
     import json
+    # Читаем guild_id из query-параметров (по умолчанию 0)
+    guild_id_str = websocket.query_params.get("guild_id", "0")
+    try:
+        guild_id = int(guild_id_str)
+    except (ValueError, TypeError):
+        guild_id = 0
+
     await ws_manager.connect(websocket)
     try:
-        # При первом подключении сразу шлём текущее состояние
-        # WS не имеет сессии — используем default guild_id=0
-        items = await db.g_list_wheel_items(0, active_only=True)
+        # При первом подключении сразу шлём текущее состояние для этого guild
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
         await websocket.send_text(json.dumps({
             "type": "wheel_updated",
             "payload": {"items": items, "count": len(items)},
