@@ -779,10 +779,17 @@ async def wheel_page(request: Request, _user: dict = Depends(require_user)):
     """Страница с Canvas-анимацией колеса."""
     guild_id = get_current_guild_id(_user)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
+
+    # Статус filmnight
+    import guild as guild_module
+    await guild_module.init_guild_tables(guild_id)
+    filmnight = await db.g_get_active_filmnight(guild_id)
+
     return templates.TemplateResponse(request, "wheel.html", {
         "user": _user,
         "items": items,
         "current_guild_id": guild_id,
+        "filmnight": filmnight,
     })
 
 
@@ -793,6 +800,55 @@ async def api_wheel_items(_user: dict = Depends(require_user)):
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     return JSONResponse({"items": items, "count": len(items)})
 
+
+# === FilmNight API (управление сбором фильмов из веб-панели) ===
+
+@app.get("/api/filmnight/status")
+async def api_filmnight_status(_user: dict = Depends(require_user)):
+    """Статус активного сбора фильмов."""
+    guild_id = get_current_guild_id(_user)
+    import guild as guild_module
+    await guild_module.init_guild_tables(guild_id)
+    fn = await db.g_get_active_filmnight(guild_id)
+    if not fn:
+        return JSONResponse({"active": False})
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
+    unique_users = len(set(item["added_by"] for item in items)) if items else 0
+    return JSONResponse({
+        "active": True,
+        "id": fn["id"],
+        "max_per_user": fn["max_per_user"],
+        "started_by": fn["started_by"],
+        "started_at": fn["started_at"],
+        "items_count": len(items),
+        "unique_users": unique_users,
+    })
+
+
+@app.post("/api/filmnight/start")
+async def api_filmnight_start(
+    _user: dict = Depends(require_user),
+    max_per_user: int = Form(3),
+):
+    """Запустить сбор фильмов из веб-панели."""
+    guild_id = get_current_guild_id(_user)
+    import guild as guild_module
+    await guild_module.init_guild_tables(guild_id)
+    user_discord_id = _user.get("discord_id", 0)
+    fn_id = await db.g_start_filmnight(guild_id, user_discord_id, max_per_user)
+    return JSONResponse({"ok": True, "id": fn_id, "max_per_user": max_per_user})
+
+
+@app.post("/api/filmnight/end")
+async def api_filmnight_end(_user: dict = Depends(require_user)):
+    """Завершить сбор фильмов из веб-панели."""
+    guild_id = get_current_guild_id(_user)
+    user_discord_id = _user.get("discord_id", 0)
+    completed = await db.g_complete_filmnight(guild_id, user_discord_id)
+    return JSONResponse({"ok": completed})
+
+
+# === Wheel API ===
 
 @app.post("/api/wheel/items")
 async def api_add_wheel_item(

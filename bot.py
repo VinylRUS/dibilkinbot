@@ -198,6 +198,10 @@ class KinovecherBot(commands.Bot):
             except Exception as e:
                 log.warning("copy_global_to failed for '%s': %s", guild.name, e)
             try:
+                # Полная очистка старых команд перед синхронизацией
+                # Это нужно когда структура команд изменилась (например /filmnight → /filmnight start)
+                self.tree.clear_commands(guild=guild)
+                self.tree.copy_global_to(guild=guild)
                 synced = await self.tree.sync(guild=guild)
                 names = []
                 for c in synced:

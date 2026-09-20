@@ -263,11 +263,40 @@
 
     <!-- Список лотов -->
     <aside class="sidebar">
+      <!-- Filmnight status bar -->
+      <div id="filmnight-bar" style="margin-bottom: 14px; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;">
+        {% if filmnight %}
+          <div style="background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 10px 14px; border-radius: 8px;">
+            <strong>🎬 Сбор активен</strong><br>
+            <span style="font-size: 0.8rem;">Лимит: {{ filmnight.max_per_user }} фильмов на участника</span><br>
+            <button onclick="endFilmnight()" style="margin-top: 8px; background: transparent; color: #f38ba8; border: 1px solid #f38ba8; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; margin: 8px 0 0 0;">Завершить сбор</button>
+          </div>
+        {% else %}
+          <div style="background: rgba(249,226,164,0.15); color: #f9e2af; padding: 10px 14px; border-radius: 8px;">
+            <strong>⏳ Сбор не активен</strong><br>
+            <span style="font-size: 0.8rem;">Запустите сбор чтобы добавлять фильмы</span><br>
+            <div style="margin-top: 8px; display: flex; gap: 6px; align-items: center;">
+              <input type="number" id="fn-max-per-user" value="3" min="1" max="20" style="width: 40px; background: rgba(0,0,0,0.3); border: 1px solid #45475a; border-radius: 4px; color: inherit; padding: 4px; font-size: 0.8rem;">
+              <span style="font-size: 0.75rem;">фильмов/юзер</span>
+              <button onclick="startFilmnight()" style="background: var(--accent); color: #1A1A1A; border: none; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: 600;">Старт</button>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
       <h2>Лоты в колесе <span id="count" class="count-badge">0</span></h2>
+
+      {% if filmnight %}
       <form id="add-form" class="add-form">
         <input type="text" id="item-name" placeholder="Название фильма..." autocomplete="off">
         <button type="submit">+ Добавить</button>
       </form>
+      {% else %}
+      <div id="add-disabled" style="padding: 14px; text-align: center; color: #6c7086; font-size: 0.85rem; border: 1px dashed #45475a; border-radius: 6px; margin-bottom: 10px;">
+        Запустите сбор чтобы добавлять фильмы
+      </div>
+      {% endif %}
+
       <ul id="items-list" class="items-list"></ul>
       <div id="empty-state" class="empty-state">Добавьте фильмы в колесо 🎬</div>
       <button id="clear-btn" class="clear-btn" style="display:none">Очистить колесо</button>
@@ -567,7 +596,41 @@
     }
 
     // === Event listeners ===
-    document.getElementById('add-form').addEventListener('submit', async (e) => {
+    // === Filmnight controls ===
+    async function startFilmnight() {
+      const maxInput = document.getElementById('fn-max-per-user');
+      const maxPerUser = parseInt(maxInput?.value || '3', 10);
+      const formData = new FormData();
+      formData.append('max_per_user', maxPerUser);
+      try {
+        const r = await fetch('/api/filmnight/start', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          window.location.reload();
+        } else {
+          alert(data.error || 'Ошибка запуска сбора');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    async function endFilmnight() {
+      if (!confirm('Завершить сбор фильмов? После этого можно крутить колесо.')) return;
+      try {
+        const r = await fetch('/api/filmnight/end', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          window.location.reload();
+        } else {
+          alert(data.error || 'Ошибка завершения сбора');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    document.getElementById('add-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('item-name');
       const name = input.value.trim();
