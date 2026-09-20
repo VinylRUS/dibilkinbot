@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Серверы · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .guild-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .guild-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--accent-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+    .guild-info { flex: 1; }
+    .guild-name {
+      font-weight: 700;
+      color: var(--text);
+      font-size: 1.05rem;
+    }
+    .guild-meta {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      margin-top: 4px;
+    }
+    .guild-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .btn-approve {
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .btn-reject {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid var(--red);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.85rem;
+    }
+    .btn-delete {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid var(--red);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .btn-approve:hover { opacity: 0.9; }
+    .btn-reject:hover { background: var(--red); color: #fff; }
+    .btn-delete:hover { background: var(--red); color: #fff; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      margin-left: 6px;
+    }
+    .badge.approved { background: var(--badge-confirmed-bg); color: var(--badge-confirmed-text); }
+    .badge.pending { background: var(--badge-unconfirmed-bg); color: var(--badge-unconfirmed-text); }
+    .flash {
+      background: var(--badge-confirmed-bg);
+      color: var(--badge-confirmed-text);
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      font-size: 0.88rem;
+    }
+    .flash.error { background: var(--badge-unconfirmed-bg); color: var(--red); }
+  </style>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <h2>🏰 Управление серверами</h2>
+
+    {% if request.query_params.get('saved') %}
+      <div class="flash">✓ Изменения сохранены.</div>
+    {% elif request.query_params.get('deleted') %}
+      <div class="flash">✓ Сервер и все его данные удалены.</div>
+    {% elif request.query_params.get('error') == 'cannot_delete_default' %}
+      <div class="flash error">❌ Нельзя удалить default сервер (guild_id=0).</div>
+    {% endif %}
+
+    {% if guilds|length == 0 %}
+      <article class="card">
+        <div class="empty">Пока нет зарегистрированных серверов. Добавьте бота на Discord-сервер, и он появится здесь.</div>
+      </article>
+    {% endif %}
+
+    {% for g in guilds %}
+      <div class="guild-card">
+        <div class="guild-icon">
+          {{ g.name[0]|upper if g.name else '?' }}
+        </div>
+        <div class="guild-info">
+          <div class="guild-name">
+            {{ g.name }}
+            {% if g.approved %}
+              <span class="badge approved">approved</span>
+            {% else %}
+              <span class="badge pending">pending</span>
+            {% endif %}
+            {% if g.guild_id == 0 %}<span class="badge approved">default</span>{% endif %}
+          </div>
+          <div class="guild-meta">
+            ID: {{ g.guild_id }} · {{ g.member_count }} участников
+            {% if g.approved_at %} · одобрен {{ g.approved_at[:10] }}{% endif %}
+          </div>
+        </div>
+        <div class="guild-actions">
+          {% if not g.approved %}
+            <form method="post" action="/guilds/{{ g.guild_id }}/approve" style="margin:0;">
+              <button type="submit" class="btn-approve">✓ Одобрить</button>
+            </form>
+          {% else %}
+            <form method="post" action="/guilds/{{ g.guild_id }}/reject" style="margin:0;">
+              <button type="submit" class="btn-reject">✗ Отозвать</button>
+            </form>
+          {% endif %}
+          {% if g.guild_id != 0 %}
+            <form method="post" action="/guilds/{{ g.guild_id }}/delete" style="margin:0;"
+                  onsubmit="return confirm('Удалить сервер «{{ g.name }}» и ВСЕ его данные? Это необратимо!');">
+              <button type="submit" class="btn-delete">🗑 Удалить</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </main>
+</body>
+</html>

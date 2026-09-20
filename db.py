@@ -225,6 +225,17 @@ async def init_db() -> None:
                 log.info("Migrated %d old watched records to ratings", migrated_count)
             await db.commit()
 
+            # === Миграция v1.0.0: multi-tenant ===
+            # Создаём таблицу guilds + переносим старые данные в guild_0_* (default)
+            try:
+                import guild as guild_module
+                await guild_module.init_guild_registry()
+                migrated = await guild_module.migrate_legacy_data_to_default_guild()
+                if migrated > 0:
+                    log.info("v1.0.0 migration: %d rows moved to guild_0_* tables", migrated)
+            except Exception as e:
+                log.error("v1.0.0 guild migration failed: %s", e)
+
         log.info("DB initialized at %s (size=%d bytes)",
                  settings.database_path, settings.database_path.stat().st_size)
     except Exception as e:
@@ -930,3 +941,485 @@ async def reassign_colors() -> None:
             )
         await db.commit()
 
+
+
+# === MULTI-TENANT v1.0.0: guild-scoped функции с префиксом g_ ===
+# Все принимают guild_id первым параметром. Работают с guild_{id}_* таблицами.
+# Старые функции (без g_) остаются как aliases к guild_id=0 (default guild).
+
+import guild as _guild
+
+
+# --- g_watched ---
+
+async def g_add_watched(guild_id: int, title: str, rating: int | None, watcher_user_id: int) -> bool:
+    table = _guild.guild_table(guild_id, "watched")
+    async with _connect() as db:
+        try:
+            await db.execute(
+                f"INSERT INTO {table} (title, watched_at, rating, watcher_user_id) VALUES (?, ?, ?, ?)",
+                (title, datetime.utcnow().isoformat(), rating, watcher_user_id),
+            )
+            await db.commit()
+            return True
+        except aiosqlite.IntegrityError:
+            return False
+
+
+async def g_is_watched(guild_id: int, title: str) -> bool:
+    table = _guild.guild_table(guild_id, "watched")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT 1 FROM {table} WHERE lower(title) = lower(?) LIMIT 1", (title,)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+
+async def g_list_watched(guild_id: int, limit: int = 50) -> list[tuple]:
+    table = _guild.guild_table(guild_id, "watched")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, watched_at, rating FROM {table} ORDER BY watched_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def g_delete_watched(guild_id: int, watched_id: int) -> bool:
+    table = _guild.guild_table(guild_id, "watched")
+    async with _connect() as db:
+        cur = await db.execute(f"DELETE FROM {table} WHERE id = ?", (watched_id,))
+        await db.commit()
+        return cur.rowcount > 0
+
+
+# --- g_quotes ---
+
+async def g_add_quote(guild_id: int, author: str, author_user_id: int | None, text: str,
+                     recorded_by: int, author_avatar_url: str | None = None,
+                     message_link: str | None = None) -> int:
+    table = _guild.guild_table(guild_id, "quotes")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link) "
+            f"VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (author, author_user_id, author_avatar_url, text, recorded_by,
+             datetime.utcnow().isoformat(), message_link),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_get_quote(guild_id: int, quote_id: int) -> tuple | None:
+    table = _guild.guild_table(guild_id, "quotes")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link "
+            f"FROM {table} WHERE id = ?", (quote_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def g_list_quotes(guild_id: int, limit: int = 50, offset: int = 0, search: str | None = None) -> list[tuple]:
+    table = _guild.guild_table(guild_id, "quotes")
+    async with _connect() as db:
+        if search:
+            sql = (f"SELECT id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link "
+                    f"FROM {table} WHERE text LIKE ? OR author LIKE ? ORDER BY recorded_at DESC LIMIT ? OFFSET ?")
+            params = (f"%{search}%", f"%{search}%", limit, offset)
+        else:
+            sql = (f"SELECT id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link "
+                    f"FROM {table} ORDER BY recorded_at DESC LIMIT ? OFFSET ?")
+            params = (limit, offset)
+        async with db.execute(sql, params) as cur:
+            return await cur.fetchall()
+
+
+async def g_count_quotes(guild_id: int, search: str | None = None) -> int:
+    table = _guild.guild_table(guild_id, "quotes")
+    async with _connect() as db:
+        if search:
+            async with db.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE text LIKE ? OR author LIKE ?",
+                (f"%{search}%", f"%{search}%")
+            ) as cur:
+                row = await cur.fetchone()
+        else:
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                row = await cur.fetchone()
+        return row[0] if row else 0
+
+
+async def g_delete_quote(guild_id: int, quote_id: int) -> bool:
+    table = _guild.guild_table(guild_id, "quotes")
+    async with _connect() as db:
+        cur = await db.execute(f"DELETE FROM {table} WHERE id = ?", (quote_id,))
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_top_quotes(guild_id: int, limit: int = 10) -> list[tuple]:
+    table = _guild.guild_table(guild_id, "quotes")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT author, COUNT(*) as cnt FROM {table} GROUP BY author ORDER BY cnt DESC LIMIT ?", (limit,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+# --- g_winners ---
+
+async def g_add_winner(guild_id: int, lot_id: str | None, lot_name: str, tmdb_id: int | None,
+                      confidence: str = "unconfirmed") -> int:
+    table = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (lot_id, lot_name, tmdb_id, confidence, detected_at) VALUES (?, ?, ?, ?, ?)",
+            (lot_id, lot_name, tmdb_id, confidence, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_confirm_winner(guild_id: int, winner_id: int, confirmed_by: int) -> bool:
+    table = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET confidence = 'confirmed', confirmed_at = ?, confirmed_by = ? "
+            f"WHERE id = ? AND confidence = 'unconfirmed'",
+            (datetime.utcnow().isoformat(), confirmed_by, winner_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_list_winners(guild_id: int, limit: int = 20) -> list[tuple]:
+    table = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, lot_name, tmdb_id, confidence, detected_at, confirmed_at FROM {table} "
+            f"ORDER BY detected_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def g_delete_winner(guild_id: int, winner_id: int) -> bool:
+    table_w = _guild.guild_table(guild_id, "winners")
+    table_r = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        await db.execute(f"DELETE FROM {table_r} WHERE winner_id = ?", (winner_id,))
+        cur = await db.execute(f"DELETE FROM {table_w} WHERE id = ?", (winner_id,))
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_get_winners_with_ratings(guild_id: int, limit: int = 50) -> list[dict]:
+    table_w = _guild.guild_table(guild_id, "winners")
+    table_r = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT w.id, w.lot_name, w.tmdb_id, w.confidence, w.detected_at, w.confirmed_at, "
+            f"  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
+            f"FROM {table_w} w LEFT JOIN {table_r} r ON r.winner_id = w.id "
+            f"GROUP BY w.id ORDER BY w.detected_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {"id": r[0], "lot_name": r[1], "tmdb_id": r[2], "confidence": r[3],
+             "detected_at": r[4], "confirmed_at": r[5],
+             "avg_rating": round(r[6], 1) if r[6] else 0.0, "ratings_count": r[7]}
+            for r in rows
+        ]
+
+
+# --- g_ratings ---
+
+async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, rating: int) -> bool:
+    if not (1 <= rating <= 10):
+        return False
+    table_r = _guild.guild_table(guild_id, "ratings")
+    table_w = _guild.guild_table(guild_id, "watched")
+    table_winners = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        now = datetime.utcnow().isoformat()
+        await db.execute(
+            f"INSERT INTO {table_r} (winner_id, user_discord_id, rating, created_at, updated_at) "
+            f"VALUES (?, ?, ?, ?, ?) "
+            f"ON CONFLICT(winner_id, user_discord_id) DO UPDATE SET rating = excluded.rating, updated_at = excluded.updated_at",
+            (winner_id, user_discord_id, rating, now, now),
+        )
+        await db.commit()
+        # Если ещё не в watched — добавляем (первая оценка = переезд в бэклог)
+        async with db.execute(f"SELECT lot_name FROM {table_winners} WHERE id = ?", (winner_id,)) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return False
+            lot_name = row[0]
+        async with db.execute(
+            f"SELECT 1 FROM {table_w} WHERE lower(title) = lower(?) LIMIT 1", (lot_name,)
+        ) as cur:
+            if not await cur.fetchone():
+                try:
+                    await db.execute(
+                        f"INSERT INTO {table_w} (title, watched_at, rating, watcher_user_id) VALUES (?, ?, ?, ?)",
+                        (lot_name, now, rating, user_discord_id),
+                    )
+                    await db.commit()
+                except aiosqlite.IntegrityError:
+                    pass
+        return True
+
+
+async def g_get_average_rating(guild_id: int, winner_id: int) -> tuple[float, int]:
+    table = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT AVG(rating), COUNT(*) FROM {table} WHERE winner_id = ?", (winner_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if not row or not row[1]:
+                return 0.0, 0
+            return round(row[0], 1), row[1]
+
+
+async def g_get_user_rating(guild_id: int, winner_id: int, user_discord_id: int) -> int | None:
+    table = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT rating FROM {table} WHERE winner_id = ? AND user_discord_id = ?",
+            (winner_id, user_discord_id)
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+# --- g_wheel_items ---
+
+async def g_add_wheel_item(guild_id: int, name: str, tmdb_id: int | None, added_by: int) -> int:
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        async with db.execute(f"SELECT COUNT(*) FROM {table} WHERE is_active = 1") as cur:
+            row = await cur.fetchone()
+            count = row[0] if row else 0
+        color = _pick_color(count)
+        cur = await db.execute(
+            f"INSERT INTO {table} (name, tmdb_id, color, added_by, added_at, is_active) VALUES (?, ?, ?, ?, ?, 1)",
+            (name, tmdb_id, color, added_by, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_list_wheel_items(guild_id: int, active_only: bool = True) -> list[dict]:
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        if active_only:
+            sql = f"SELECT id, name, tmdb_id, color, added_by, added_at FROM {table} WHERE is_active = 1 ORDER BY id"
+        else:
+            sql = f"SELECT id, name, tmdb_id, color, added_by, added_at FROM {table} ORDER BY id DESC"
+        async with db.execute(sql) as cur:
+            rows = await cur.fetchall()
+        return [{"id": r[0], "name": r[1], "tmdb_id": r[2], "color": r[3],
+                 "added_by": r[4], "added_at": r[5]} for r in rows]
+
+
+async def g_remove_wheel_item(guild_id: int, item_id: int) -> bool:
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET is_active = 0 WHERE id = ? AND is_active = 1", (item_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_clear_wheel(guild_id: int) -> int:
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        cur = await db.execute(f"UPDATE {table} SET is_active = 0 WHERE is_active = 1")
+        await db.commit()
+        return cur.rowcount
+
+
+async def g_reassign_colors(guild_id: int) -> None:
+    items = await g_list_wheel_items(guild_id, active_only=True)
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        for i, item in enumerate(items):
+            await db.execute(
+                f"UPDATE {table} SET color = ? WHERE id = ?", (_pick_color(i), item["id"])
+            )
+        await db.commit()
+
+
+# --- g_movie_nights ---
+
+async def g_add_movie_night(guild_id: int, title: str | None, scheduled_at: datetime,
+                           created_by: int, event_id: int | None = None) -> int:
+    table = _guild.guild_table(guild_id, "movie_nights")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (title, scheduled_at, created_by, created_at, event_id) VALUES (?, ?, ?, ?, ?)",
+            (title, scheduled_at.isoformat(), created_by,
+             datetime.utcnow().isoformat(), event_id),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+# --- g_recent_activity ---
+
+async def g_recent_activity(guild_id: int, limit: int = 20) -> list[dict]:
+    """Сводная лента для конкретного guild."""
+    table_w = _guild.guild_table(guild_id, "winners")
+    table_r = _guild.guild_table(guild_id, "ratings")
+    table_watched = _guild.guild_table(guild_id, "watched")
+    items: list[dict] = []
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT w.id, w.lot_name, w.detected_at, w.confidence, "
+            f"  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
+            f"FROM {table_w} w LEFT JOIN {table_r} r ON r.winner_id = w.id "
+            f"GROUP BY w.id ORDER BY w.detected_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            for row in await cur.fetchall():
+                items.append({
+                    "type": "winner", "id": row[0], "name": row[1],
+                    "ts": row[2], "confidence": row[3],
+                    "avg_rating": round(row[4], 1) if row[4] else 0.0,
+                    "ratings_count": row[5],
+                })
+        async with db.execute(
+            f"SELECT id, title, watched_at, rating FROM {table_watched} ORDER BY watched_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            for row in await cur.fetchall():
+                items.append({
+                    "type": "watched", "id": row[0], "name": row[1],
+                    "ts": row[2], "rating": row[3]
+                })
+    items.sort(key=lambda x: x["ts"], reverse=True)
+    return items[:limit]
+
+
+# --- Aliases: старые функции без g_ теперь работают с guild_id=0 (default) ---
+# Это позволяет старому коду (web.py, bot.py до Фазы 2/3) продолжать работать
+
+async def add_watched_v2(title: str, rating: int | None, watcher_user_id: int) -> bool:
+    """v1.0.0 alias: add_watched для guild_id=0 (default)."""
+    return await g_add_watched(0, title, rating, watcher_user_id)
+
+
+# === v1.0.0 aliases: все старые функции работают с guild_id=0 (default) ===
+# Это сохраняет обратную совместимость до полной миграции web.py/bot.py в Фазе 2/3
+
+# --- watched aliases ---
+async def add_watched(title: str, rating: int | None, watcher_user_id: int) -> bool:
+    return await g_add_watched(0, title, rating, watcher_user_id)
+
+async def is_watched(title: str) -> bool:
+    return await g_is_watched(0, title)
+
+async def list_watched(limit: int = 50) -> list[tuple]:
+    return await g_list_watched(0, limit)
+
+async def delete_watched(watched_id: int) -> bool:
+    return await g_delete_watched(0, watched_id)
+
+
+# --- quotes aliases ---
+async def add_quote(author: str, author_user_id: int | None, text: str, recorded_by: int,
+                   author_avatar_url: str | None = None, message_link: str | None = None) -> int:
+    return await g_add_quote(0, author, author_user_id, text, recorded_by, author_avatar_url, message_link)
+
+async def get_quote(quote_id: int) -> tuple | None:
+    return await g_get_quote(0, quote_id)
+
+async def list_quotes(limit: int = 50, offset: int = 0, search: str | None = None) -> list[tuple]:
+    return await g_list_quotes(0, limit, offset, search)
+
+async def count_quotes(search: str | None = None) -> int:
+    return await g_count_quotes(0, search)
+
+async def delete_quote(quote_id: int) -> bool:
+    return await g_delete_quote(0, quote_id)
+
+async def top_quotes(limit: int = 10) -> list[tuple]:
+    return await g_top_quotes(0, limit)
+
+
+# --- winners aliases ---
+async def add_winner(lot_id: str | None, lot_name: str, tmdb_id: int | None,
+                    confidence: str = "unconfirmed") -> int:
+    return await g_add_winner(0, lot_id, lot_name, tmdb_id, confidence)
+
+async def confirm_winner(winner_id: int, confirmed_by: int) -> bool:
+    return await g_confirm_winner(0, winner_id, confirmed_by)
+
+async def list_winners(limit: int = 20) -> list[tuple]:
+    return await g_list_winners(0, limit)
+
+async def delete_winner(winner_id: int) -> bool:
+    return await g_delete_winner(0, winner_id)
+
+async def get_winners_with_ratings(limit: int = 50) -> list[dict]:
+    return await g_get_winners_with_ratings(0, limit)
+
+
+# --- ratings aliases ---
+async def upsert_rating(winner_id: int, user_discord_id: int, rating: int) -> bool:
+    return await g_upsert_rating(0, winner_id, user_discord_id, rating)
+
+async def get_average_rating(winner_id: int) -> tuple[float, int]:
+    return await g_get_average_rating(0, winner_id)
+
+async def get_user_rating(winner_id: int, user_discord_id: int) -> int | None:
+    return await g_get_user_rating(0, winner_id, user_discord_id)
+
+async def get_ratings_for_winner(winner_id: int) -> list[tuple]:
+    table = _guild.guild_table(0, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT user_discord_id, rating, created_at, updated_at FROM {table} WHERE winner_id = ? ORDER BY created_at",
+            (winner_id,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+# --- wheel_items aliases ---
+async def add_wheel_item(name: str, tmdb_id: int | None, added_by: int) -> int:
+    return await g_add_wheel_item(0, name, tmdb_id, added_by)
+
+async def list_wheel_items(active_only: bool = True) -> list[dict]:
+    return await g_list_wheel_items(0, active_only)
+
+async def remove_wheel_item(item_id: int) -> bool:
+    return await g_remove_wheel_item(0, item_id)
+
+async def clear_wheel() -> int:
+    return await g_clear_wheel(0)
+
+async def reassign_colors() -> None:
+    await g_reassign_colors(0)
+
+
+# --- movie_nights aliases ---
+async def add_movie_night(title: str | None, scheduled_at: datetime, created_by: int,
+                         event_id: int | None = None) -> int:
+    return await g_add_movie_night(0, title, scheduled_at, created_by, event_id)
+
+
+# --- recent_activity alias ---
+async def recent_activity(limit: int = 20) -> list[dict]:
+    return await g_recent_activity(0, limit)
+
+
+# --- get_recent_unconfirmed_winners alias (для совместимости, хотя /watched удалён) ---
+async def get_recent_unconfirmed_winners(minutes: int = 5) -> list[tuple]:
+    table = _guild.guild_table(0, "winners")
+    cutoff = (datetime.utcnow().timestamp() - minutes * 60)
+    cutoff_iso = datetime.utcfromtimestamp(cutoff).isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, lot_name, tmdb_id FROM {table} WHERE confidence = 'unconfirmed' AND detected_at > ?",
+            (cutoff_iso,)
+        ) as cur:
+            return await cur.fetchall()

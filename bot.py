@@ -157,6 +157,22 @@ class KinovecherBot(commands.Bot):
         for g in self.guilds:
             log.info("  - '%s' (id=%s)", g.name, g.id)
 
+        # Регистрируем все guilds в БД (создаём таблицы если ещё не созданы)
+        import guild as guild_module
+        for g in self.guilds:
+            try:
+                is_new = await guild_module.upsert_guild(
+                    g.id, g.name,
+                    icon_url=str(g.icon.url) if g.icon else None,
+                    owner_id=g.owner_id,
+                    member_count=g.member_count,
+                )
+                if is_new:
+                    log.info("New guild detected: %s (id=%s) — creating tables, pending approval", g.name, g.id)
+                    await guild_module.init_guild_tables(g.id)
+            except Exception as e:
+                log.error("Failed to register guild %s: %s", g.id, e)
+
         all_cmds = self.tree.get_commands()
         log.info("Tree at on_ready: %d commands", len(all_cmds))
 
@@ -192,6 +208,41 @@ class KinovecherBot(commands.Bot):
                 log.error("✗ Forbidden syncing to guild '%s': %s. RE-INVITE with scope applications.commands.", guild.name, e)
             except Exception as e:
                 log.error("✗ Failed to sync to guild '%s': %s", guild.name, e, exc_info=True)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """Вызывается когда бота добавляют на новый сервер.
+        Создаёт guild-таблицы, регистрирует сервер в реестре (pending approval).
+        """
+        log.info("🎉 Bot added to guild: %s (id=%s, members=%d)", guild.name, guild.id, guild.member_count)
+        try:
+            import guild as guild_module
+            is_new = await guild_module.upsert_guild(
+                guild.id, guild.name,
+                icon_url=str(guild.icon.url) if guild.icon else None,
+                owner_id=guild.owner_id,
+                member_count=guild.member_count,
+            )
+            if is_new:
+                log.info("New guild — creating tables, marking pending approval")
+                await guild_module.init_guild_tables(guild.id)
+                # Уведомление в лог — админ увидит и аппрувнет через /guilds
+                log.warning("⚠️ Guild %s (id=%s) is pending admin approval. Use /guilds in web panel to approve.",
+                            guild.name, guild.id)
+        except Exception as e:
+            log.error("Failed to register new guild %s: %s", guild.id, e)
+
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        """Вызывается когда бота удаляют с сервера.
+        НЕ удаляем данные автоматически — админ может сделать это через /guilds.
+        Просто помечаем как не approved.
+        """
+        log.info("Bot removed from guild: %s (id=%s)", guild.name, guild.id)
+        try:
+            import guild as guild_module
+            await guild_module.reject_guild(guild.id)
+            log.info("Guild %s marked as not approved (data preserved)", guild.id)
+        except Exception as e:
+            log.error("Failed to mark guild %s as removed: %s", guild.id, e)
 
     async def on_wheel_spin_completed(self, winner: dict) -> None:
         """Вызывается из web.py после завершения спина колеса.
@@ -301,7 +352,8 @@ class WheelCog(commands.Cog):
             await interaction.response.send_message("Название не может быть пустым.", ephemeral=True)
             return
 
-        if await db.is_watched(title):
+        guild_id = interaction.guild_id or 0
+        if await db.g_is_watched(guild_id, title):
             await interaction.response.send_message(
                 f"«{title}» уже просмотрен — его нельзя вернуть в колесо.",
                 ephemeral=True,
@@ -318,12 +370,12 @@ class WheelCog(commands.Cog):
         tmdb_id = meta["tmdb_id"] if meta else None
 
         # Добавляем в локальную БД
-        item_id = await db.add_wheel_item(name_for_wheel, tmdb_id, interaction.user.id)
+        item_id = await db.g_add_wheel_item(guild_id, name_for_wheel, tmdb_id, interaction.user.id)
 
         # Broadcast через WebSocket (если кто-то смотрит /wheel страницу)
         try:
             import ws_manager
-            items = await db.list_wheel_items(active_only=True)
+            items = await db.g_list_wheel_items(guild_id, active_only=True)
             await ws_manager.broadcast_wheel_updated(items)
         except Exception as e:
             log.debug("WS broadcast failed: %s", e)
@@ -360,7 +412,8 @@ class WheelCog(commands.Cog):
 
     @wheel.command(name="list", description="Показать текущие пункты колеса")
     async def wheel_list(self, interaction: discord.Interaction):
-        items = await db.list_wheel_items(active_only=True)
+        guild_id = interaction.guild_id or 0
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
         if not items:
             await interaction.response.send_message(
                 "Колесо пустое. Добавь через `/wheel add <название>` или через веб-панель /wheel",
@@ -382,7 +435,8 @@ class WheelCog(commands.Cog):
     @wheel.command(name="remove", description="Удалить фильм из колеса (по номеру из /wheel list)")
     @app_commands.describe(number="Номер фильма в списке /wheel list")
     async def wheel_remove(self, interaction: discord.Interaction, number: int):
-        items = await db.list_wheel_items(active_only=True)
+        guild_id = interaction.guild_id or 0
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
         if number < 1 or number > len(items):
             await interaction.response.send_message(
                 f"Номер должен быть от 1 до {len(items)}",
@@ -390,11 +444,11 @@ class WheelCog(commands.Cog):
             )
             return
         item = items[number - 1]
-        await db.remove_wheel_item(item["id"])
-        await db.reassign_colors()
+        await db.g_remove_wheel_item(guild_id, item["id"])
+        await db.g_reassign_colors(guild_id)
         try:
             import ws_manager
-            updated = await db.list_wheel_items(active_only=True)
+            updated = await db.g_list_wheel_items(guild_id, active_only=True)
             await ws_manager.broadcast_wheel_updated(updated)
         except Exception:
             pass
@@ -459,13 +513,10 @@ class QuotesCog(commands.Cog):
             message_link = f"https://discord.com/channels/{interaction.guild.id}/{interaction.channel.id}/{interaction.id}"
 
         # Сохраняем в БД с аватаром и ссылкой
-        quote_id = await db.add_quote(
-            author=author_display,
-            author_user_id=author_user_id,
-            text=text,
-            recorded_by=interaction.user.id,
-            author_avatar_url=author_avatar_url,
-            message_link=message_link,
+        guild_id = interaction.guild_id or 0
+        quote_id = await db.g_add_quote(
+            guild_id, author_display, author_user_id, text,
+            interaction.user.id, author_avatar_url, message_link,
         )
 
         # Стильный embed: цветная полоска слева, аватар автора, упоминание автора, footer
@@ -555,11 +606,10 @@ class MovieNightCog(commands.Cog):
             except Exception as e:
                 log.warning("Failed to create scheduled event: %s", e)
 
-        await db.add_movie_night(
-            title=description,
-            scheduled_at=dt,
-            created_by=interaction.user.id,
-            event_id=event.id if event else None,
+        guild_id = interaction.guild_id or 0
+        await db.g_add_movie_night(
+            guild_id, description, dt, interaction.user.id,
+            event.id if event else None,
         )
 
         announce_channel = None

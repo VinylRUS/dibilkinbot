@@ -106,6 +106,36 @@ def _theme(request: Request) -> str:
 templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "light")
 
 
+def get_current_guild_id(user_payload: dict) -> int:
+    """Текущий выбранный сервер из сессии пользователя. По умолчанию 0 (default)."""
+    return user_payload.get("current_guild_id", 0)
+
+
+async def get_user_guilds(user_payload: dict) -> list[dict]:
+    """Список серверов, доступных пользователю.
+    - Обычный юзер: только те сервера, где он участник (через бота) и которые approved
+    - Админ: ВСЕ сервера (даже не approved, даже не где он участник)
+    """
+    import guild as guild_module
+    if user_payload.get("is_admin"):
+        return await guild_module.list_guilds(approved_only=False)
+    # Обычный юзер — через бота проверяем где он участник
+    import bot as bot_module
+    discord_id = user_payload.get("discord_id", 0)
+    if not discord_id:
+        return []
+    all_guilds = await guild_module.list_guilds(approved_only=True)
+    result = []
+    for g in all_guilds:
+        # Проверяем через бота
+        is_member, _ = await bot_module.is_guild_member(discord_id)
+        # is_guild_member ищет по всем серверам бота — упрощённая проверка
+        # TODO: в Фазе 3 сделаем per-guild проверку
+        if is_member:
+            result.append(g)
+    return result
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request, error: Optional[str] = None):
     return templates.TemplateResponse(request, "login.html", {
@@ -204,19 +234,61 @@ async def logout():
     return resp
 
 
+@app.get("/select_guild", response_class=HTMLResponse)
+async def select_guild_page(request: Request, _user: dict = Depends(require_user)):
+    """Страница выбора сервера."""
+    guilds = await get_user_guilds(_user)
+    current_guild_id = get_current_guild_id(_user)
+    return templates.TemplateResponse(request, "select_guild.html", {
+        "user": _user,
+        "guilds": guilds,
+        "current_guild_id": current_guild_id,
+    })
+
+
+@app.post("/select_guild")
+async def select_guild_submit(
+    request: Request,
+    _user: dict = Depends(require_user),
+    guild_id: int = Form(...),
+):
+    """Переключиться на выбранный сервер. Обновляет current_guild_id в сессии."""
+    # Проверяем что юзер имеет доступ к этому серверу
+    available = await get_user_guilds(_user)
+    available_ids = {g["guild_id"] for g in available}
+    if guild_id not in available_ids:
+        return RedirectResponse(url="/select_guild?error=no_access", status_code=303)
+
+    # Обновляем сессию с новым current_guild_id
+    _user["current_guild_id"] = guild_id
+    token = create_session(_user)
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
+    return resp
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, _user: dict = Depends(require_user)):
-    recent_watched = await db.list_watched(limit=10)
-    recent_winners = await db.list_winners(limit=10)
-    activity = await db.recent_activity(limit=15)
-    top_quotes = await db.top_quotes(limit=5)
+    guild_id = get_current_guild_id(_user)
+    recent_watched = await db.g_list_watched(guild_id, limit=10)
+    recent_winners = await db.g_list_winners(guild_id, limit=10)
+    activity = await db.g_recent_activity(guild_id, limit=15)
+    top_quotes = await db.g_top_quotes(guild_id, limit=5)
 
-    # Статусы токенов для виджетов
+    # Статусы токенов (глобальные)
     saved_kp = bool(await db.get_setting("kinopoisk_token"))
     saved_tg = bool(await db.get_setting("telegram_token"))
 
+    # Текущий guild для отображения
+    import guild as guild_module
+    current_guild = await guild_module.get_guild(guild_id)
+    available_guilds = await get_user_guilds(_user)
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
+        "current_guild_id": guild_id,
+        "current_guild": current_guild,
+        "available_guilds": available_guilds,
         "recent_watched": recent_watched,
         "recent_winners": recent_winners,
         "activity": activity,
@@ -353,11 +425,11 @@ async def features_save(
 @app.get("/winners", response_class=HTMLResponse)
 async def winners_page(request: Request, _user: dict = Depends(require_user)):
     """Победители с агрегированными рейтингами."""
-    winners = await db.get_winners_with_ratings(limit=50)
+    guild_id = get_current_guild_id(_user)
+    winners = await db.g_get_winners_with_ratings(guild_id, limit=50)
     user_discord_id = _user.get("discord_id", 0)
-    # Для каждого победителя — оценка текущего юзера (для подсветки звёзд)
     for w in winners:
-        w["user_rating"] = await db.get_user_rating(w["id"], user_discord_id) if user_discord_id else None
+        w["user_rating"] = await db.g_get_user_rating(guild_id, w["id"], user_discord_id) if user_discord_id else None
     return templates.TemplateResponse(request, "winners.html", {
         "user": _user,
         "winners": winners,
@@ -371,7 +443,8 @@ async def delete_winner_endpoint(
     _user: dict = Depends(require_admin),
 ):
     """Удалить запись победителя (только админ)."""
-    deleted = await db.delete_winner(winner_id)
+    guild_id = get_current_guild_id(_user)
+    deleted = await db.g_delete_winner(guild_id, winner_id)
     if not deleted:
         return JSONResponse({"error": "not found"}, status_code=404)
     return RedirectResponse(url="/winners?deleted=1", status_code=303)
@@ -394,11 +467,12 @@ async def api_rate_winner(
     if not user_discord_id:
         return JSONResponse({"error": "user not identified"}, status_code=400)
 
-    success = await db.upsert_rating(winner_id, user_discord_id, rating)
+    guild_id = get_current_guild_id(_user)
+    success = await db.g_upsert_rating(guild_id, winner_id, user_discord_id, rating)
     if not success:
         return JSONResponse({"error": "failed to save rating"}, status_code=500)
 
-    avg, count = await db.get_average_rating(winner_id)
+    avg, count = await db.g_get_average_rating(guild_id, winner_id)
     return JSONResponse({
         "ok": True,
         "winner_id": winner_id,
@@ -413,11 +487,19 @@ async def api_get_ratings(
     winner_id: int,
     _user: dict = Depends(require_user),
 ):
-    """Получить все оценки победителя (для показа кто как оценил)."""
-    ratings = await db.get_ratings_for_winner(winner_id)
+    """Получить все оценки победителя."""
+    guild_id = get_current_guild_id(_user)
+    # get_ratings_for_winner - используем alias (он работает с guild_0), нужно сделать g_ версию
+    table_r = db._guild.guild_table(guild_id, "ratings")
+    async with db._connect() as conn:
+        async with conn.execute(
+            f"SELECT user_discord_id, rating, created_at, updated_at FROM {table_r} WHERE winner_id = ? ORDER BY created_at",
+            (winner_id,)
+        ) as cur:
+            ratings = await cur.fetchall()
     user_discord_id = _user.get("discord_id", 0)
-    user_rating = await db.get_user_rating(winner_id, user_discord_id) if user_discord_id else None
-    avg, count = await db.get_average_rating(winner_id)
+    user_rating = await db.g_get_user_rating(guild_id, winner_id, user_discord_id) if user_discord_id else None
+    avg, count = await db.g_get_average_rating(guild_id, winner_id)
     return JSONResponse({
         "ratings": [
             {"user_id": r[0], "rating": r[1], "created_at": r[2], "updated_at": r[3]}
@@ -433,7 +515,8 @@ async def api_get_ratings(
 
 @app.get("/watched", response_class=HTMLResponse)
 async def watched_page(request: Request, _user: dict = Depends(require_user)):
-    watched = await db.list_watched(limit=100)
+    guild_id = get_current_guild_id(_user)
+    watched = await db.g_list_watched(guild_id, limit=100)
     return templates.TemplateResponse(request, "watched.html", {
         "user": _user,
         "watched": watched,
@@ -447,7 +530,8 @@ async def delete_watched_endpoint(
     _user: dict = Depends(require_admin),
 ):
     """Удалить запись из бэклога просмотренного (только админ)."""
-    deleted = await db.delete_watched(watched_id)
+    guild_id = get_current_guild_id(_user)
+    deleted = await db.g_delete_watched(guild_id, watched_id)
     if not deleted:
         return JSONResponse({"error": "not found"}, status_code=404)
     return RedirectResponse(url="/watched?deleted=1", status_code=303)
@@ -462,6 +546,58 @@ async def users_page(request: Request, _user: dict = Depends(require_admin)):
         "user": _user,
         "users": users,
     })
+
+
+# === Guilds admin page ===
+
+@app.get("/guilds", response_class=HTMLResponse)
+async def guilds_page(request: Request, _user: dict = Depends(require_admin)):
+    """Админ-страница управления серверами: approve/reject."""
+    import guild as guild_module
+    guilds = await guild_module.list_guilds(approved_only=False)
+    return templates.TemplateResponse(request, "guilds.html", {
+        "user": _user,
+        "guilds": guilds,
+    })
+
+
+@app.post("/guilds/{guild_id}/approve")
+async def approve_guild_endpoint(
+    guild_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Одобрить сервер."""
+    import guild as guild_module
+    await guild_module.approve_guild(guild_id, _user.get("discord_id", 0))
+    return RedirectResponse(url="/guilds?saved=1", status_code=303)
+
+
+@app.post("/guilds/{guild_id}/reject")
+async def reject_guild_endpoint(
+    guild_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Отклонить сервер."""
+    import guild as guild_module
+    await guild_module.reject_guild(guild_id)
+    return RedirectResponse(url="/guilds?saved=1", status_code=303)
+
+
+@app.post("/guilds/{guild_id}/delete")
+async def delete_guild_endpoint(
+    guild_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Удалить сервер и все его данные (irreversible)."""
+    import guild as guild_module
+    if guild_id == 0:
+        return RedirectResponse(url="/guilds?error=cannot_delete_default", status_code=303)
+    await guild_module.drop_guild_tables(guild_id)
+    # Удаляем запись из реестра
+    async with db._connect() as conn:
+        await conn.execute("DELETE FROM guilds WHERE guild_id = ?", (guild_id,))
+        await conn.commit()
+    return RedirectResponse(url="/guilds?deleted=1", status_code=303)
 
 
 @app.post("/users/{discord_id}/admin")
@@ -485,12 +621,13 @@ async def quotes_page(
     page: int = 1,
 ):
     """Страница цитатника: список, поиск, форма создания, удаление."""
+    guild_id = get_current_guild_id(_user)
     page = max(1, page)
     per_page = 20
     offset = (page - 1) * per_page
     search = q.strip() or None
-    quotes = await db.list_quotes(limit=per_page, offset=offset, search=search)
-    total = await db.count_quotes(search)
+    quotes = await db.g_list_quotes(guild_id, limit=per_page, offset=offset, search=search)
+    total = await db.g_count_quotes(guild_id, search)
     has_more = (offset + per_page) < total
     return templates.TemplateResponse(request, "quotes.html", {
         "user": _user,
@@ -537,13 +674,9 @@ async def api_create_quote(
         except Exception:
             pass
 
-    quote_id = await db.add_quote(
-        author=author,
-        author_user_id=author_user_id,
-        text=text,
-        recorded_by=recorded_by,
-        author_avatar_url=author_avatar_url,
-        message_link=message_link,
+    guild_id = get_current_guild_id(_user)
+    quote_id = await db.g_add_quote(
+        guild_id, author, author_user_id, text, recorded_by, author_avatar_url, message_link,
     )
     return JSONResponse({"ok": True, "id": quote_id})
 
@@ -557,7 +690,8 @@ async def api_delete_quote(
     - Автор цитаты (recorded_by) может удалить свою
     - Админ может удалить любую
     """
-    quote = await db.get_quote(quote_id)
+    guild_id = get_current_guild_id(_user)
+    quote = await db.g_get_quote(guild_id, quote_id)
     if not quote:
         return JSONResponse({"error": "not found"}, status_code=404)
 
@@ -569,7 +703,7 @@ async def api_delete_quote(
     if recorded_by != user_discord_id and not is_admin:
         return JSONResponse({"error": "forbidden: only author or admin can delete"}, status_code=403)
 
-    deleted = await db.delete_quote(quote_id)
+    deleted = await db.g_delete_quote(guild_id, quote_id)
     return JSONResponse({"ok": deleted})
 
 
@@ -579,7 +713,8 @@ async def delete_quote_endpoint(
     _user: dict = Depends(require_user),
 ):
     """Удалить цитату через POST-форму (HTML редирект на /quotes)."""
-    quote = await db.get_quote(quote_id)
+    guild_id = get_current_guild_id(_user)
+    quote = await db.g_get_quote(guild_id, quote_id)
     if not quote:
         return RedirectResponse(url="/quotes?error=not_found", status_code=303)
 
@@ -590,7 +725,7 @@ async def delete_quote_endpoint(
     if recorded_by != user_discord_id and not is_admin:
         return RedirectResponse(url="/quotes?error=forbidden", status_code=303)
 
-    await db.delete_quote(quote_id)
+    await db.g_delete_quote(guild_id, quote_id)
     return RedirectResponse(url="/quotes?deleted=1", status_code=303)
 
 
@@ -610,8 +745,9 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
 
 @app.get("/wheel", response_class=HTMLResponse)
 async def wheel_page(request: Request, _user: dict = Depends(require_user)):
-    """Страница с Canvas-анимацией колеса. Для стримера — открыть на отдельном мониторе."""
-    items = await db.list_wheel_items(active_only=True)
+    """Страница с Canvas-анимацией колеса."""
+    guild_id = get_current_guild_id(_user)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
     return templates.TemplateResponse(request, "wheel.html", {
         "user": _user,
         "items": items,
@@ -621,7 +757,8 @@ async def wheel_page(request: Request, _user: dict = Depends(require_user)):
 @app.get("/api/wheel/items")
 async def api_wheel_items(_user: dict = Depends(require_user)):
     """Получить текущие лоты колеса (JSON)."""
-    items = await db.list_wheel_items(active_only=True)
+    guild_id = get_current_guild_id(_user)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
     return JSONResponse({"items": items, "count": len(items)})
 
 
@@ -636,9 +773,10 @@ async def api_add_wheel_item(
     name = name.strip()
     if not name:
         return JSONResponse({"error": "name required"}, status_code=400)
+    guild_id = get_current_guild_id(_user)
     discord_id = _user.get("discord_id", 0)
-    item_id = await db.add_wheel_item(name, tmdb_id, discord_id)
-    items = await db.list_wheel_items(active_only=True)
+    item_id = await db.g_add_wheel_item(guild_id, name, tmdb_id, discord_id)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
     await ws_manager.broadcast_wheel_updated(items)
     return JSONResponse({"id": item_id, "items": items, "count": len(items)})
 
@@ -649,11 +787,12 @@ async def api_remove_wheel_item(
     _user: dict = Depends(require_user),
 ):
     """Удалить лот (soft-delete). Триггерит broadcast."""
-    removed = await db.remove_wheel_item(item_id)
+    guild_id = get_current_guild_id(_user)
+    removed = await db.g_remove_wheel_item(guild_id, item_id)
     if not removed:
         return JSONResponse({"error": "not found"}, status_code=404)
-    await db.reassign_colors()
-    items = await db.list_wheel_items(active_only=True)
+    await db.g_reassign_colors(guild_id)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
     await ws_manager.broadcast_wheel_updated(items)
     return JSONResponse({"removed": True, "items": items, "count": len(items)})
 
@@ -661,8 +800,9 @@ async def api_remove_wheel_item(
 @app.post("/api/wheel/clear")
 async def api_clear_wheel(_user: dict = Depends(require_admin)):
     """Очистить всё колесо (только админ)."""
-    count = await db.clear_wheel()
-    items = await db.list_wheel_items(active_only=True)
+    guild_id = get_current_guild_id(_user)
+    count = await db.g_clear_wheel(guild_id)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
     await ws_manager.broadcast_wheel_updated(items)
     return JSONResponse({"cleared": count, "items": items})
 
@@ -671,7 +811,8 @@ async def api_clear_wheel(_user: dict = Depends(require_admin)):
 async def api_spin_wheel(_user: dict = Depends(require_user)):
     """Запустить спин. Сервер выбирает победителя и рассылает результат через WS."""
     import random
-    items = await db.list_wheel_items(active_only=True)
+    guild_id = get_current_guild_id(_user)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
 
@@ -683,19 +824,14 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
     await ws_manager.broadcast_spin_started(items, spin_id)
 
     # Записываем в БД как confirmed (мы точно знаем победителя)
-    await db.add_winner(
-        lot_id=str(winner["id"]),
-        lot_name=winner["name"],
-        tmdb_id=winner.get("tmdb_id"),
-        confidence="confirmed",
-    )
+    await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
 
-    # Удаляем победителя из колеса (он уже не участвует в следующем спине)
-    await db.remove_wheel_item(winner["id"])
-    await db.reassign_colors()
+    # Удаляем победителя из колеса
+    await db.g_remove_wheel_item(guild_id, winner["id"])
+    await db.g_reassign_colors(guild_id)
 
     # Финальный список после удаления победителя
-    remaining = await db.list_wheel_items(active_only=True)
+    remaining = await db.g_list_wheel_items(guild_id, active_only=True)
 
     # Задержка чтобы дать анимации докрутиться (5 секунд)
     import asyncio
@@ -729,17 +865,10 @@ async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str
 
 @app.post("/api/wheel/spin_elimination")
 async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
-    """Режим 'на выбывание': спин удаляет ОДНОГО случайного лота.
-    Когда остаётся 1 лот — он финальный победитель.
-
-    Логика:
-    - Если осталось >2 лотов: удаляем случайного, возвращаем updated list
-    - Если осталось 2 лота: удаляем случайного, оставшийся становится победителем
-      (с confidence='confirmed', уведомление в Discord, удаление из колеса)
-    - Если <2: ошибка
-    """
+    """Режим 'на выбывание'."""
     import random
-    items = await db.list_wheel_items(active_only=True)
+    guild_id = get_current_guild_id(_user)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items"}, status_code=400)
 
@@ -751,17 +880,12 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
         eliminated = random.choice(items)
         winner = next(it for it in items if it["id"] != eliminated["id"])
 
-        await db.remove_wheel_item(eliminated["id"])
-        await db.remove_wheel_item(winner["id"])
-        await db.reassign_colors()
+        await db.g_remove_wheel_item(guild_id, eliminated["id"])
+        await db.g_remove_wheel_item(guild_id, winner["id"])
+        await db.g_reassign_colors(guild_id)
 
         # Записываем победителя в winners
-        await db.add_winner(
-            lot_id=str(winner["id"]),
-            lot_name=winner["name"],
-            tmdb_id=winner.get("tmdb_id"),
-            confidence="confirmed",
-        )
+        await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
 
         # Рассылаем события
         await ws_manager.broadcast_spin_started(items, spin_id)
@@ -780,9 +904,9 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
 
     # Обычный раунд выбывания — удаляем одного случайного
     eliminated = random.choice(items)
-    await db.remove_wheel_item(eliminated["id"])
-    await db.reassign_colors()
-    remaining = await db.list_wheel_items(active_only=True)
+    await db.g_remove_wheel_item(guild_id, eliminated["id"])
+    await db.g_reassign_colors(guild_id)
+    remaining = await db.g_list_wheel_items(guild_id, active_only=True)
 
     # Broadcast: спин начался (для анимации), затем обновлённый список
     await ws_manager.broadcast_spin_started(items, spin_id)
@@ -818,7 +942,8 @@ async def ws_wheel(websocket: WebSocket):
     await ws_manager.connect(websocket)
     try:
         # При первом подключении сразу шлём текущее состояние
-        items = await db.list_wheel_items(active_only=True)
+        # WS не имеет сессии — используем default guild_id=0
+        items = await db.g_list_wheel_items(0, active_only=True)
         await websocket.send_text(json.dumps({
             "type": "wheel_updated",
             "payload": {"items": items, "count": len(items)},
