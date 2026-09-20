@@ -5,46 +5,235 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Победители · DeeBeelkin</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .winner-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: start;
+    }
+    .winner-info { min-width: 0; }
+    .winner-name {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .winner-meta {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+    }
+    .winner-meta .mono { font-family: ui-monospace, monospace; }
+    .badge { margin-right: 6px; }
+    .rating-display {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 0.9rem;
+    }
+    .avg-rating {
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 1rem;
+    }
+    .ratings-count {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .stars {
+      display: flex;
+      gap: 2px;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    .star-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 6px 8px;
+      font-size: 0.9rem;
+      border-radius: 4px;
+      transition: all 0.15s;
+      margin: 0;
+      min-width: 36px;
+    }
+    .star-btn:hover {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .star-btn.active {
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: var(--accent);
+    }
+    .stars-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      max-width: 220px;
+    }
+    .your-rating {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .your-rating .value {
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .delete-btn {
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+    .delete-btn:hover { background: var(--red); color: #fff; }
+    .flash {
+      background: var(--badge-confirmed-bg);
+      color: var(--badge-confirmed-text);
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      font-size: 0.88rem;
+    }
+    .your-rating-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 6px;
+    }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
 
   <main class="container">
     <h2>🎡 Победители колеса</h2>
+
     {% if request.query_params.get('deleted') %}
-      <div class="saved">✓ Запись удалена.</div>
+      <div class="flash">✓ Запись удалена.</div>
     {% endif %}
-    <article class="card">
-      <table>
-        <tr>
-          <th>Фильм</th>
-          <th>Кинопоиск ID</th>
-          <th>Дата</th>
-          <th>Статус</th>
-          <th>Подтверждён</th>
-          {% if is_admin %}<th></th>{% endif %}
-        </tr>
-        {% for w_id, lot_name, tmdb_id, confidence, detected_at, confirmed_at in winners %}
-          <tr>
-            <td>{{ lot_name }}</td>
-            <td class="mono">{{ tmdb_id or '—' }}</td>
-            <td class="mono">{{ detected_at[:16].replace('T', ' ') }}</td>
-            <td><span class="badge {{ confidence }}">{{ confidence }}</span></td>
-            <td class="mono">{{ confirmed_at[:16].replace('T', ' ') if confirmed_at else '—' }}</td>
-            {% if is_admin %}
-              <td>
-                <form method="post" action="/winners/{{ w_id }}/delete" style="display:inline; margin:0;"
-                      onsubmit="return confirm('Удалить «{{ lot_name }}» из списка победителей?');">
-                  <button type="submit" style="background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0;font-size:0.8rem;">×</button>
-                </form>
-              </td>
+
+    {% if winners|length == 0 %}
+      <article class="card">
+        <div class="empty">Пока нет победителей. Крутаните колесо на <a href="/wheel">/wheel</a>.</div>
+      </article>
+    {% endif %}
+
+    {% for w in winners %}
+      <div class="winner-card">
+        <div class="winner-info">
+          <div class="winner-name">{{ w.lot_name }}</div>
+          <div class="winner-meta">
+            <span class="mono">{{ w.detected_at[:16].replace('T', ' ') }}</span>
+            <span class="badge {{ w.confidence }}">{{ w.confidence }}</span>
+            {% if w.tmdb_id %}
+              <span class="mono">КП#{{ w.tmdb_id }}</span>
             {% endif %}
-          </tr>
-        {% else %}
-          <tr><td colspan="{{ 6 if is_admin else 5 }}" class="empty">Пока нет победителей. Крутаните колесо на /wheel.</td></tr>
-        {% endfor %}
-      </table>
-    </article>
+          </div>
+
+          {% if w.ratings_count > 0 %}
+            <div class="rating-display">
+              <span class="avg-rating">⭐ {{ w.avg_rating }}/10</span>
+              <span class="ratings-count">({{ w.ratings_count }} оценк{{ 'а' if w.ratings_count == 1 else ('и' if w.ratings_count < 5 else 'ок') }})</span>
+            </div>
+          {% else %}
+            <div class="rating-display">
+              <span class="ratings-count">Нет оценок — будь первым!</span>
+            </div>
+          {% endif %}
+
+          {% if w.user_rating %}
+            <div class="your-rating">
+              Ваша оценка: <span class="value">{{ '⭐' * w.user_rating }} {{ w.user_rating }}/10</span>
+              <em style="margin-left: 8px;">(можно переголосовать)</em>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="stars">
+          <div class="stars-grid" id="stars-{{ w.id }}">
+            {% for i in range(1, 11) %}
+              <button
+                type="button"
+                class="star-btn {{ 'active' if w.user_rating == i else '' }}"
+                data-winner-id="{{ w.id }}"
+                data-rating="{{ i }}"
+                onclick="rateWinner({{ w.id }}, {{ i }})"
+                title="{{ i }}/10"
+              >{{ i }}</button>
+            {% endfor %}
+          </div>
+          {% if is_admin %}
+            <form method="post" action="/winners/{{ w.id }}/delete" style="margin:0;"
+                  onsubmit="return confirm('Удалить «{{ w.lot_name }}» из списка победителей? Все оценки тоже будут удалены.');">
+              <button type="submit" class="delete-btn">Удалить</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
   </main>
+
+  <script>
+    async function rateWinner(winnerId, rating) {
+      const formData = new FormData();
+      formData.append('rating', rating);
+
+      try {
+        const r = await fetch(`/api/winners/${winnerId}/rate`, {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await r.json();
+        if (r.ok) {
+          // Подсветить выбранную кнопку
+          const container = document.getElementById(`stars-${winnerId}`);
+          container.querySelectorAll('.star-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.rating) === rating);
+          });
+
+          // Обновить средний рейтинг (перезагружаем страницу чтобы обновить все данные)
+          // Без перезагрузки: обновить DOM
+          const card = container.closest('.winner-card');
+          const ratingDisplay = card.querySelector('.rating-display');
+          if (data.ratings_count > 0) {
+            ratingDisplay.innerHTML = `
+              <span class="avg-rating">⭐ ${data.avg_rating}/10</span>
+              <span class="ratings-count">(${data.ratings_count} оценок)</span>
+            `;
+          } else {
+            ratingDisplay.innerHTML = `<span class="ratings-count">Нет оценок</span>`;
+          }
+
+          // Обновить "ваша оценка"
+          let yourRating = card.querySelector('.your-rating');
+          if (!yourRating) {
+            yourRating = document.createElement('div');
+            yourRating.className = 'your-rating';
+            card.querySelector('.winner-info').appendChild(yourRating);
+          }
+          yourRating.innerHTML = `Ваша оценка: <span class="value">${'⭐'.repeat(rating)} ${rating}/10</span> <em style="margin-left: 8px;">(можно переголосовать)</em>`;
+        } else {
+          alert(data.error || 'Ошибка при оценке');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+  </script>
 </body>
 </html>

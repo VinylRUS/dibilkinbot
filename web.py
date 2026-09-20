@@ -352,7 +352,12 @@ async def features_save(
 
 @app.get("/winners", response_class=HTMLResponse)
 async def winners_page(request: Request, _user: dict = Depends(require_user)):
-    winners = await db.list_winners(limit=50)
+    """Победители с агрегированными рейтингами."""
+    winners = await db.get_winners_with_ratings(limit=50)
+    user_discord_id = _user.get("discord_id", 0)
+    # Для каждого победителя — оценка текущего юзера (для подсветки звёзд)
+    for w in winners:
+        w["user_rating"] = await db.get_user_rating(w["id"], user_discord_id) if user_discord_id else None
     return templates.TemplateResponse(request, "winners.html", {
         "user": _user,
         "winners": winners,
@@ -370,6 +375,58 @@ async def delete_winner_endpoint(
     if not deleted:
         return JSONResponse({"error": "not found"}, status_code=404)
     return RedirectResponse(url="/winners?deleted=1", status_code=303)
+
+
+@app.post("/api/winners/{winner_id}/rate")
+async def api_rate_winner(
+    winner_id: int,
+    _user: dict = Depends(require_user),
+    rating: int = Form(...),
+):
+    """Поставить или обновить оценку победителю.
+    Любой залогиненный юзер может оценивать. Один юзер = одна оценка (можно переголосовать).
+    При первой оценке победитель автоматически переезжает в /watched.
+    """
+    if not (1 <= rating <= 10):
+        return JSONResponse({"error": "rating must be 1-10"}, status_code=400)
+
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+
+    success = await db.upsert_rating(winner_id, user_discord_id, rating)
+    if not success:
+        return JSONResponse({"error": "failed to save rating"}, status_code=500)
+
+    avg, count = await db.get_average_rating(winner_id)
+    return JSONResponse({
+        "ok": True,
+        "winner_id": winner_id,
+        "user_rating": rating,
+        "avg_rating": avg,
+        "ratings_count": count,
+    })
+
+
+@app.get("/api/winners/{winner_id}/ratings")
+async def api_get_ratings(
+    winner_id: int,
+    _user: dict = Depends(require_user),
+):
+    """Получить все оценки победителя (для показа кто как оценил)."""
+    ratings = await db.get_ratings_for_winner(winner_id)
+    user_discord_id = _user.get("discord_id", 0)
+    user_rating = await db.get_user_rating(winner_id, user_discord_id) if user_discord_id else None
+    avg, count = await db.get_average_rating(winner_id)
+    return JSONResponse({
+        "ratings": [
+            {"user_id": r[0], "rating": r[1], "created_at": r[2], "updated_at": r[3]}
+            for r in ratings
+        ],
+        "avg_rating": avg,
+        "ratings_count": count,
+        "user_rating": user_rating,
+    })
 
 
 # === Watched page (для всех залогиненных) ===

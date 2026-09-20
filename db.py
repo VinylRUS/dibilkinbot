@@ -121,6 +121,22 @@ CREATE TABLE IF NOT EXISTS wheel_items (
     is_active INTEGER DEFAULT 1      -- 1 = в колесе, 0 = удалён (soft delete для истории)
 );
 CREATE INDEX IF NOT EXISTS idx_wheel_active ON wheel_items(is_active);
+
+-- === НОВОЕ v0.8.0: ratings (community rating) ===
+-- Каждый юзер может поставить одну оценку (1-10) победителю колеса.
+-- UNIQUE(winner_id, user_discord_id) — один юзер = одна оценка на фильм (можно переголосовать).
+CREATE TABLE IF NOT EXISTS ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    winner_id INTEGER NOT NULL,         -- FK → winners.id
+    user_discord_id INTEGER NOT NULL,    -- кто поставил
+    rating INTEGER NOT NULL,            -- 1-10
+    created_at TEXT NOT NULL,           -- ISO8601
+    updated_at TEXT,                    -- когда переголосовал
+    FOREIGN KEY (winner_id) REFERENCES winners(id),
+    UNIQUE(winner_id, user_discord_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ratings_winner ON ratings(winner_id);
+CREATE INDEX IF NOT EXISTS idx_ratings_user ON ratings(user_discord_id);
 """
 
 
@@ -152,6 +168,46 @@ async def init_db() -> None:
                 if col_name not in existing_cols:
                     log.info("Migrating users: adding column %s", col_name)
                     await db.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+            await db.commit()
+
+            # === Миграция v0.8.0: старые /watched записи → ratings + winners ===
+            # Для каждой записи в watched (без рейтинга или с rating):
+            #   1. Создаём winner (если его ещё нет) с тем же title
+            #   2. Создаём rating от watcher_user_id (или 0 если не было рейтинга)
+            async with db.execute("SELECT id, title, watched_at, rating, watcher_user_id FROM watched") as cur:
+                watched_rows = await cur.fetchall()
+            migrated_count = 0
+            for w_id, title, watched_at, rating_val, watcher_id in watched_rows:
+                # Ищем существующего winner с таким же title
+                async with db.execute(
+                    "SELECT id FROM winners WHERE lower(lot_name) = lower(?) LIMIT 1",
+                    (title,)
+                ) as w_cur:
+                    w_row = await w_cur.fetchone()
+                if w_row:
+                    winner_id = w_row[0]
+                else:
+                    # Создаём winner с confidence='confirmed'
+                    cur_w = await db.execute(
+                        "INSERT INTO winners (lot_name, tmdb_id, confidence, detected_at, confirmed_at, confirmed_by) "
+                        "VALUES (?, NULL, 'confirmed', ?, ?, ?)",
+                        (title, watched_at, watched_at, watcher_id or 0),
+                    )
+                    winner_id = cur_w.lastrowid
+
+                # Если был rating — создаём rating запись (если ещё нет)
+                if rating_val and 1 <= rating_val <= 10:
+                    try:
+                        await db.execute(
+                            "INSERT INTO ratings (winner_id, user_discord_id, rating, created_at) "
+                            "VALUES (?, ?, ?, ?)",
+                            (winner_id, watcher_id or 0, rating_val, watched_at),
+                        )
+                        migrated_count += 1
+                    except aiosqlite.IntegrityError:
+                        pass  # уже есть — пропускаем
+            if migrated_count > 0:
+                log.info("Migrated %d old watched records to ratings", migrated_count)
             await db.commit()
 
         log.info("DB initialized at %s (size=%d bytes)",
@@ -518,11 +574,131 @@ async def list_winners(limit: int = 20) -> list[tuple]:
 
 
 async def delete_winner(winner_id: int) -> bool:
-    """Удалить запись из winners по id. Возвращает True если удалено."""
+    """Удалить запись из winners по id. Возвращает True если удалено.
+    Также каскадно удаляет все оценки (ratings) этого победителя.
+    """
     async with _connect() as db:
+        # Сначала удаляем оценки
+        await db.execute("DELETE FROM ratings WHERE winner_id = ?", (winner_id,))
         cur = await db.execute("DELETE FROM winners WHERE id = ?", (winner_id,))
         await db.commit()
         return cur.rowcount > 0
+
+
+# === Ratings (community rating, v0.8.0) ===
+
+async def upsert_rating(winner_id: int, user_discord_id: int, rating: int) -> bool:
+    """Поставить или обновить оценку победителю.
+    Один юзер = одна оценка на фильм (UNIQUE constraint).
+    Возвращает True если оценка поставлена, False если рейтинг вне диапазона 1-10.
+
+    Побочный эффект: при первой оценке победитель "переезжает" в watched
+    (если ещё не там) — INSERT INTO watched, чтобы он появился в бэклоге.
+    """
+    if not (1 <= rating <= 10):
+        return False
+
+    async with _connect() as db:
+        # INSERT OR UPDATE (если уже есть оценка — обновляем)
+        now = datetime.utcnow().isoformat()
+        await db.execute(
+            "INSERT INTO ratings (winner_id, user_discord_id, rating, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(winner_id, user_discord_id) DO UPDATE SET "
+            "  rating = excluded.rating, "
+            "  updated_at = excluded.updated_at",
+            (winner_id, user_discord_id, rating, now, now),
+        )
+        await db.commit()
+
+        # Проверяем, есть ли уже запись в watched (по lot_name победителя)
+        async with db.execute("SELECT lot_name FROM winners WHERE id = ?", (winner_id,)) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return False
+            lot_name = row[0]
+
+        # Проверяем, есть ли уже в watched (case-insensitive)
+        async with db.execute(
+            "SELECT 1 FROM watched WHERE lower(title) = lower(?) LIMIT 1",
+            (lot_name,)
+        ) as cur:
+            if not await cur.fetchone():
+                # Не в watched — добавляем (первая оценка = переезд в бэклог)
+                try:
+                    await db.execute(
+                        "INSERT INTO watched (title, watched_at, rating, watcher_user_id) VALUES (?, ?, ?, ?)",
+                        (lot_name, now, rating, user_discord_id),
+                    )
+                    await db.commit()
+                except aiosqlite.IntegrityError:
+                    pass  # race condition — уже добавлено кем-то другим
+
+        return True
+
+
+async def get_ratings_for_winner(winner_id: int) -> list[tuple]:
+    """Все оценки победителя: [(user_discord_id, rating, created_at, updated_at), ...]."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT user_discord_id, rating, created_at, updated_at "
+            "FROM ratings WHERE winner_id = ? ORDER BY created_at",
+            (winner_id,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_average_rating(winner_id: int) -> tuple[float, int]:
+    """Средний рейтинг победителя и количество оценок. (0.0, 0) если нет оценок."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT AVG(rating), COUNT(*) FROM ratings WHERE winner_id = ?",
+            (winner_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if not row or not row[1]:
+                return 0.0, 0
+            return round(row[0], 1), row[1]
+
+
+async def get_user_rating(winner_id: int, user_discord_id: int) -> int | None:
+    """Оценка конкретного юзера для победителя (или None)."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT rating FROM ratings WHERE winner_id = ? AND user_discord_id = ?",
+            (winner_id, user_discord_id)
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def get_winners_with_ratings(limit: int = 50) -> list[dict]:
+    """Победители с агрегированной информацией о рейтингах.
+    Возвращает list of dicts с полями:
+      id, lot_name, tmdb_id, confidence, detected_at, confirmed_at,
+      avg_rating, ratings_count, user_rating (текущего юзера если задан)
+    """
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT w.id, w.lot_name, w.tmdb_id, w.confidence, w.detected_at, w.confirmed_at, "
+            "  COALESCE(AVG(r.rating), 0) as avg_rating, "
+            "  COUNT(r.id) as ratings_count "
+            "FROM winners w "
+            "LEFT JOIN ratings r ON r.winner_id = w.id "
+            "GROUP BY w.id "
+            "ORDER BY w.detected_at DESC LIMIT ?",
+            (limit,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "id": r[0], "lot_name": r[1], "tmdb_id": r[2], "confidence": r[3],
+                "detected_at": r[4], "confirmed_at": r[5],
+                "avg_rating": round(r[6], 1) if r[6] else 0.0,
+                "ratings_count": r[7],
+            }
+            for r in rows
+        ]
 
 
 async def get_recent_unconfirmed_winners(minutes: int = 5) -> list[tuple]:

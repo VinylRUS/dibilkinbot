@@ -5,42 +5,99 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Бэклог · DeeBeelkin</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .watched-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .watched-card:last-child { border-bottom: none; }
+    .watched-title {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .watched-date {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      margin-top: 2px;
+    }
+    .rating-block {
+      text-align: right;
+      min-width: 120px;
+    }
+    .avg-rating {
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 1.1rem;
+    }
+    .ratings-count {
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      margin-top: 2px;
+    }
+    .no-rating {
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: 0.85rem;
+    }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
 
   <main class="container">
     <h2>🎬 Бэклог просмотренных фильмов</h2>
+
     {% if request.query_params.get('deleted') %}
       <div class="saved">✓ Запись удалена.</div>
     {% endif %}
+
     <article class="card">
-      <table>
-        <tr>
-          <th>Название</th>
-          <th>Дата</th>
-          <th>Оценка</th>
-          {% if is_admin %}<th></th>{% endif %}
-        </tr>
+      {% if watched|length == 0 %}
+        <div class="empty">
+          Бэклог пуст. Чтобы фильм попал сюда:
+          <ol style="text-align:left; max-width: 400px; margin: 14px auto;">
+            <li>Откройте <a href="/wheel">/wheel</a> и крутаните колесо</li>
+            <li>Победитель появится на <a href="/winners">/winners</a></li>
+            <li>Поставьте оценку звёздами — и фильм автоматически переедет в бэклог</li>
+          </ol>
+        </div>
+      {% else %}
         {% for w_id, title, watched_at, rating in watched %}
-          <tr>
-            <td>{{ title }}</td>
-            <td class="mono">{{ watched_at[:16].replace('T', ' ') }}</td>
-            <td>{{ '⭐' * rating if rating else '—' }}</td>
+          <div class="watched-card">
+            <div>
+              <div class="watched-title">{{ title }}</div>
+              <div class="watched-date mono">{{ watched_at[:16].replace('T', ' ') }}</div>
+            </div>
+            <div class="rating-block">
+              {% if rating %}
+                <div class="avg-rating">⭐ {{ rating }}/10</div>
+                <div class="ratings-count">первая оценка</div>
+              {% else %}
+                <div class="no-rating">без оценки</div>
+              {% endif %}
+            </div>
             {% if is_admin %}
-              <td>
-                <form method="post" action="/watched/{{ w_id }}/delete" style="display:inline; margin:0;"
-                      onsubmit="return confirm('Удалить «{{ title }}» из бэклога?');">
-                  <button type="submit" style="background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0;font-size:0.8rem;">×</button>
-                </form>
-              </td>
+              <form method="post" action="/watched/{{ w_id }}/delete" style="margin:0;"
+                    onsubmit="return confirm('Удалить «{{ title }}» из бэклога?');">
+                <button type="submit" style="background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0;font-size:0.8rem;">×</button>
+              </form>
             {% endif %}
-          </tr>
-        {% else %}
-          <tr><td colspan="{{ 4 if is_admin else 3 }}" class="empty">Бэклог пуст.</td></tr>
+          </div>
         {% endfor %}
-      </table>
+      {% endif %}
     </article>
+
+    {% if watched|length > 0 %}
+      <p class="hint" style="margin-top: 14px;">
+        💡 Подробные рейтинги (кто как оценил, средний балл) — на странице <a href="/winners">/winners</a>.
+        Здесь показана первая оценка, которая перенесла фильм в бэклог.
+      </p>
+    {% endif %}
   </main>
 </body>
 </html>

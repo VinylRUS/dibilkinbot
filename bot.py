@@ -130,7 +130,6 @@ class KinovecherBot(commands.Bot):
     async def setup_hook(self) -> None:
         cogs = [
             ("WheelCog", WheelCog),
-            ("WatchedCog", WatchedCog),
             ("QuotesCog", QuotesCog),
             ("MovieNightCog", MovieNightCog),
             ("LinkCog", LinkCog),
@@ -403,59 +402,6 @@ class WheelCog(commands.Cog):
             f"✅ «{item['name']}» удалён из колеса.",
             ephemeral=True,
         )
-
-# === COG: Watched ===
-
-class WatchedCog(commands.Cog):
-    def __init__(self, bot: KinovecherBot):
-        self.bot = bot
-
-    @app_commands.command(name="watched", description="Подтвердить просмотр фильма + пост в TG-бэклог")
-    @app_commands.describe(
-        title="Название фильма (точно как в колесе)",
-        rating="Оценка 1-10 (опционально)",
-    )
-    async def watched(self, interaction: discord.Interaction, title: str, rating: int | None = None):
-        title = title.strip()
-        if rating is not None and not (1 <= rating <= 10):
-            await interaction.response.send_message("Оценка должна быть 1-10.", ephemeral=True)
-            return
-
-        added = await db.add_watched(title, rating, interaction.user.id)
-        if not added:
-            await interaction.response.send_message(
-                f"«{title}» уже помечен просмотренным ранее.",
-                ephemeral=True,
-            )
-            return
-
-        # Авто-подтверждение недавних unconfirmed победителей (за последние 30 мин)
-        recent_unconfirmed = await db.get_recent_unconfirmed_winners(minutes=30)
-        confirmed_winner = None
-        for w_id, lot_name, tmdb_id in recent_unconfirmed:
-            if lot_name.lower() == title.lower():
-                await db.confirm_winner(w_id, interaction.user.id)
-                confirmed_winner = (w_id, lot_name, tmdb_id)
-                break
-
-        # TG-бэклог
-        stars = "⭐" * rating if rating else "—"
-        tg_text = (
-            f"🎬 <b>{tg_escape(title)}</b>\n"
-            f"Дата: {datetime.utcnow().strftime('%Y-%m-%d')}\n"
-            f"Оценка: {stars}"
-        )
-        await tg_crosspost(tg_text)
-
-        # Discord ответ
-        msg = (
-            f"✅ «{title}» добавлен в бэклог просмотренного. "
-            f"{'Оценка: ' + stars if rating else 'Без оценки.'}"
-        )
-        if confirmed_winner:
-            msg += f"\n\n✓ Подтверждён победитель колеса #{confirmed_winner[0]}."
-        await interaction.response.send_message(msg, ephemeral=False)
-
 
 # === COG: Quotes ===
 
