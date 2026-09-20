@@ -717,19 +717,29 @@ async def get_recent_unconfirmed_winners(minutes: int = 5) -> list[tuple]:
 # === Утилита для веб-панели: последние события ===
 
 async def recent_activity(limit: int = 20) -> list[dict]:
-    """Сводная лента: последние победители + последние просмотренные, отсортированные по времени."""
+    """Сводная лента: последние победители (с рейтингами) + последние просмотренные,
+    отсортированные по времени. Возвращает list of dicts.
+    """
     items: list[dict] = []
     async with _connect() as db:
+        # Победители с агрегированными рейтингами
         async with db.execute(
-            "SELECT 'winner' AS type, id, lot_name AS name, detected_at AS ts, confidence "
-            "FROM winners ORDER BY detected_at DESC LIMIT ?",
+            "SELECT w.id, w.lot_name, w.detected_at, w.confidence, "
+            "  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
+            "FROM winners w "
+            "LEFT JOIN ratings r ON r.winner_id = w.id "
+            "GROUP BY w.id "
+            "ORDER BY w.detected_at DESC LIMIT ?",
             (limit,)
         ) as cur:
             for row in await cur.fetchall():
                 items.append({
-                    "type": "winner", "id": row[1], "name": row[2],
-                    "ts": row[3], "confidence": row[4]
+                    "type": "winner", "id": row[0], "name": row[1],
+                    "ts": row[2], "confidence": row[3],
+                    "avg_rating": round(row[4], 1) if row[4] else 0.0,
+                    "ratings_count": row[5],
                 })
+        # Просмотренные (только те, что не из числа победителей — у тех уже есть выше)
         async with db.execute(
             "SELECT 'watched' AS type, id, title, watched_at, rating "
             "FROM watched ORDER BY watched_at DESC LIMIT ?",

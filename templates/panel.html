@@ -41,6 +41,9 @@
             <span class="activity-type {{ item.type }}">{{ '🎡' if item.type == 'winner' else '🎬' }} {{ item.name }}</span>
             {% if item.type == 'winner' %}
               <span class="badge {{ item.confidence }}">{{ item.confidence }}</span>
+              {% if item.ratings_count and item.ratings_count > 0 %}
+                · ⭐ {{ item.avg_rating }}/10 ({{ item.ratings_count }})
+              {% endif %}
             {% elif item.rating %}
               <span>· ⭐{{ item.rating }}/10</span>
             {% endif %}
@@ -62,14 +65,14 @@
           <td><span class="badge {{ confidence }}">{{ confidence }}</span></td>
         </tr>
       {% else %}
-        <tr><td colspan="3" class="empty">Пока нет победителей. Крутаните колесо на pointauc.com.</td></tr>
+        <tr><td colspan="3" class="empty">Пока нет победителей. Крутаните колесо на <a href="/wheel">/wheel</a>.</td></tr>
       {% endfor %}
     </table>
 
     <h2>Последние просмотренные</h2>
     <table>
       <tr><th>Фильм</th><th>Дата</th><th>Оценка</th></tr>
-      {% for title, watched_at, rating in recent_watched %}
+      {% for w_id, title, watched_at, rating in recent_watched %}
         <tr>
           <td>{{ title }}</td>
           <td class="mono">{{ watched_at[:10] }}</td>
