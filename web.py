@@ -165,7 +165,31 @@ async def login_submit(
     # Только если login не числовой — иначе попадает в способ 2/3 ниже
     is_env_admin_login = secrets.compare_digest(login, settings.admin_login)
     if is_env_admin_login and is_env_admin_pass and not login.isdigit():
-        user_payload = {"discord_id": 0, "username": login, "is_admin": True, "avatar_url": None}
+        # Даже при текстовом логине — определяем guild_id через ADMIN_DISCORD_ID
+        admin_guild_id = 0
+        if settings.admin_discord_id:
+            try:
+                import bot as bot_module
+                is_member, member_info = await bot_module.is_guild_member(settings.admin_discord_id)
+                if is_member and member_info:
+                    admin_guild_id = member_info.get("guild_id", 0)
+                    # Регистрируем guild
+                    import guild as guild_module
+                    await guild_module.init_guild_tables(admin_guild_id)
+                    await guild_module.upsert_guild(
+                        admin_guild_id,
+                        member_info.get("guild_name", "Discord Server"),
+                        auto_approve=True,
+                    )
+            except Exception:
+                pass
+        user_payload = {
+            "discord_id": 0,
+            "username": login,
+            "is_admin": True,
+            "avatar_url": None,
+            "current_guild_id": admin_guild_id,
+        }
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
         resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
