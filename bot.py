@@ -461,12 +461,20 @@ class WheelCog(commands.Cog):
 
         guild_id = interaction.guild_id or 0
 
+        # Убеждаемся что таблицы существуют (включая filmnights)
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
         # Проверяем есть ли активный сбор фильмов (filmnight)
-        filmnight = await db.g_get_active_filmnight(guild_id)
+        try:
+            filmnight = await db.g_get_active_filmnight(guild_id)
+        except Exception as e:
+            log.error("Failed to check filmnight: %s", e)
+            filmnight = None
         if not filmnight:
             await interaction.response.send_message(
                 "❌ Нет активного набора фильмов в колесо.\n"
-                "Используйте `/filmnight` чтобы начать сбор.",
+                "Используйте `/filmnight start` чтобы начать сбор.",
                 ephemeral=True,
             )
             return
@@ -784,11 +792,13 @@ class FilmNightCog(commands.Cog):
     def __init__(self, bot: KinovecherBot):
         self.bot = bot
 
-    @app_commands.command(name="filmnight", description="Начать сбор фильмов для киновечера")
+    filmnight = app_commands.Group(name="filmnight", description="Сбор фильмов для киновечера")
+
+    @filmnight.command(name="start", description="Начать сбор фильмов для киновечера")
     @app_commands.describe(
         max_per_user="Сколько фильмов может добавить один участник (по умолчанию 3)",
     )
-    async def filmnight(self, interaction: discord.Interaction, max_per_user: int = 3):
+    async def filmnight_start(self, interaction: discord.Interaction, max_per_user: int = 3):
         if max_per_user < 1:
             max_per_user = 1
         if max_per_user > 20:
@@ -796,25 +806,28 @@ class FilmNightCog(commands.Cog):
 
         guild_id = interaction.guild_id or 0
 
+        # Убеждаемся что таблицы существуют
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
         # Проверяем нет ли уже активного сбора
         existing = await db.g_get_active_filmnight(guild_id)
         if existing:
-            # Уже активный — показываем статус
             wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
-            unique_users = len(set(item["added_by"] for item in wheel_items))
+            unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
             embed = discord.Embed(
                 title="🎬 Сбор фильмов уже активен!",
                 description=(
                     f"Лимит: **{existing['max_per_user']}** фильмов на участника\n"
                     f"Уже предложено: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n\n"
                     f"Добавляйте через `/wheel add <название>`\n"
-                    f"Крутить: на странице [/wheel](https://your-panel/wheel) в веб-панели\n\n"
-                    f"Сбор завершится автоматически при первом спине."
+                    f"Сбор завершится автоматически при первом спине.\n"
+                    f"Или используйте `/filmnight end` для ручного завершения."
                 ),
                 color=0xFFB703,
                 timestamp=datetime.utcnow(),
             )
-            embed.set_footer(text=f"Сбор начат: {existing['started_by']}")
+            embed.set_footer(text=f"Сбор начал: <@{existing['started_by']}>")
             await interaction.response.send_message(embed=embed)
             return
 
@@ -825,13 +838,84 @@ class FilmNightCog(commands.Cog):
             description=(
                 f"Лимит: **{max_per_user}** фильмов на участника\n\n"
                 f"Используйте `/wheel add <название>` чтобы предложить фильм.\n"
-                f"Крутить колесо может кто угодно — откройте [/wheel](https://your-panel/wheel) в веб-панели.\n\n"
-                f"Сбор завершится автоматически при первом спине."
+                f"Крутить колесо может кто угодно — откройте веб-панель → /wheel.\n\n"
+                f"Сбор завершится автоматически при первом спине.\n"
+                f"Или используйте `/filmnight end` для ручного завершения."
             ),
             color=0x2ECC71,
             timestamp=datetime.utcnow(),
         )
         embed.set_footer(text=f"Запустил: {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
+
+    @filmnight.command(name="end", description="Завершить активный сбор фильмов")
+    async def filmnight_end(self, interaction: discord.Interaction):
+        """Завершить активный сбор. Любой участник может завершить."""
+        guild_id = interaction.guild_id or 0
+
+        # Убеждаемся что таблицы существуют
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
+        existing = await db.g_get_active_filmnight(guild_id)
+        if not existing:
+            await interaction.response.send_message(
+                "❌ Нет активного сбора фильмов.\n"
+                "Используйте `/filmnight start` чтобы начать новый сбор.",
+                ephemeral=True,
+            )
+            return
+
+        # Завершаем
+        wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+        unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
+        completed = await db.g_complete_filmnight(guild_id, interaction.user.id)
+
+        embed = discord.Embed(
+            title="✅ Сбор фильмов завершён!",
+            description=(
+                f"Собрано: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n\n"
+                f"Откройте веб-панель → /wheel чтобы крутить колесо."
+            ),
+            color=0x2ECC71,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text=f"Завершил: {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
+
+    @filmnight.command(name="status", description="Показать статус активного сбора")
+    async def filmnight_status(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+
+        # Убеждаемся что таблицы существуют
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
+        existing = await db.g_get_active_filmnight(guild_id)
+        if not existing:
+            await interaction.response.send_message(
+                "❌ Нет активного сбора фильмов.\n"
+                "Используйте `/filmnight start` чтобы начать.",
+                ephemeral=True,
+            )
+            return
+
+        wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+        unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
+
+        embed = discord.Embed(
+            title="🎬 Статус сбора фильмов",
+            description=(
+                f"Лимит: **{existing['max_per_user']}** фильмов на участника\n"
+                f"Предложено: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n"
+                f"Начат: <@{existing['started_by']}>\n\n"
+                f"Добавляйте через `/wheel add <название>`\n"
+                f"Завершить: `/filmnight end`\n"
+                f"Крутить: веб-панель → /wheel"
+            ),
+            color=0xFFB703,
+            timestamp=datetime.utcnow(),
+        )
         await interaction.response.send_message(embed=embed)
 
 
