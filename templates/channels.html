@@ -22,6 +22,7 @@
           <label>{{ label }}</label>
           <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="ID (число)">
           <p class="hint">
+            {% if key == 'panel_base_url' %}URL вашей веб-панели (например https://your-bot.bothost.tech). Используется для inline-кнопок в Telegram. Без него кнопка "Оценить" не появится.{% endif %}
             {% if key == 'channel_quotes_id' %}ПКМ по каналу в Discord (режим разработчика) → Копировать ID{% endif %}
             {% if key == 'channel_announce_id' %}Канал, куда бот постит embed'ы анонсов.{% endif %}
             {% if key == 'channel_winners_id' %}Куда бот постит победителей колеса с постером.{% endif %}

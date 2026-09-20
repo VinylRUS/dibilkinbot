@@ -158,7 +158,7 @@ class KinovecherBot(commands.Bot):
         for g in self.guilds:
             log.info("  - '%s' (id=%s)", g.name, g.id)
 
-        # Регистрируем все guilds в БД (создаём таблицы если ещё не созданы)
+        # Регистрируем все guilds в БД + создаём недостающие таблицы (CREATE IF NOT EXISTS — idempotent)
         import guild as guild_module
         for g in self.guilds:
             try:
@@ -168,9 +168,11 @@ class KinovecherBot(commands.Bot):
                     owner_id=g.owner_id,
                     member_count=g.member_count,
                 )
+                # Всегда вызываем init_guild_tables — CREATE TABLE IF NOT EXISTS безопасен
+                # и создаёт новые таблицы (например filmnights добавлен в v1.2.0)
+                await guild_module.init_guild_tables(g.id)
                 if is_new:
-                    log.info("New guild detected: %s (id=%s) — creating tables, pending approval", g.name, g.id)
-                    await guild_module.init_guild_tables(g.id)
+                    log.info("New guild detected: %s (id=%s) — pending approval", g.name, g.id)
             except Exception as e:
                 log.error("Failed to register guild %s: %s", g.id, e)
 
@@ -367,13 +369,15 @@ class KinovecherBot(commands.Bot):
             log.info("No Telegram token, skipping TG post")
             return
 
-        # URL веб-панели для кнопки "Оценить"
-        panel_url = await db.get_setting("panel_base_url") or "https://your-panel-domain"
-        rate_button = {
-            "inline_keyboard": [[
-                {"text": "📊 Оценить в панели", "url": f"{panel_url}/winners"},
-            ]]
-        }
+        # URL веб-панели для кнопки "Оценить" — если не задан, кнопка не добавляется
+        panel_url = await db.get_setting("panel_base_url")
+        rate_button = None
+        if panel_url:
+            rate_button = {
+                "inline_keyboard": [[
+                    {"text": "📊 Оценить в панели", "url": f"{panel_url.rstrip('/')}/winners"},
+                ]]
+            }
 
         if meta and meta.get("poster_url"):
             # Rich post: фото + HTML caption + кнопка

@@ -343,6 +343,7 @@ async def tokens_save(
 # === Channels (admin only) ===
 
 KNOWN_CHANNELS = [
+    ("panel_base_url", "URL веб-панели (для кнопок в Telegram, например https://your-bot.bothost.tech)"),
     ("channel_quotes_id", "ID канала #цитатник"),
     ("channel_announce_id", "ID канала анонсов киновечера"),
     ("channel_winners_id", "ID канала #winners (куда постить победителей колеса)"),
@@ -368,6 +369,7 @@ async def channels_form(request: Request, _user: dict = Depends(require_admin)):
 async def channels_save(
     request: Request,
     _user: dict = Depends(require_admin),
+    panel_base_url: str = Form(""),
     channel_quotes_id: str = Form(""),
     channel_announce_id: str = Form(""),
     channel_winners_id: str = Form(""),
@@ -378,6 +380,7 @@ async def channels_save(
     tg_winners_thread_id: str = Form(""),
 ):
     updates = {
+        "panel_base_url": panel_base_url.strip(),
         "channel_quotes_id": channel_quotes_id.strip(),
         "channel_announce_id": channel_announce_id.strip(),
         "channel_winners_id": channel_winners_id.strip(),
