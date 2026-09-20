@@ -1423,3 +1423,94 @@ async def get_recent_unconfirmed_winners(minutes: int = 5) -> list[tuple]:
             (cutoff_iso,)
         ) as cur:
             return await cur.fetchall()
+
+
+# --- g_filmnights (сбор фильмов для киновечера) ---
+
+async def g_start_filmnight(guild_id: int, started_by: int, max_per_user: int = 3) -> int | None:
+    """Запустить новый сбор фильмов. Если уже есть активный — вернуть его id.
+    Возвращает id активного filmnight или None если произошла ошибка.
+    """
+    table = _guild.guild_table(guild_id, "filmnights")
+    async with _connect() as db:
+        # Проверяем есть ли уже активный
+        async with db.execute(
+            f"SELECT id FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            return row[0]  # Уже активный — возвращаем существующий
+        # Создаём новый
+        cur = await db.execute(
+            f"INSERT INTO {table} (status, max_per_user, started_by, started_at) "
+            f"VALUES ('active', ?, ?, ?)",
+            (max_per_user, started_by, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_get_active_filmnight(guild_id: int) -> dict | None:
+    """Получить активный сбор фильмов или None."""
+    table = _guild.guild_table(guild_id, "filmnights")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, status, max_per_user, started_by, started_at, completed_at, wheel_items_count "
+            f"FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "status": row[1], "max_per_user": row[2],
+            "started_by": row[3], "started_at": row[4],
+            "completed_at": row[5], "wheel_items_count": row[6],
+        }
+
+
+async def g_complete_filmnight(guild_id: int, completed_by: int = 0) -> bool:
+    """Завершить активный сбор (статус → completed).
+    Записывает количество фильмов в колесе на момент завершения.
+    """
+    table = _guild.guild_table(guild_id, "filmnights")
+    wheel_table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        # Считаем активные лоты колеса
+        async with db.execute(f"SELECT COUNT(*) FROM {wheel_table} WHERE is_active = 1") as cur:
+            count_row = await cur.fetchone()
+        wheel_count = count_row[0] if count_row else 0
+        cur = await db.execute(
+            f"UPDATE {table} SET status = 'completed', completed_at = ?, completed_by = ?, wheel_items_count = ? "
+            f"WHERE status = 'active'",
+            (datetime.utcnow().isoformat(), completed_by, wheel_count),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_count_user_wheel_items(guild_id: int, user_discord_id: int) -> int:
+    """Сколько активных фильмов в колесе от конкретного юзера.
+    Используется для проверки лимита max_per_user.
+    """
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE added_by = ? AND is_active = 1",
+            (user_discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+
+# --- aliases для filmnight (guild_id=0) ---
+async def start_filmnight(started_by: int, max_per_user: int = 3) -> int | None:
+    return await g_start_filmnight(0, started_by, max_per_user)
+
+async def get_active_filmnight() -> dict | None:
+    return await g_get_active_filmnight(0)
+
+async def complete_filmnight(completed_by: int = 0) -> bool:
+    return await g_complete_filmnight(0, completed_by)
+
+async def count_user_wheel_items(user_discord_id: int) -> int:
+    return await g_count_user_wheel_items(0, user_discord_id)

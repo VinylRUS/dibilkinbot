@@ -132,6 +132,7 @@ class KinovecherBot(commands.Bot):
             ("WheelCog", WheelCog),
             ("QuotesCog", QuotesCog),
             ("MovieNightCog", MovieNightCog),
+            ("FilmNightCog", FilmNightCog),
             ("LinkCog", LinkCog),
         ]
         for name, cls in cogs:
@@ -455,6 +456,27 @@ class WheelCog(commands.Cog):
             return
 
         guild_id = interaction.guild_id or 0
+
+        # Проверяем есть ли активный сбор фильмов (filmnight)
+        filmnight = await db.g_get_active_filmnight(guild_id)
+        if not filmnight:
+            await interaction.response.send_message(
+                "❌ Нет активного набора фильмов в колесо.\n"
+                "Используйте `/filmnight` чтобы начать сбор.",
+                ephemeral=True,
+            )
+            return
+
+        # Проверяем лимит фильмов от одного юзера
+        user_count = await db.g_count_user_wheel_items(guild_id, interaction.user.id)
+        if user_count >= filmnight["max_per_user"]:
+            await interaction.response.send_message(
+                f"❌ Вы уже добавили {user_count} фильм(ов) из {filmnight['max_per_user']} разрешённых.\n"
+                f"Дождитесь начала спина или попросите админа увеличить лимит.",
+                ephemeral=True,
+            )
+            return
+
         if await db.g_is_watched(guild_id, title):
             await interaction.response.send_message(
                 f"«{title}» уже просмотрен — его нельзя вернуть в колесо.",
@@ -750,6 +772,63 @@ class MovieNightCog(commands.Cog):
                 f"{tg_escape(description) if description else ''}"
             )
             await tg_crosspost(tg_text)
+
+
+# === COG: FilmNight (сбор фильмов для киновечера) ===
+
+class FilmNightCog(commands.Cog):
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    @app_commands.command(name="filmnight", description="Начать сбор фильмов для киновечера")
+    @app_commands.describe(
+        max_per_user="Сколько фильмов может добавить один участник (по умолчанию 3)",
+    )
+    async def filmnight(self, interaction: discord.Interaction, max_per_user: int = 3):
+        if max_per_user < 1:
+            max_per_user = 1
+        if max_per_user > 20:
+            max_per_user = 20
+
+        guild_id = interaction.guild_id or 0
+
+        # Проверяем нет ли уже активного сбора
+        existing = await db.g_get_active_filmnight(guild_id)
+        if existing:
+            # Уже активный — показываем статус
+            wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+            unique_users = len(set(item["added_by"] for item in wheel_items))
+            embed = discord.Embed(
+                title="🎬 Сбор фильмов уже активен!",
+                description=(
+                    f"Лимит: **{existing['max_per_user']}** фильмов на участника\n"
+                    f"Уже предложено: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n\n"
+                    f"Добавляйте через `/wheel add <название>`\n"
+                    f"Крутить: на странице [/wheel](https://your-panel/wheel) в веб-панели\n\n"
+                    f"Сбор завершится автоматически при первом спине."
+                ),
+                color=0xFFB703,
+                timestamp=datetime.utcnow(),
+            )
+            embed.set_footer(text=f"Сбор начат: {existing['started_by']}")
+            await interaction.response.send_message(embed=embed)
+            return
+
+        # Запускаем новый сбор
+        fn_id = await db.g_start_filmnight(guild_id, interaction.user.id, max_per_user)
+        embed = discord.Embed(
+            title="🎬 Сбор фильмов начат!",
+            description=(
+                f"Лимит: **{max_per_user}** фильмов на участника\n\n"
+                f"Используйте `/wheel add <название>` чтобы предложить фильм.\n"
+                f"Крутить колесо может кто угодно — откройте [/wheel](https://your-panel/wheel) в веб-панели.\n\n"
+                f"Сбор завершится автоматически при первом спине."
+            ),
+            color=0x2ECC71,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text=f"Запустил: {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
 
 
 # === COG: TG Link ===

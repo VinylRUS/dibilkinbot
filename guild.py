@@ -19,7 +19,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -127,6 +127,19 @@ GUILD_SCHEMA_TEMPLATES = {
             value TEXT,
             is_secret INTEGER DEFAULT 0
         );
+    """,
+    "filmnights": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            status TEXT NOT NULL DEFAULT 'active',
+            max_per_user INTEGER NOT NULL DEFAULT 3,
+            started_by INTEGER NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            completed_by INTEGER,
+            wheel_items_count INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
     """,
 }
 

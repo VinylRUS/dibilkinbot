@@ -815,12 +815,17 @@ async def api_clear_wheel(_user: dict = Depends(require_admin)):
 
 @app.post("/api/wheel/spin")
 async def api_spin_wheel(_user: dict = Depends(require_user)):
-    """Запустить спин. Сервер выбирает победителя и рассылает результат через WS."""
+    """Запустить спин. Сервер выбирает победителя и рассылает результат через WS.
+    Также завершает активный filmnight (если есть).
+    """
     import random
     guild_id = get_current_guild_id(_user)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
+
+    # Завершаем активный сбор фильмов (если есть)
+    await db.g_complete_filmnight(guild_id, _user.get("discord_id", 0))
 
     # Случайный победитель
     winner = random.choice(items)
@@ -877,6 +882,9 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items"}, status_code=400)
+
+    # Завершаем активный сбор фильмов при первом elimination-спине
+    await db.g_complete_filmnight(guild_id, _user.get("discord_id", 0))
 
     spin_id = str(uuid.uuid4())[:8]
 
