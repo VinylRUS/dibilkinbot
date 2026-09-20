@@ -158,21 +158,23 @@ class KinovecherBot(commands.Bot):
         for g in self.guilds:
             log.info("  - '%s' (id=%s)", g.name, g.id)
 
-        # Регистрируем все guilds в БД + создаём недостающие таблицы (CREATE IF NOT EXISTS — idempotent)
+        # Регистрируем все guilds в БД + создаём недостающие таблицы + апрувим существующие
         import guild as guild_module
         for g in self.guilds:
             try:
+                # auto_approve=True для всех guilds при on_ready — если бот на сервере, значит апрувим
                 is_new = await guild_module.upsert_guild(
                     g.id, g.name,
                     icon_url=str(g.icon.url) if g.icon else None,
                     owner_id=g.owner_id,
                     member_count=g.member_count,
+                    auto_approve=True,  # ← апрувим все guilds где бот присутствует
                 )
-                # Всегда вызываем init_guild_tables — CREATE TABLE IF NOT EXISTS безопасен
-                # и создаёт новые таблицы (например filmnights добавлен в v1.2.0)
                 await guild_module.init_guild_tables(g.id)
                 if is_new:
-                    log.info("New guild detected: %s (id=%s) — pending approval", g.name, g.id)
+                    log.info("New guild: %s (id=%s) — approved", g.name, g.id)
+                else:
+                    log.info("Existing guild: %s (id=%s) — re-approved", g.name, g.id)
             except Exception as e:
                 log.error("Failed to register guild %s: %s", g.id, e)
 
@@ -217,24 +219,26 @@ class KinovecherBot(commands.Bot):
                 log.error("✗ Failed to sync to guild '%s': %s", guild.name, e, exc_info=True)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        """Вызывается когда бота добавляют на новый сервер.
-        Создаёт guild-таблицы, регистрирует сервер в реестре (pending approval).
+        """Вызывается когда бота добавляют на сервер (новый или после кика).
+        Если бот уже был здесь — переапрувливаем автоматически.
         """
         log.info("🎉 Bot added to guild: %s (id=%s, members=%d)", guild.name, guild.id, guild.member_count)
         try:
             import guild as guild_module
+            # auto_approve=True — если бот уже был на этом сервере, переапрувливаем
+            # (бота могли кикнуть и добавить обратно)
             is_new = await guild_module.upsert_guild(
                 guild.id, guild.name,
                 icon_url=str(guild.icon.url) if guild.icon else None,
                 owner_id=guild.owner_id,
                 member_count=guild.member_count,
+                auto_approve=True,  # ← всегда апрувим при on_guild_join
             )
+            await guild_module.init_guild_tables(guild.id)
             if is_new:
-                log.info("New guild — creating tables, marking pending approval")
-                await guild_module.init_guild_tables(guild.id)
-                # Уведомление в лог — админ увидит и аппрувнет через /guilds
-                log.warning("⚠️ Guild %s (id=%s) is pending admin approval. Use /guilds in web panel to approve.",
-                            guild.name, guild.id)
+                log.info("New guild registered: %s (id=%s)", guild.name, guild.id)
+            else:
+                log.info("Re-approved existing guild: %s (id=%s)", guild.name, guild.id)
         except Exception as e:
             log.error("Failed to register new guild %s: %s", guild.id, e)
 

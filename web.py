@@ -830,21 +830,75 @@ async def api_filmnight_start(
     _user: dict = Depends(require_user),
     max_per_user: int = Form(3),
 ):
-    """Запустить сбор фильмов из веб-панели."""
+    """Запустить сбор фильмов из веб-панели + пост в Discord."""
     guild_id = get_current_guild_id(_user)
     import guild as guild_module
     await guild_module.init_guild_tables(guild_id)
     user_discord_id = _user.get("discord_id", 0)
     fn_id = await db.g_start_filmnight(guild_id, user_discord_id, max_per_user)
+
+    # Постим в Discord-канал анонсов (если настроен)
+    announce_channel_id_str = await db.get_setting("channel_announce_id")
+    if announce_channel_id_str and announce_channel_id_str.isdigit():
+        try:
+            import bot as bot_module
+            bot_instance = bot_module.get_bot_instance()
+            if bot_instance:
+                channel = bot_instance.get_channel(int(announce_channel_id_str))
+                if channel:
+                    import discord
+                    embed = discord.Embed(
+                        title="🎬 Сбор фильмов начат!",
+                        description=(
+                            f"Лимит: **{max_per_user}** фильмов на участника\n\n"
+                            f"Используйте `/wheel add <название>` чтобы предложить фильм.\n"
+                            f"Крутить: веб-панель → /wheel"
+                        ),
+                        color=0x2ECC71,
+                    )
+                    await channel.send(embed=embed)
+        except Exception as e:
+            import logging
+            logging.getLogger("web").warning("Discord filmnight announce failed: %s", e)
+
     return JSONResponse({"ok": True, "id": fn_id, "max_per_user": max_per_user})
 
 
 @app.post("/api/filmnight/end")
 async def api_filmnight_end(_user: dict = Depends(require_user)):
-    """Завершить сбор фильмов из веб-панели."""
+    """Завершить сбор фильмов из веб-панели + пост в Discord."""
     guild_id = get_current_guild_id(_user)
     user_discord_id = _user.get("discord_id", 0)
+
+    # Статистика перед завершением
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
+    unique_users = len(set(item["added_by"] for item in items)) if items else 0
+
     completed = await db.g_complete_filmnight(guild_id, user_discord_id)
+
+    # Постим в Discord-канал анонсов
+    announce_channel_id_str = await db.get_setting("channel_announce_id")
+    if announce_channel_id_str and announce_channel_id_str.isdigit():
+        try:
+            import bot as bot_module
+            bot_instance = bot_module.get_bot_instance()
+            if bot_instance:
+                channel = bot_instance.get_channel(int(announce_channel_id_str))
+                if channel:
+                    import discord
+                    embed = discord.Embed(
+                        title="✅ Сбор фильмов завершён!",
+                        description=(
+                            f"Собрано: **{len(items)}** фильмов от **{unique_users}** участник(ов)\n\n"
+                            f"Крутить колесо: веб-панель → /wheel"
+                        ),
+                        color=0xFFB703,
+                    )
+                    await channel.send(embed=embed)
+        except Exception as e:
+            import logging
+            logging.getLogger("web").warning("Discord filmnight end announce failed: %s", e)
+
     return JSONResponse({"ok": completed})
 
 

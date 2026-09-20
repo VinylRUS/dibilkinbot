@@ -204,19 +204,27 @@ async def upsert_guild(
     auto_approve: bool = False,
 ) -> bool:
     """Зарегистрировать или обновить guild. Возвращает True если создан новый.
-    Если уже существует — обновляет name/icon/owner/member_count, НЕ трогает approved.
+    Если уже существует — обновляет name/icon/owner/member_count.
+    Если auto_approve=True — также устанавливает approved=1 (даже для существующих).
     """
     is_new = False
     async with _connect() as db:
-        # Проверяем есть ли уже
         async with db.execute("SELECT 1 FROM guilds WHERE guild_id = ?", (guild_id,)) as cur:
             existing = await cur.fetchone()
         if existing:
+            # Обновляем基本信息
             await db.execute(
                 "UPDATE guilds SET name = ?, icon_url = COALESCE(?, icon_url), "
                 "owner_id = COALESCE(?, owner_id), member_count = ? WHERE guild_id = ?",
                 (name, icon_url, owner_id, member_count, guild_id),
             )
+            # Если auto_approve — переапруваем (например при re-add бота на сервер)
+            if auto_approve:
+                await db.execute(
+                    "UPDATE guilds SET approved = 1, approved_at = ?, approved_by = 0 WHERE guild_id = ?",
+                    (datetime.utcnow().isoformat(), guild_id),
+                )
+                log.info("Re-approved guild %s (auto_approve=True)", guild_id)
         else:
             await db.execute(
                 "INSERT INTO guilds (guild_id, name, icon_url, owner_id, member_count, approved, created_at) "
