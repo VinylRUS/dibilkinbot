@@ -188,6 +188,8 @@ async def login_submit(
         roles = member_info.get("roles", [])
         top_role = member_info.get("top_role")
         guild_name = member_info.get("guild_name")
+        # Авто-определение guild_id из Discord (где бот нашёл этого юзера)
+        member_guild_id = member_info.get("guild_id", 0)
 
         # Проверка прав
         is_admin = await db.is_admin(discord_id)
@@ -210,6 +212,25 @@ async def login_submit(
         if is_admin:
             await db.set_admin(discord_id, True)
 
+        # Если guild не зарегистрирован в реестре — регистрируем и создаём таблицы
+        if member_guild_id:
+            import guild as guild_module
+            try:
+                await guild_module.init_guild_tables(member_guild_id)
+                # Если это первый вход админа — авто-апрув
+                if is_admin:
+                    await guild_module.upsert_guild(
+                        member_guild_id, guild_name or "Discord Server",
+                        auto_approve=True,
+                    )
+                else:
+                    await guild_module.upsert_guild(
+                        member_guild_id, guild_name or "Discord Server",
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger("web").warning("Failed to init guild %s: %s", member_guild_id, e)
+
         user_payload = {
             "discord_id": discord_id,
             "username": display_name,
@@ -218,6 +239,7 @@ async def login_submit(
             "roles": roles,
             "top_role": top_role,
             "guild_name": guild_name,
+            "current_guild_id": member_guild_id,  # ← АВТО-ВЫБОР реального guild при логине
         }
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
