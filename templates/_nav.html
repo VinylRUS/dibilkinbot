@@ -6,6 +6,7 @@
   <a href="/wheel" {% if active == 'wheel' %}style="color: var(--accent);"{% endif %}>🎡 Колесо</a>
   <a href="/winners" {% if active == 'winners' %}style="color: var(--accent);"{% endif %}>Победители</a>
   <a href="/watched" {% if active == 'watched' %}style="color: var(--accent);"{% endif %}>Бэклог</a>
+  <a href="/quotes" {% if active == 'quotes' %}style="color: var(--accent);"{% endif %}>Цитаты</a>
   {% if user.is_admin %}
     <a href="/tokens" {% if active == 'tokens' %}style="color: var(--accent);"{% endif %}>Токены</a>
     <a href="/channels" {% if active == 'channels' %}style="color: var(--accent);"{% endif %}>Каналы</a>

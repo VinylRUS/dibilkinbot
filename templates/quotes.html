@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Цитатник · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .quotes-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 24px;
+      align-items: start;
+    }
+    .quotes-list { display: flex; flex-direction: column; gap: 14px; }
+    .quote-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 16px 20px;
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: start;
+    }
+    .quote-content { min-width: 0; }
+    .quote-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .quote-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: var(--card-alt);
+    }
+    .avatar-placeholder {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--accent-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+    .quote-author {
+      font-weight: 700;
+      color: var(--text);
+      font-size: 1rem;
+    }
+    .quote-date {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+    .quote-text {
+      color: var(--text);
+      font-size: 1rem;
+      line-height: 1.5;
+      font-style: italic;
+      margin: 0;
+    }
+    .quote-text::before { content: "« "; color: var(--text-muted); }
+    .quote-text::after { content: " »"; color: var(--text-muted); }
+    .quote-meta {
+      margin-top: 8px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .quote-meta a { color: var(--accent); text-decoration: none; }
+    .quote-meta a:hover { text-decoration: underline; }
+    .quote-actions { display: flex; flex-direction: column; gap: 6px; }
+    .delete-btn {
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      margin: 0;
+    }
+    .delete-btn:hover { background: var(--red); color: #fff; }
+    .add-form {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      position: sticky;
+      top: 80px;
+    }
+    .add-form h3 {
+      margin: 0 0 14px 0;
+      color: var(--accent);
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .add-form label { display: block; margin: 10px 0 4px; }
+    .add-form input, .add-form textarea {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+    }
+    .add-form textarea {
+      min-height: 80px;
+      resize: vertical;
+      font-family: inherit;
+    }
+    .add-form button {
+      width: 100%;
+      margin-top: 14px;
+      padding: 10px;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .add-form button:hover { background: var(--accent-hover); }
+    .search-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .search-form input {
+      flex: 1;
+      padding: 8px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+    }
+    .search-form button {
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 0;
+      font-weight: 600;
+    }
+    .flash {
+      background: var(--badge-confirmed-bg);
+      color: var(--badge-confirmed-text);
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      font-size: 0.88rem;
+    }
+    .flash.error {
+      background: var(--badge-unconfirmed-bg);
+      color: var(--red);
+    }
+    .pagination {
+      margin-top: 20px;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+    }
+    .pagination a {
+      padding: 8px 18px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .pagination a:hover { background: var(--accent-soft); }
+    .total-info {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-bottom: 14px;
+    }
+    @media (max-width: 900px) {
+      .quotes-grid { grid-template-columns: 1fr; }
+      .add-form { position: static; }
+    }
+  </style>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <h2>💬 Цитатник</h2>
+
+    {% if request.query_params.get('deleted') %}
+      <div class="flash">✓ Цитата удалена.</div>
+    {% elif request.query_params.get('error') == 'not_found' %}
+      <div class="flash error">❌ Цитата не найдена.</div>
+    {% elif request.query_params.get('error') == 'forbidden' %}
+      <div class="flash error">❌ Нет прав. Удалить может только автор цитаты или админ.</div>
+    {% endif %}
+
+    <form method="get" action="/quotes" class="search-form">
+      <input type="text" name="q" value="{{ search }}" placeholder="🔍 Поиск по автору или тексту...">
+      <button type="submit">Искать</button>
+      {% if search %}
+        <a href="/quotes" style="padding:8px 14px;align-self:center;color:var(--text-muted);text-decoration:none;">×</a>
+      {% endif %}
+    </form>
+
+    <div class="total-info">
+      Всего цитат: <strong>{{ total }}</strong>
+      {% if search %} · по запросу "{{ search }}"{% endif %}
+    </div>
+
+    <div class="quotes-grid">
+      <!-- Список цитат -->
+      <div class="quotes-list">
+        {% for q_id, author, author_user_id, author_avatar, text, recorded_by, recorded_at, message_link in quotes %}
+          <article class="quote-card">
+            <div class="quote-content">
+              <div class="quote-header">
+                {% if author_avatar %}
+                  <img src="{{ author_avatar }}" alt="" class="quote-avatar">
+                {% else %}
+                  <div class="avatar-placeholder">{{ author[0]|upper if author else '?' }}</div>
+                {% endif %}
+                <div>
+                  <div class="quote-author">{{ author }}</div>
+                  <div class="quote-date mono">{{ recorded_at[:16].replace('T', ' ') }}</div>
+                </div>
+              </div>
+              <p class="quote-text">{{ text }}</p>
+              {% if message_link %}
+                <div class="quote-meta">
+                  <a href="{{ message_link }}" target="_blank">↗ исходное сообщение</a>
+                </div>
+              {% endif %}
+            </div>
+            <div class="quote-actions">
+              {% if recorded_by == current_discord_id or is_admin %}
+                <form method="post" action="/quotes/{{ q_id }}/delete" style="margin:0;"
+                      onsubmit="return confirm('Удалить цитату «{{ text[:50] }}...»?');">
+                  <button type="submit" class="delete-btn">Удалить</button>
+                </form>
+              {% endif %}
+            </div>
+          </article>
+        {% else %}
+          <article class="card">
+            <div class="empty">
+              {% if search %}
+                Ничего не найдено по запросу "{{ search }}".
+              {% else %}
+                Пока нет цитат. Создайте первую через форму справа или через /funword в Discord.
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+
+        {% if has_more %}
+          <div class="pagination">
+            <a href="/quotes?q={{ search }}&page={{ page + 1 }}">← Ещё цитаты</a>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Форма создания -->
+      <aside class="add-form">
+        <h3>➕ Новая цитата</h3>
+        <form id="add-quote-form">
+          <label for="author">Автор</label>
+          <input type="text" id="author" name="author" required placeholder="@username или имя" autocomplete="off">
+
+          <label for="text">Текст цитаты</label>
+          <textarea id="text" name="text" required placeholder="Точная цитата..."></textarea>
+
+          <label for="message_link">Ссылка на сообщение (опционально)</label>
+          <input type="text" id="message_link" name="message_link" placeholder="https://discord.com/channels/...">
+
+          <button type="submit">💾 Сохранить</button>
+        </form>
+        <p class="hint" style="margin-top: 12px;">
+          💡 Эта форма сохраняет цитату в БД. Чтобы она появилась в Discord-канале #цитатник, используй команду <code>/funword</code> в Discord.
+        </p>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    document.getElementById('add-quote-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const author = formData.get('author').trim();
+      const text = formData.get('text').trim();
+      const message_link = formData.get('message_link').trim();
+
+      if (!author || !text) {
+        alert('Автор и текст обязательны');
+        return;
+      }
+
+      // Если author — это <@123> формат, извлечь ID
+      let author_user_id = null;
+      const mentionMatch = author.match(/^<@!?(\d+)>$/);
+      if (mentionMatch) {
+        author_user_id = parseInt(mentionMatch[1]);
+      }
+
+      const payload = new FormData();
+      payload.append('author', author);
+      payload.append('text', text);
+      payload.append('message_link', message_link);
+      if (author_user_id) {
+        payload.append('author_user_id', author_user_id);
+      }
+
+      try {
+        const r = await fetch('/api/quotes', { method: 'POST', body: payload });
+        const data = await r.json();
+        if (r.ok) {
+          e.target.reset();
+          // Перезагружаем чтобы увидеть новую цитату в списке
+          window.location.reload();
+        } else {
+          alert(data.error || 'Ошибка создания цитаты');
+        }
+      } catch (err) {
+        alert('Сетевая ошибка: ' + err.message);
+      }
+    });
+  </script>
+</body>
+</html>

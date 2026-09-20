@@ -431,9 +431,11 @@ class QuotesCog(commands.Cog):
             await interaction.response.send_message("❌ Канал #цитатник недоступен боту.", ephemeral=True)
             return
 
+        # Парсинг автора: @mention или plain text
         author_display = author
         author_user_id = None
         author_member = None
+        author_avatar_url = None
         if author.startswith("<@") and author.endswith(">"):
             try:
                 author_user_id = int(author.strip("<@!>"))
@@ -442,26 +444,51 @@ class QuotesCog(commands.Cog):
 
             if author_user_id is not None and interaction.guild is not None:
                 author_member = interaction.guild.get_member(author_user_id)
-                if author_member is not None:
-                    author_display = author_member.display_name
-                else:
+                if author_member is None:
                     try:
                         author_member = await interaction.guild.fetch_member(author_user_id)
-                        author_display = author_member.display_name
                     except (discord.NotFound, discord.Forbidden):
-                        author_display = f"User {author_user_id}"
+                        pass
+                if author_member is not None:
+                    author_display = author_member.display_name
+                    author_avatar_url = str(author_member.display_avatar.url) if author_member.display_avatar else None
 
-        quote_id = await db.add_quote(author_display, author_user_id, text, interaction.user.id)
+        # Ссылка на исходное сообщение (если команда вызвана из канала)
+        message_link = None
+        if interaction.channel and interaction.guild:
+            message_link = f"https://discord.com/channels/{interaction.guild.id}/{interaction.channel.id}/{interaction.id}"
 
+        # Сохраняем в БД с аватаром и ссылкой
+        quote_id = await db.add_quote(
+            author=author_display,
+            author_user_id=author_user_id,
+            text=text,
+            recorded_by=interaction.user.id,
+            author_avatar_url=author_avatar_url,
+            message_link=message_link,
+        )
+
+        # Стильный embed: цветная полоска слева, аватар автора, упоминание автора, footer
         embed = discord.Embed(
             description=f"_{text}_",
-            color=0xF1C40F,
+            color=0xFFB703,  # медовый, вписывается в общий стиль
             timestamp=datetime.utcnow(),
         )
-        embed.set_author(name=author_display)
+        # set_author с аватаром
+        if author_avatar_url:
+            embed.set_author(name=author_display, icon_url=author_avatar_url)
+        else:
+            embed.set_author(name=author_display)
+
+        # Поле "Автор" с упоминанием (если это был @mention)
         if author_member is not None:
             embed.add_field(name="Автор", value=author_member.mention, inline=True)
-        embed.set_footer(text=f"Записал: {interaction.user.display_name} · #{quote_id}")
+
+        # Footer с записавшим
+        embed.set_footer(
+            text=f"Записал: {interaction.user.display_name} · #{quote_id}",
+            icon_url=str(interaction.user.display_avatar.url) if interaction.user.display_avatar else None,
+        )
 
         await channel.send(embed=embed)
         await interaction.response.send_message(
@@ -469,6 +496,7 @@ class QuotesCog(commands.Cog):
             ephemeral=True,
         )
 
+        # Опциональный TG кросс-пост
         tg_quotes_enabled = await db.get_setting("tg_crosspost_quotes")
         if tg_quotes_enabled == "1":
             tg_text = f"💬 <b>{tg_escape(author_display)}</b>\n\n<i>{tg_escape(text)}</i>"

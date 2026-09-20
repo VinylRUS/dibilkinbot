@@ -475,6 +475,125 @@ async def toggle_admin(
     return RedirectResponse(url="/users?saved=1", status_code=303)
 
 
+# === Quotes (страница + API) ===
+
+@app.get("/quotes", response_class=HTMLResponse)
+async def quotes_page(
+    request: Request,
+    _user: dict = Depends(require_user),
+    q: str = "",
+    page: int = 1,
+):
+    """Страница цитатника: список, поиск, форма создания, удаление."""
+    page = max(1, page)
+    per_page = 20
+    offset = (page - 1) * per_page
+    search = q.strip() or None
+    quotes = await db.list_quotes(limit=per_page, offset=offset, search=search)
+    total = await db.count_quotes(search)
+    has_more = (offset + per_page) < total
+    return templates.TemplateResponse(request, "quotes.html", {
+        "user": _user,
+        "quotes": quotes,
+        "search": q,
+        "page": page,
+        "has_more": has_more,
+        "total": total,
+        "is_admin": _user.get("is_admin", False),
+        "current_discord_id": _user.get("discord_id", 0),
+    })
+
+
+@app.post("/api/quotes")
+async def api_create_quote(
+    _user: dict = Depends(require_user),
+    author: str = Form(...),
+    text: str = Form(...),
+    author_user_id: int | None = Form(None),
+    message_link: str = Form(""),
+):
+    """Создать цитату через веб-панель.
+    НЕ отправляет в Discord — только сохраняет в БД.
+    Для постинга в Discord есть /funword.
+    """
+    author = author.strip()
+    text = text.strip()
+    message_link = message_link.strip() or None
+    if not author or not text:
+        return JSONResponse({"error": "author and text are required"}, status_code=400)
+
+    recorded_by = _user.get("discord_id", 0)
+    if not recorded_by:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+
+    # Если есть author_user_id — пробуем достать аватар через бота
+    author_avatar_url = None
+    if author_user_id:
+        try:
+            import bot as bot_module
+            _, member_info = await bot_module.is_guild_member(author_user_id)
+            if member_info and member_info.get("avatar_url"):
+                author_avatar_url = member_info["avatar_url"]
+        except Exception:
+            pass
+
+    quote_id = await db.add_quote(
+        author=author,
+        author_user_id=author_user_id,
+        text=text,
+        recorded_by=recorded_by,
+        author_avatar_url=author_avatar_url,
+        message_link=message_link,
+    )
+    return JSONResponse({"ok": True, "id": quote_id})
+
+
+@app.delete("/api/quotes/{quote_id}")
+async def api_delete_quote(
+    quote_id: int,
+    _user: dict = Depends(require_user),
+):
+    """Удалить цитату. Правила:
+    - Автор цитаты (recorded_by) может удалить свою
+    - Админ может удалить любую
+    """
+    quote = await db.get_quote(quote_id)
+    if not quote:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    # quote tuple: (id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link)
+    recorded_by = quote[5]
+    user_discord_id = _user.get("discord_id", 0)
+    is_admin = _user.get("is_admin", False)
+
+    if recorded_by != user_discord_id and not is_admin:
+        return JSONResponse({"error": "forbidden: only author or admin can delete"}, status_code=403)
+
+    deleted = await db.delete_quote(quote_id)
+    return JSONResponse({"ok": deleted})
+
+
+@app.post("/quotes/{quote_id}/delete")
+async def delete_quote_endpoint(
+    quote_id: int,
+    _user: dict = Depends(require_user),
+):
+    """Удалить цитату через POST-форму (HTML редирект на /quotes)."""
+    quote = await db.get_quote(quote_id)
+    if not quote:
+        return RedirectResponse(url="/quotes?error=not_found", status_code=303)
+
+    recorded_by = quote[5]
+    user_discord_id = _user.get("discord_id", 0)
+    is_admin = _user.get("is_admin", False)
+
+    if recorded_by != user_discord_id and not is_admin:
+        return RedirectResponse(url="/quotes?error=forbidden", status_code=303)
+
+    await db.delete_quote(quote_id)
+    return RedirectResponse(url="/quotes?deleted=1", status_code=303)
+
+
 # === Profile (связь с TG) ===
 
 @app.get("/profile", response_class=HTMLResponse)

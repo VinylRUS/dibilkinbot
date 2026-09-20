@@ -22,14 +22,16 @@ CREATE TABLE IF NOT EXISTS watched (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_watched_title ON watched(lower(title));
 
--- Старое: quotes
+-- Цитатник
 CREATE TABLE IF NOT EXISTS quotes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     author TEXT NOT NULL,
     author_user_id INTEGER,
+    author_avatar_url TEXT,           -- v0.9.0: аватар автора для embed
     text TEXT NOT NULL,
     recorded_by INTEGER NOT NULL,
-    recorded_at TEXT NOT NULL
+    recorded_at TEXT NOT NULL,
+    message_link TEXT                  -- v0.9.0: ссылка на исходное сообщение (если есть)
 );
 
 -- Старое: movie_nights
@@ -170,6 +172,19 @@ async def init_db() -> None:
                     await db.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
             await db.commit()
 
+            # Миграция v0.9.0: quotes — добавляем author_avatar_url и message_link
+            async with db.execute("PRAGMA table_info(quotes)") as cur:
+                existing_quote_cols = {row[1] for row in await cur.fetchall()}
+            new_quote_cols = {
+                "author_avatar_url": "TEXT",
+                "message_link": "TEXT",
+            }
+            for col_name, col_type in new_quote_cols.items():
+                if col_name not in existing_quote_cols:
+                    log.info("Migrating quotes: adding column %s", col_name)
+                    await db.execute(f"ALTER TABLE quotes ADD COLUMN {col_name} {col_type}")
+            await db.commit()
+
             # === Миграция v0.8.0: старые /watched записи → ratings + winners ===
             # Для каждой записи в watched (без рейтинга или с rating):
             #   1. Создаём winner (если его ещё нет) с тем же title
@@ -304,15 +319,82 @@ async def delete_watched(watched_id: int) -> bool:
 
 # === Quotes ===
 
-async def add_quote(author: str, author_user_id: int | None, text: str, recorded_by: int) -> int:
+async def add_quote(
+    author: str,
+    author_user_id: int | None,
+    text: str,
+    recorded_by: int,
+    author_avatar_url: str | None = None,
+    message_link: str | None = None,
+) -> int:
+    """Добавить цитату. Возвращает id новой цитаты."""
     async with _connect() as db:
         cur = await db.execute(
-            "INSERT INTO quotes (author, author_user_id, text, recorded_by, recorded_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (author, author_user_id, text, recorded_by, datetime.utcnow().isoformat()),
+            "INSERT INTO quotes (author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (author, author_user_id, author_avatar_url, text, recorded_by,
+             datetime.utcnow().isoformat(), message_link),
         )
         await db.commit()
         return cur.lastrowid
+
+
+async def get_quote(quote_id: int) -> tuple | None:
+    """Получить цитату по id. Возвращает tuple с полями:
+    (id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link)
+    """
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link "
+            "FROM quotes WHERE id = ?",
+            (quote_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def list_quotes(limit: int = 50, offset: int = 0, search: str | None = None) -> list[tuple]:
+    """Список цитат с пагинацией и опциональным поиском.
+    Поиск ищет в author и text (case-insensitive LIKE).
+    """
+    async with _connect() as db:
+        if search:
+            sql = (
+                "SELECT id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link "
+                "FROM quotes WHERE text LIKE ? OR author LIKE ? "
+                "ORDER BY recorded_at DESC LIMIT ? OFFSET ?"
+            )
+            params = (f"%{search}%", f"%{search}%", limit, offset)
+        else:
+            sql = (
+                "SELECT id, author, author_user_id, author_avatar_url, text, recorded_by, recorded_at, message_link "
+                "FROM quotes ORDER BY recorded_at DESC LIMIT ? OFFSET ?"
+            )
+            params = (limit, offset)
+        async with db.execute(sql, params) as cur:
+            return await cur.fetchall()
+
+
+async def count_quotes(search: str | None = None) -> int:
+    """Подсчитать количество цитат (с опциональным поиском)."""
+    async with _connect() as db:
+        if search:
+            async with db.execute(
+                "SELECT COUNT(*) FROM quotes WHERE text LIKE ? OR author LIKE ?",
+                (f"%{search}%", f"%{search}%")
+            ) as cur:
+                row = await cur.fetchone()
+        else:
+            async with db.execute("SELECT COUNT(*) FROM quotes") as cur:
+                row = await cur.fetchone()
+        return row[0] if row else 0
+
+
+async def delete_quote(quote_id: int) -> bool:
+    """Удалить цитату по id. Возвращает True если удалено."""
+    async with _connect() as db:
+        cur = await db.execute("DELETE FROM quotes WHERE id = ?", (quote_id,))
+        await db.commit()
+        return cur.rowcount > 0
 
 
 async def random_quote() -> tuple | None:
