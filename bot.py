@@ -12,7 +12,7 @@ from discord.ext import commands
 
 import crypto
 import db
-import kinopoisk as tmdb
+import kinopoisk as kp
 from kinopoisk import lookup_by_id
 import telegram
 from config import settings
@@ -507,7 +507,7 @@ class WheelCog(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         # Ищем метаданные в Кинопоиске
-        meta = await tmdb.lookup_movie(title)
+        meta = await kp.lookup_movie(title)
 
         # Если нашли метаданные — используем локализованный title для колеса
         name_for_wheel = meta["title"] if meta else title
@@ -544,7 +544,7 @@ class WheelCog(commands.Cog):
                 embed.add_field(name="Описание", value=plot, inline=False)
             if meta.get("poster_url"):
                 embed.set_thumbnail(url=meta["poster_url"])
-            embed.set_footer(text=f"Веб-панель: /wheel · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoisk.dev API*")
+            embed.set_footer(text=f"Веб-панель: /wheel · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoiskapiunofficial.tech*")
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(

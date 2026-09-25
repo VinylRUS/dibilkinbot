@@ -349,7 +349,7 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
 KNOWN_TOKENS = [
     ("discord_token", "Discord Bot Token"),
     ("telegram_token", "Telegram Bot Token"),
-    ("kinopoisk_token", "Kinopoisk API Token (X-API-KEY от @poiskkinodev_bot)"),
+    ("kinopoisk_token", "Kinopoisk API Token (kinopoiskapiunofficial.tech)"),
 ]
 
 

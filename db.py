@@ -102,7 +102,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_movie_meta_tmdb ON movie_meta(tmdb_id);
 -- Победители колеса (лог всех когда-либо выпавших)
 CREATE TABLE IF NOT EXISTS winners (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lot_id TEXT,                     -- ID лота из Pointauc (если известен)
+    lot_id TEXT,                     -- ID лота из колеса
     lot_name TEXT NOT NULL,          -- название фильма как в колесе
     tmdb_id INTEGER,                 -- связка с movie_meta, если найдено
     confidence TEXT NOT NULL,        -- 'unconfirmed' | 'confirmed'
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS winners (
 );
 CREATE INDEX IF NOT EXISTS idx_winners_detected ON winners(detected_at DESC);
 
--- === НОВОЕ v3: собственное колесо (без Pointauc) ===
+-- === НОВОЕ v3: собственное колесо ===
 CREATE TABLE IF NOT EXISTS wheel_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,              -- название фильма (как в колесе)
@@ -848,7 +848,7 @@ async def recent_activity(limit: int = 20) -> list[dict]:
     return items[:limit]
 
 
-# === Wheel Items (собственное колесо, без Pointauc) ===
+# === Wheel Items (собственное колесо) ===
 
 # Палитра цветов секторов — тёплая, "медовая"
 WHEEL_COLORS = [
