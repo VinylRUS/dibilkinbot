@@ -216,6 +216,7 @@
     <div class="total-info">
       Всего цитат: <strong>{{ total }}</strong>
       {% if search %} · по запросу "{{ search }}"{% endif %}
+      <a href="/api/quotes/export" style="float: right; color: var(--accent); text-decoration: none; font-size: 0.82rem;">📥 Экспорт TXT</a>
     </div>
 
     <div class="quotes-grid">

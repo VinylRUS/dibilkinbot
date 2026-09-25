@@ -704,14 +704,12 @@ async def api_import_quotes_from_discord(_user: dict = Depends(require_user)):
     - Читаем последние 100 сообщений из channel_quotes_id
     - Пропускаем сообщения от ботов (чтобы не было цикла)
     - Для каждого сообщения:
-      - author = "Неизвестен"
+      - author = display_name автора сообщения в Discord
       - text = содержимое сообщения
-      - recorded_by = ID автора сообщения
+      - recorded_by = ID автора сообщения (кто отправил — тот и записал)
       - message_link = ссылка на сообщение
     - Пропускаем дубликаты (по message_link)
     """
-    import discord as discord_lib
-
     guild_id = get_current_guild_id(_user)
 
     # ID канала #цитатник из настроек
@@ -729,10 +727,14 @@ async def api_import_quotes_from_discord(_user: dict = Depends(require_user)):
     if channel is None:
         return JSONResponse({"error": "Канал не найден ботом"}, status_code=404)
 
-    # Читаем последние 100 сообщений
+    # Предзагружаем существующие message_links для быстрой дедупликации
+    existing_quotes = await db.g_list_quotes(guild_id, limit=500, search=None)
+    existing_links = {q[7] for q in existing_quotes if q[7]}  # q[7] = message_link
+
     imported = 0
     skipped_bot = 0
     skipped_duplicate = 0
+    skipped_empty = 0
 
     try:
         async for message in channel.history(limit=100, oldest_first=True):
@@ -743,31 +745,31 @@ async def api_import_quotes_from_discord(_user: dict = Depends(require_user)):
 
             text = message.content.strip()
             if not text:
+                skipped_empty += 1
                 continue  # пустое сообщение (например, только embed)
 
             # Ссылка на сообщение
             message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
 
             # Проверяем дубликат по message_link
-            existing_quotes = await db.g_list_quotes(guild_id, limit=500, search=None)
-            is_duplicate = any(
-                q[7] == message_link for q in existing_quotes  # q[7] = message_link
-            ) if existing_quotes else False
-
-            if is_duplicate:
+            if message_link in existing_links:
                 skipped_duplicate += 1
                 continue
+
+            # author = display_name автора сообщения в Discord
+            author_display = message.author.display_name or message.author.name or "Неизвестен"
 
             # Создаём цитату
             await db.g_add_quote(
                 guild_id,
-                author="Неизвестен",
+                author=author_display,
                 author_user_id=message.author.id,
                 text=text,
                 recorded_by=message.author.id,
                 author_avatar_url=str(message.author.display_avatar.url) if message.author.display_avatar else None,
                 message_link=message_link,
             )
+            existing_links.add(message_link)
             imported += 1
 
     except Exception as e:
@@ -780,6 +782,7 @@ async def api_import_quotes_from_discord(_user: dict = Depends(require_user)):
         "imported": imported,
         "skipped_bot": skipped_bot,
         "skipped_duplicate": skipped_duplicate,
+        "skipped_empty": skipped_empty,
     })
 
 
@@ -821,6 +824,29 @@ async def api_create_quote(
         guild_id, author, author_user_id, text, recorded_by, author_avatar_url, message_link,
     )
     return JSONResponse({"ok": True, "id": quote_id})
+
+
+@app.get("/api/quotes/export")
+async def api_export_quotes(_user: dict = Depends(require_user)):
+    """Экспортировать ВСЕ цитаты как TXT файл (только текст, без автора)."""
+    from fastapi.responses import PlainTextResponse
+
+    guild_id = get_current_guild_id(_user)
+    quotes = await db.g_list_quotes(guild_id, limit=10000, offset=0, search=None)
+
+    # Каждая цитата — отдельная строка. Без автора, без метаданных.
+    lines = []
+    for q in quotes:
+        text = q[4]  # q[4] = text
+        lines.append(text)
+
+    content = "\n".join(lines)
+
+    return PlainTextResponse(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=quotes.txt"},
+    )
 
 
 @app.delete("/api/quotes/{quote_id}")
