@@ -87,6 +87,43 @@ async def healthz():
     return {"ok": True}
 
 
+@app.get("/api/ping/discord")
+async def api_ping_discord(_user: dict = Depends(require_user)):
+    """Проверка соединения с Discord (бот онлайн + latency)."""
+    try:
+        import bot as bot_module
+        bot_instance = bot_module.get_bot_instance()
+        if not bot_instance or not bot_instance.is_ready():
+            return JSONResponse({"online": False, "error": "bot not ready"})
+        latency_ms = round(bot_instance.latency * 1000, 1) if bot_instance.latency else None
+        return JSONResponse({"online": True, "latency_ms": latency_ms})
+    except Exception as e:
+        return JSONResponse({"online": False, "error": str(e)})
+
+
+@app.get("/api/ping/telegram")
+async def api_ping_telegram(_user: dict = Depends(require_user)):
+    """Проверка соединения с Telegram Bot API."""
+    import httpx
+    raw_token = await db.get_setting("telegram_token")
+    if not raw_token:
+        return JSONResponse({"online": False, "error": "token not set"})
+    token = crypto.decrypt(raw_token)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"https://api.telegram.org/bot{token}/getMe")
+            if r.status_code == 200:
+                data = r.json()
+                bot_info = data.get("result", {})
+                return JSONResponse({
+                    "online": True,
+                    "bot_name": bot_info.get("username", ""),
+                })
+            return JSONResponse({"online": False, "error": f"HTTP {r.status_code}"})
+    except Exception as e:
+        return JSONResponse({"online": False, "error": str(e)})
+
+
 @app.post("/theme")
 async def set_theme(theme: str = Form(...)):
     """Установить тему (light/dark). Записывает куку и редиректит обратно."""
@@ -109,6 +146,16 @@ templates.env.globals["theme_from_request"] = lambda request: request.cookies.ge
 def get_current_guild_id(user_payload: dict) -> int:
     """Текущий выбранный сервер из сессии пользователя. По умолчанию 0 (default)."""
     return user_payload.get("current_guild_id", 0)
+
+
+def _anonymize_items(items: list[dict]) -> list[dict]:
+    """Убрать added_by и added_at из списка лотов — анонимность.
+    Имя добавившего раскрывается только при победе (в Discord embed).
+    """
+    return [
+        {"id": item["id"], "name": item["name"], "tmdb_id": item["tmdb_id"], "color": item["color"]}
+        for item in items
+    ]
 
 
 async def get_user_guilds(user_payload: dict) -> list[dict]:
@@ -913,9 +960,15 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
 
 @app.get("/wheel", response_class=HTMLResponse)
 async def wheel_page(request: Request, _user: dict = Depends(require_user)):
-    """Страница с Canvas-анимацией колеса."""
+    """Страница с Canvas-анимацией колеса. Анонимная — added_by не передаётся в шаблон."""
     guild_id = get_current_guild_id(_user)
-    items = await db.g_list_wheel_items(guild_id, active_only=True)
+    raw_items = await db.g_list_wheel_items(guild_id, active_only=True)
+
+    # Анонимизируем: убираем added_by и added_at (раскрывается только при победе)
+    items = [
+        {"id": item["id"], "name": item["name"], "tmdb_id": item["tmdb_id"], "color": item["color"]}
+        for item in raw_items
+    ]
 
     # Статус filmnight
     import guild as guild_module
@@ -932,10 +985,16 @@ async def wheel_page(request: Request, _user: dict = Depends(require_user)):
 
 @app.get("/api/wheel/items")
 async def api_wheel_items(_user: dict = Depends(require_user)):
-    """Получить текущие лоты колеса (JSON)."""
+    """Получить текущие лоты колеса (JSON). Анонимно — added_by не возвращается."""
     guild_id = get_current_guild_id(_user)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    return JSONResponse({"items": items, "count": len(items)})
+    # Убираем added_by и added_at из ответа — анонимность
+    # (имя добавившего раскрывается только при победе)
+    safe_items = [
+        {"id": item["id"], "name": item["name"], "tmdb_id": item["tmdb_id"], "color": item["color"]}
+        for item in items
+    ]
+    return JSONResponse({"items": safe_items, "count": len(safe_items)})
 
 
 # === FilmNight API (управление сбором фильмов из веб-панели) ===
@@ -1056,8 +1115,8 @@ async def api_add_wheel_item(
     discord_id = _user.get("discord_id", 0)
     item_id = await db.g_add_wheel_item(guild_id, name, tmdb_id, discord_id)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(items)
-    return JSONResponse({"id": item_id, "items": items, "count": len(items)})
+    await ws_manager.broadcast_wheel_updated(_anonymize_items(items))
+    return JSONResponse({"id": item_id, "items": _anonymize_items(items), "count": len(items)})
 
 
 @app.delete("/api/wheel/items/{item_id}")
@@ -1072,8 +1131,8 @@ async def api_remove_wheel_item(
         return JSONResponse({"error": "not found"}, status_code=404)
     await db.g_reassign_colors(guild_id)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(items)
-    return JSONResponse({"removed": True, "items": items, "count": len(items)})
+    await ws_manager.broadcast_wheel_updated(_anonymize_items(items))
+    return JSONResponse({"removed": True, "items": _anonymize_items(items), "count": len(items)})
 
 
 @app.post("/api/wheel/clear")
@@ -1082,7 +1141,7 @@ async def api_clear_wheel(_user: dict = Depends(require_admin)):
     guild_id = get_current_guild_id(_user)
     count = await db.g_clear_wheel(guild_id)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(items)
+    await ws_manager.broadcast_wheel_updated(_anonymize_items(items))
     return JSONResponse({"cleared": count, "items": items})
 
 
@@ -1134,7 +1193,7 @@ async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str
     await asyncio.sleep(5)
     await ws_manager.broadcast_spin_result(winner, spin_id)
     # Также обновить список лотов (победитель удалён)
-    await ws_manager.broadcast_wheel_updated(remaining)
+    await ws_manager.broadcast_wheel_updated(_anonymize_items(remaining))
 
     # Уведомить Discord через бота
     try:
@@ -1217,7 +1276,7 @@ async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], s
         "elimination_result",
         {"eliminated": eliminated, "remaining_count": len(remaining)},
     )
-    await ws_manager.broadcast_wheel_updated(remaining)
+    await ws_manager.broadcast_wheel_updated(_anonymize_items(remaining))
 
 
 # === WebSocket для реал-тайм обновлений ===
@@ -1237,11 +1296,12 @@ async def ws_wheel(websocket: WebSocket):
 
     await ws_manager.connect(websocket)
     try:
-        # При первом подключении сразу шлём текущее состояние для этого guild
+        # При первом подключении сразу шлём текущее состояние (анонимизированное)
         items = await db.g_list_wheel_items(guild_id, active_only=True)
+        safe_items = _anonymize_items(items)
         await websocket.send_text(json.dumps({
             "type": "wheel_updated",
-            "payload": {"items": items, "count": len(items)},
+            "payload": {"items": safe_items, "count": len(safe_items)},
         }, ensure_ascii=False))
         # Держим соединение, ждём сообщений (клиент может слать ping)
         while True:

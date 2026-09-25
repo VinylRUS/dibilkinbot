@@ -316,13 +316,29 @@ class KinovecherBot(commands.Bot):
         return await lookup_by_id(kp_id)
 
     def _build_winner_embed(self, winner: dict, meta: dict | None) -> "discord.Embed":
-        """Построить Discord embed из метаданных."""
+        """Построить Discord embed из метаданных.
+        Имя добавившего фильм раскрывается ТОЛЬКО при победе.
+        """
         embed = discord.Embed(
             title=f"🎡 Победитель колеса — {winner['name']}",
             color=0x2ECC71,
             timestamp=datetime.utcnow(),
         )
         embed.set_footer(text="✓ confirmed · автоматически из веб-панели")
+
+        # Раскрываем кто предложил фильм — только при победе
+        added_by_id = winner.get("added_by")
+        if added_by_id:
+            # Пытаемся найти display_name через Discord
+            guild = None
+            if self.guilds:
+                guild = self.guilds[0]  # первый guild где бот есть
+            if guild:
+                member = guild.get_member(added_by_id)
+                if member:
+                    embed.add_field(name="🎬 Кто предложил", value=member.mention, inline=False)
+                else:
+                    embed.add_field(name="🎬 Кто предложил", value=f"<@{added_by_id}>", inline=False)
 
         if meta:
             if meta.get("year"):

@@ -17,13 +17,6 @@
         <div class="stat green">🟢 запущен</div>
       </article>
       <article class="card">
-        <h3>Колесо фильмов</h3>
-        <a href="/wheel" style="text-decoration:none;">
-          <div class="stat" style="color: var(--accent);">🎡 открыть</div>
-        </a>
-        <p class="hint" style="margin-top: 6px;">Локальное колесо</p>
-      </article>
-      <article class="card">
         <h3>Кинопоиск</h3>
         <div class="stat {{ 'green' if saved_kp else 'red' }}">{{ '🟢 настроен' if saved_kp else '🔴 нет токена' }}</div>
       </article>
@@ -31,6 +24,26 @@
         <h3>Telegram</h3>
         <div class="stat {{ 'green' if saved_tg else 'red' }}">{{ '🟢 настроен' if saved_tg else '🔴 нет токена' }}</div>
       </article>
+    </div>
+
+    <h2>Соединения</h2>
+    <div class="grid">
+      <div class="ping-card" id="ping-discord">
+        <div class="ping-dot checking"></div>
+        <div class="ping-info">
+          <div class="ping-label">Discord Gateway</div>
+          <div class="ping-value">проверка...</div>
+        </div>
+        <div class="ping-ms">—</div>
+      </div>
+      <div class="ping-card" id="ping-telegram">
+        <div class="ping-dot checking"></div>
+        <div class="ping-info">
+          <div class="ping-label">Telegram Bot API</div>
+          <div class="ping-value">проверка...</div>
+        </div>
+        <div class="ping-ms">—</div>
+      </div>
     </div>
 
     <h2>Лента активности</h2>
@@ -95,5 +108,69 @@
       </table>
     </article>
   </main>
+
+  <script>
+    async function checkPings() {
+      // Discord ping
+      const dcCard = document.getElementById('ping-discord');
+      const dcDot = dcCard.querySelector('.ping-dot');
+      const dcValue = dcCard.querySelector('.ping-value');
+      const dcMs = dcCard.querySelector('.ping-ms');
+      try {
+        const t0 = Date.now();
+        const r = await fetch('/api/ping/discord', { method: 'GET' });
+        const ms = Date.now() - t0;
+        const data = await r.json();
+        if (data.online) {
+          dcDot.className = 'ping-dot online';
+          dcValue.textContent = 'онлайн';
+          dcValue.className = 'ping-value green';
+          dcMs.textContent = ms + ' мс';
+        } else {
+          dcDot.className = 'ping-dot offline';
+          dcValue.textContent = 'офлайн';
+          dcValue.className = 'ping-value red';
+          dcMs.textContent = '—';
+        }
+      } catch (e) {
+        dcDot.className = 'ping-dot offline';
+        dcValue.textContent = 'ошибка';
+        dcValue.className = 'ping-value red';
+        dcMs.textContent = '—';
+      }
+
+      // Telegram ping
+      const tgCard = document.getElementById('ping-telegram');
+      const tgDot = tgCard.querySelector('.ping-dot');
+      const tgValue = tgCard.querySelector('.ping-value');
+      const tgMs = tgCard.querySelector('.ping-ms');
+      try {
+        const t0 = Date.now();
+        const r = await fetch('/api/ping/telegram', { method: 'GET' });
+        const ms = Date.now() - t0;
+        const data = await r.json();
+        if (data.online) {
+          tgDot.className = 'ping-dot online';
+          tgValue.textContent = 'онлайн';
+          tgValue.className = 'ping-value green';
+          tgMs.textContent = ms + ' мс';
+        } else {
+          tgDot.className = 'ping-dot offline';
+          tgValue.textContent = 'офлайн';
+          tgValue.className = 'ping-value red';
+          tgMs.textContent = '—';
+        }
+      } catch (e) {
+        tgDot.className = 'ping-dot offline';
+        tgValue.textContent = 'ошибка';
+        tgValue.className = 'ping-value red';
+        tgMs.textContent = '—';
+      }
+    }
+
+    // Проверка при загрузке + каждые 60 секунд
+    checkPings();
+    setInterval(checkPings, 60000);
+  </script>
 </body>
 </html>
