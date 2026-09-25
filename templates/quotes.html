@@ -285,6 +285,18 @@
 
           <button type="submit">💾 Сохранить</button>
         </form>
+
+        <hr style="border: none; border-top: 1px dashed var(--border); margin: 18px 0;">
+
+        <h3 style="font-size: 0.9rem;">📥 Импорт из Discord</h3>
+        <p class="hint" style="margin-bottom: 10px;">
+          Импортировать существующие сообщения из канала #цитатник. Автор: "Неизвестен", записавший: автор сообщения. Сообщения бота пропускаются.
+        </p>
+        <button type="button" id="import-btn" style="width: 100%; background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; margin: 0;">
+          📥 Импортировать из #цитатник
+        </button>
+        <div id="import-result" style="margin-top: 10px; font-size: 0.82rem; display: none;"></div>
+
         <p class="hint" style="margin-top: 12px;">
           💡 Эта форма сохраняет цитату в БД. Чтобы она появилась в Discord-канале #цитатник, используй команду <code>/funword</code> в Discord.
         </p>
@@ -293,6 +305,41 @@
   </main>
 
   <script>
+    // === Import from Discord ===
+    document.getElementById('import-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('import-btn');
+      const result = document.getElementById('import-result');
+      btn.disabled = true;
+      btn.textContent = '⏳ Импорт...';
+      result.style.display = 'block';
+      result.textContent = 'Читаю сообщения из канала...';
+      result.style.color = 'var(--accent)';
+
+      try {
+        const r = await fetch('/api/quotes/import-from-discord', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          result.style.color = 'var(--badge-confirmed-text)';
+          result.innerHTML = `✅ Импортировано: <strong>${data.imported}</strong><br>` +
+            `Пропущено ботов: ${data.skipped_bot}<br>` +
+            `Пропущено дубликатов: ${data.skipped_duplicate}`;
+          btn.textContent = '✅ Готово';
+          if (data.imported > 0) {
+            setTimeout(() => window.location.reload(), 2000);
+          }
+        } else {
+          result.style.color = 'var(--red)';
+          result.textContent = '❌ ' + (data.error || 'Ошибка импорта');
+          btn.textContent = '📥 Импортировать из #цитатник';
+        }
+      } catch (e) {
+        result.style.color = 'var(--red)';
+        result.textContent = '❌ Сетевая ошибка: ' + e.message;
+        btn.textContent = '📥 Импортировать из #цитатник';
+      }
+      btn.disabled = false;
+    });
+
     document.getElementById('add-quote-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);

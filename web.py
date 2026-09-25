@@ -696,6 +696,93 @@ async def quotes_page(
     })
 
 
+@app.post("/api/quotes/import-from-discord")
+async def api_import_quotes_from_discord(_user: dict = Depends(require_user)):
+    """Импортировать существующие сообщения из Discord-канала #цитатник в БД.
+
+    Логика:
+    - Читаем последние 100 сообщений из channel_quotes_id
+    - Пропускаем сообщения от ботов (чтобы не было цикла)
+    - Для каждого сообщения:
+      - author = "Неизвестен"
+      - text = содержимое сообщения
+      - recorded_by = ID автора сообщения
+      - message_link = ссылка на сообщение
+    - Пропускаем дубликаты (по message_link)
+    """
+    import discord as discord_lib
+
+    guild_id = get_current_guild_id(_user)
+
+    # ID канала #цитатник из настроек
+    quotes_channel_id_str = await db.get_setting("channel_quotes_id")
+    if not quotes_channel_id_str or not quotes_channel_id_str.isdigit():
+        return JSONResponse({"error": "Канал #цитатник не настроен в /channels"}, status_code=400)
+
+    # Получаем инстанс бота
+    import bot as bot_module
+    bot_instance = bot_module.get_bot_instance()
+    if not bot_instance:
+        return JSONResponse({"error": "Бот не запущен"}, status_code=500)
+
+    channel = bot_instance.get_channel(int(quotes_channel_id_str))
+    if channel is None:
+        return JSONResponse({"error": "Канал не найден ботом"}, status_code=404)
+
+    # Читаем последние 100 сообщений
+    imported = 0
+    skipped_bot = 0
+    skipped_duplicate = 0
+
+    try:
+        async for message in channel.history(limit=100, oldest_first=True):
+            # Пропускаем сообщения ботов (чтобы не было цикла самоповтора)
+            if message.author.bot:
+                skipped_bot += 1
+                continue
+
+            text = message.content.strip()
+            if not text:
+                continue  # пустое сообщение (например, только embed)
+
+            # Ссылка на сообщение
+            message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
+
+            # Проверяем дубликат по message_link
+            existing_quotes = await db.g_list_quotes(guild_id, limit=500, search=None)
+            is_duplicate = any(
+                q[7] == message_link for q in existing_quotes  # q[7] = message_link
+            ) if existing_quotes else False
+
+            if is_duplicate:
+                skipped_duplicate += 1
+                continue
+
+            # Создаём цитату
+            await db.g_add_quote(
+                guild_id,
+                author="Неизвестен",
+                author_user_id=message.author.id,
+                text=text,
+                recorded_by=message.author.id,
+                author_avatar_url=str(message.author.display_avatar.url) if message.author.display_avatar else None,
+                message_link=message_link,
+            )
+            imported += 1
+
+    except Exception as e:
+        import logging
+        logging.getLogger("web").error("Quotes import failed: %s", e)
+        return JSONResponse({"error": f"Ошибка импорта: {e}"}, status_code=500)
+
+    return JSONResponse({
+        "ok": True,
+        "imported": imported,
+        "skipped_bot": skipped_bot,
+        "skipped_duplicate": skipped_duplicate,
+    })
+
+
 @app.post("/api/quotes")
 async def api_create_quote(
     _user: dict = Depends(require_user),
