@@ -24,38 +24,42 @@
     }
     .back-link:hover { background: var(--accent); color: #1A1A1A; }
 
-    /* === Баннеры инфо о сборе === */
+    /* === Компактный баннер статуса (одна строка) === */
     .wheel-banner {
-      background: rgba(255, 183, 3, 0.15);
-      border: 1px solid var(--accent);
-      border-radius: 8px;
-      padding: 12px 18px;
-      margin-bottom: 16px;
-      font-size: 0.9rem;
-      color: #fff;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      max-width: 600px;
+      width: 100%;
+      margin-bottom: 4px;
+      background: rgba(255, 183, 3, 0.12);
+      border: 1px solid rgba(255, 183, 3, 0.4);
+      color: #fff;
     }
     [data-theme="light"] .wheel-banner { color: var(--text); }
     .wheel-banner.success {
-      background: rgba(79, 121, 66, 0.15);
-      border-color: var(--green);
+      background: rgba(79, 121, 66, 0.12);
+      border-color: rgba(79, 121, 66, 0.5);
     }
     .wheel-banner.warning {
-      background: rgba(228, 88, 62, 0.15);
-      border-color: var(--red);
+      background: rgba(228, 88, 62, 0.12);
+      border-color: rgba(228, 88, 62, 0.5);
     }
     .wheel-banner-icon {
-      font-size: 1.4rem;
+      font-size: 1.1rem;
       flex-shrink: 0;
+      line-height: 1;
     }
     .wheel-banner-text {
       flex: 1;
+      line-height: 1.3;
     }
     .wheel-banner-text strong {
       color: var(--accent);
-      font-size: 1rem;
+      font-weight: 600;
     }
     .wheel-banner.success .wheel-banner-text strong { color: var(--green); }
     .wheel-banner.warning .wheel-banner-text strong { color: var(--red); }
@@ -66,12 +70,13 @@
     .wheel-banner-action {
       background: var(--accent);
       color: #1A1A1A;
-      padding: 6px 14px;
-      border-radius: 6px;
+      padding: 5px 12px;
+      border-radius: 5px;
       text-decoration: none;
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       font-weight: 600;
       flex-shrink: 0;
+      white-space: nowrap;
     }
     .wheel-banner-action:hover { background: var(--accent-hover); }
     .wheel-page {
@@ -336,73 +341,50 @@
 </head>
 <body>
   <a href="/" class="back-link">← В панель</a>
-
-  {# === Баннеры о статусе сбора === #}
-  <div style="max-width: 1400px; margin: 60px auto 0; padding: 0 24px;">
-
-  {% if recent_winner %}
-    {# Победитель уже определён — крутить нельзя #}
-    <div class="wheel-banner warning">
-      <div class="wheel-banner-icon">🏆</div>
-      <div class="wheel-banner-text">
-        <strong>Победитель уже определён: «{{ recent_winner.lot_name }}»</strong><br>
-        Повторная крутка невозможна. Чтобы начать новый киновечер — запустите новый сбор на странице <a href="/movienight">/movienight</a>.
-      </div>
-      <a href="/movienight" class="wheel-banner-action">🎬 Новый сбор</a>
-    </div>
-
-  {% elif active_collection %}
-    {# Активный сбор — предупреждаем что надо завершить его, а потом крутить #}
-    <div class="wheel-banner warning">
-      <div class="wheel-banner-icon">⏳</div>
-      <div class="wheel-banner-text">
-        <strong>Идёт активный сбор фильмов</strong><br>
-        Сначала завершите сбор на странице <a href="/movienight">/movienight</a> чтобы загрузить выбранные фильмы в колесо.
-      </div>
-      <a href="/movienight" class="wheel-banner-action">← К сбору</a>
-    </div>
-
-  {% elif last_collection and wheel_count > 0 %}
-    {# Колесо загружено из завершённого сбора — можно крутить #}
-    <div class="wheel-banner success">
-      <div class="wheel-banner-icon">✓</div>
-      <div class="wheel-banner-text">
-        <strong>Колесо загружено из сбора ({{ wheel_count }} фильмов)</strong><br>
-        Крутите! Победитель будет определён после первой крутки.
-      </div>
-    </div>
-
-  {% elif wheel_count > 0 %}
-    {# Фильмы в колесе есть, но не из сбора #}
-    <div class="wheel-banner">
-      <div class="wheel-banner-icon">🎡</div>
-      <div class="wheel-banner-text">
-        <strong>Колесо готово ({{ wheel_count }} фильмов)</strong><br>
-        Фильмы загружены вручную. Крутите! Хотите собрать фильмы через сбор — <a href="/movienight">/movienight</a>.
-      </div>
-    </div>
-
-  {% else %}
-    {# Колесо пустое #}
-    <div class="wheel-banner">
-      <div class="wheel-banner-icon">📭</div>
-      <div class="wheel-banner-text">
-        <strong>Колесо пустое</strong><br>
-        {% if last_collection %}
-          Последний сбор уже завершён. Запустите новый сбор на <a href="/movienight">/movienight</a> или загрузите фильмы вручную кнопкой ниже.
-        {% else %}
-          Начните сбор фильмов на странице <a href="/movienight">/movienight</a> или загрузите фильмы вручную кнопкой ниже.
-        {% endif %}
-      </div>
-      <a href="/movienight" class="wheel-banner-action">🎬 К киновечеру</a>
-    </div>
-  {% endif %}
-
-  </div>
-
   <main class="wheel-page">
     <!-- Колесо -->
     <section class="wheel-area">
+      {# === Компактный баннер статуса сбора (одна строка над заголовком) === #}
+      {% if recent_winner %}
+        <div class="wheel-banner warning">
+          <span class="wheel-banner-icon">🏆</span>
+          <span class="wheel-banner-text">
+            <strong>Победитель: «{{ recent_winner.lot_name }}»</strong> — повторная крутка невозможна
+          </span>
+          <a href="/movienight" class="wheel-banner-action">Новый сбор</a>
+        </div>
+      {% elif active_collection %}
+        <div class="wheel-banner warning">
+          <span class="wheel-banner-icon">⏳</span>
+          <span class="wheel-banner-text">
+            <strong>Идёт активный сбор фильмов</strong> — завершите его чтобы крутить
+          </span>
+          <a href="/movienight" class="wheel-banner-action">К сбору</a>
+        </div>
+      {% elif last_collection and wheel_count > 0 %}
+        <div class="wheel-banner success">
+          <span class="wheel-banner-icon">✓</span>
+          <span class="wheel-banner-text">
+            <strong>Колесо загружено из сбора</strong> ({{ wheel_count }} фильмов) — крутите!
+          </span>
+        </div>
+      {% elif wheel_count > 0 %}
+        <div class="wheel-banner">
+          <span class="wheel-banner-icon">🎡</span>
+          <span class="wheel-banner-text">
+            <strong>Колесо готово</strong> ({{ wheel_count }} фильмов) — фильмы загружены вручную
+          </span>
+        </div>
+      {% else %}
+        <div class="wheel-banner">
+          <span class="wheel-banner-icon">📭</span>
+          <span class="wheel-banner-text">
+            <strong>Колесо пустое</strong> — {% if last_collection %}запустите новый сбор{% else %}начните сбор{% endif %} на <a href="/movienight">/movienight</a>
+          </span>
+          <a href="/movienight" class="wheel-banner-action">К киновечеру</a>
+        </div>
+      {% endif %}
+
       <h1 class="wheel-title">🎡 Колесо фильмов</h1>
       <div class="wheel-canvas-wrap">
         <div class="pointer"></div>
