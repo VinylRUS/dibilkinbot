@@ -39,8 +39,11 @@ class Settings:
     telegram_token: str | None
     telegram_chat_id: str | None
 
-    # Kinopoisk (kinopoisk.dev)
+    # Kinopoisk (kinopoiskapiunofficial.tech)
     kinopoisk_token: str | None
+
+    # Steam Web API (опционально, для модуля Тайный Санта)
+    steam_api_key: str | None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -102,6 +105,7 @@ class Settings:
             telegram_token=os.environ.get("TELEGRAM_TOKEN") or None,
             telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID") or None,
             kinopoisk_token=os.environ.get("KINOPOISK_TOKEN") or None,
+            steam_api_key=os.environ.get("STEAM_API_KEY") or None,
         )
 
 

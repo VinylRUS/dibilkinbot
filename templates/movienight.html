@@ -198,24 +198,38 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      transition: all 0.3s;
     }
-    .participant-row:last-child { border-bottom: none; }
+    .participant-row.ready {
+      border-color: var(--green);
+      background: rgba(79, 121, 66, 0.08);
+    }
     .participant-avatar {
-      width: 32px;
-      height: 32px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: var(--card-alt);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.95rem;
+      font-size: 1.2rem;
       flex-shrink: 0;
+      overflow: hidden;
+      border: 2px solid transparent;
+      transition: border-color 0.3s;
+    }
+    .participant-row.ready .participant-avatar {
+      border-color: var(--green);
+      box-shadow: 0 0 8px rgba(79, 121, 66, 0.4);
     }
     .participant-avatar img {
-      width: 32px;
-      height: 32px;
+      width: 100%;
+      height: 100%;
       border-radius: 50%;
       object-fit: cover;
     }
@@ -467,7 +481,7 @@
             <h3>👥 Участники <span style="color: var(--text-muted); font-size: 0.78rem; font-weight: 400;">({{ participants | length }})</span></h3>
             <div id="participants-list">
               {% for p in participants %}
-                <div class="participant-row {{ 'kicked' if p.kicked_at else '' }}"
+                <div class="participant-row {{ 'kicked' if p.kicked_at else '' }} {{ 'ready' if p.is_ready else '' }}"
                      data-user-id="{{ p.user_discord_id }}"
                      data-is-ready="{{ 'true' if p.is_ready else 'false' }}">
                   <div class="participant-avatar">
@@ -624,7 +638,7 @@
             ? `<button type="button" class="participant-kick" onclick="kickParticipant(${p.user_discord_id})">✕</button>`
             : '';
           html += `
-            <div class="participant-row ${isKicked ? 'kicked' : ''}" data-user-id="${p.user_discord_id}">
+            <div class="participant-row ${isKicked ? 'kicked' : ''} ${isReady ? 'ready' : ''}" data-user-id="${p.user_discord_id}">
               <div class="participant-avatar">${avatarHtml}</div>
               <div class="participant-info">
                 <div class="participant-name">${displayName}</div>
@@ -662,6 +676,7 @@
       const row = document.querySelector(`.participant-row[data-user-id="${userId}"]`);
       if (!row) return;
       row.dataset.isReady = isReady;
+      row.classList.toggle('ready', isReady);
       const status = row.querySelector('.participant-status');
       const meta = row.querySelector('.participant-meta');
       if (isReady) {

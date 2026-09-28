@@ -19,6 +19,9 @@
       <a href="/winners" {% if active == 'winners' %}class="active"{% endif %}>Победители</a>
       <a href="/watched" {% if active == 'watched' %}class="active"{% endif %}>Бэклог</a>
       <a href="/quotes" {% if active == 'quotes' %}class="active"{% endif %}>Цитаты</a>
+      {% if santa_enabled() %}
+      <a href="/santa" {% if active == 'santa' %}class="active"{% endif %}>🎅 Тайный Санта</a>
+      {% endif %}
     </div>
   </div>
 
