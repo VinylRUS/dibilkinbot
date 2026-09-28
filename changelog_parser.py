@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import re
+import logging
 from pathlib import Path
 from dataclasses import dataclass
+
+log = logging.getLogger("changelog")
 
 
 @dataclass
@@ -16,9 +19,14 @@ def parse_changelog(filepath: str | Path = "CHANGELOG.md") -> list[ChangelogEntr
     """Распарсить CHANGELOG.md. Возвращает список записей (новые первыми)."""
     path = Path(filepath)
     if not path.exists():
+        log.error("CHANGELOG.md not found at: %s", path.absolute())
         return []
 
     text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        log.error("CHANGELOG.md is empty at: %s", path.absolute())
+        return []
+
     entries: list[ChangelogEntry] = []
 
     # Разбиваем по заголовкам ## vX.Y.Z
@@ -49,7 +57,9 @@ def parse_changelog(filepath: str | Path = "CHANGELOG.md") -> list[ChangelogEntr
                 sections[section_title] = items
 
         entries.append(ChangelogEntry(version=version, sections=sections))
+        log.debug("Parsed version %s with %d sections", version, len(sections))
 
+    log.info("Parsed %d changelog entries from %s", len(entries), path.name)
     return entries
 
 
