@@ -54,20 +54,93 @@
       gap: 16px;
     }
     .watched-card:last-child { border-bottom: none; }
+    .watched-info { flex: 1; min-width: 0; }
     .watched-title {
       font-weight: 600;
       color: var(--text);
       font-size: 0.95rem;
+    }
+    .watched-title.editing {
+      background: var(--bg);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 4px 8px;
+      width: 100%;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 600;
     }
     .watched-date {
       color: var(--text-muted);
       font-size: 0.82rem;
       margin-top: 2px;
     }
-    .rating-block { text-align: right; min-width: 80px; }
+    .watched-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .rating-stars {
+      display: flex;
+      gap: 2px;
+    }
+    .star-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 3px 6px;
+      font-size: 0.75rem;
+      border-radius: 3px;
+      transition: all 0.15s;
+      margin: 0;
+      min-width: 22px;
+    }
+    .star-btn:hover {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .star-btn.active {
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: var(--accent);
+    }
     .no-rating { color: var(--text-muted); font-style: italic; font-size: 0.85rem; }
-    .rating-value { font-weight: 700; color: var(--accent); font-size: 1rem; }
-    .rating-label { color: var(--text-muted); font-size: 0.75rem; }
+    .edit-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      margin: 0;
+    }
+    .edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .save-btn {
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      margin: 0;
+      font-weight: 600;
+    }
+    .delete-btn {
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      margin: 0;
+    }
+    .delete-btn:hover { background: var(--red); color: #fff; }
   </style>
 </head>
 <body>
@@ -95,25 +168,28 @@
         </div>
       {% else %}
         {% for w_id, title, watched_at, rating in watched %}
-          <div class="watched-card">
-            <div>
-              <div class="watched-title">{{ title }}</div>
+          <div class="watched-card" id="watched-{{ w_id }}">
+            <div class="watched-info">
+              <div class="watched-title" id="title-{{ w_id }}">{{ title }}</div>
               <div class="watched-date mono">{{ watched_at[:16].replace('T', ' ') }}</div>
             </div>
-            <div class="rating-block">
-              {% if rating %}
-                <div class="rating-value">⭐ {{ rating }}/10</div>
-                <div class="rating-label">оценка</div>
-              {% else %}
-                <div class="no-rating">без оценки</div>
+            <div class="watched-actions">
+              <!-- Звёзды оценки -->
+              <div class="rating-stars" id="stars-{{ w_id }}">
+                {% for i in range(1, 11) %}
+                  <button type="button" class="star-btn {{ 'active' if rating == i else '' }}"
+                          onclick="rateWatched({{ w_id }}, {{ i }})">{{ i }}</button>
+                {% endfor %}
+              </div>
+              <!-- Редактировать название -->
+              <button type="button" class="edit-btn" onclick="editTitle({{ w_id }})" id="edit-btn-{{ w_id }}">✏️</button>
+              {% if is_admin %}
+                <form method="post" action="/watched/{{ w_id }}/delete" style="margin:0;"
+                      onsubmit="return confirm('Удалить «{{ title }}» из бэклога?');">
+                  <button type="submit" class="delete-btn">×</button>
+                </form>
               {% endif %}
             </div>
-            {% if is_admin %}
-              <form method="post" action="/watched/{{ w_id }}/delete" style="margin:0;"
-                    onsubmit="return confirm('Удалить «{{ title }}» из бэклога?');">
-                <button type="submit" style="background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0;font-size:0.8rem;">×</button>
-              </form>
-            {% endif %}
           </div>
         {% endfor %}
       {% endif %}
@@ -121,6 +197,7 @@
   </main>
 
   <script>
+    // === Добавление фильма ===
     document.getElementById('add-watched-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('movie-title');
@@ -144,15 +221,21 @@
           result.textContent = '✓ «' + title + '» добавлен в бэклог';
           result.style.display = 'block';
           input.value = '';
-          setTimeout(() => window.location.reload(), 1000);
+          // Курсор обратно в поле ввода
+          input.focus();
+          // Перезагружаем чтобы показать новую запись
+          setTimeout(() => window.location.reload(), 800);
         } else if (r.status === 409) {
           result.className = 'add-result error';
           result.textContent = '⚠ «' + title + '» уже в бэклоге';
           result.style.display = 'block';
+          input.focus();
+          input.select();
         } else {
           result.className = 'add-result error';
           result.textContent = '❌ ' + (data.error || 'Ошибка');
           result.style.display = 'block';
+          input.focus();
         }
       } catch (err) {
         result.className = 'add-result error';
@@ -161,7 +244,105 @@
       }
       btn.disabled = false;
       btn.textContent = '+ Добавить';
+      input.focus(); // Курсор всегда в поле после операции
     });
+
+    // === Оценка ===
+    async function rateWatched(watchedId, rating) {
+      const formData = new FormData();
+      formData.append('rating', rating);
+      try {
+        const r = await fetch(`/api/watched/${watchedId}/rate`, { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          // Подсветить активную кнопку
+          const container = document.getElementById(`stars-${watchedId}`);
+          container.querySelectorAll('.star-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.textContent) === rating);
+          });
+        } else {
+          alert(data.error || 'Ошибка');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    // === Редактирование названия ===
+    function editTitle(watchedId) {
+      const titleEl = document.getElementById(`title-${watchedId}`);
+      const editBtn = document.getElementById(`edit-btn-${watchedId}`);
+      const oldTitle = titleEl.textContent;
+
+      // Заменяем текст на input
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = oldTitle;
+      input.className = 'watched-title editing';
+      input.id = `title-input-${watchedId}`;
+      titleEl.replaceWith(input);
+      input.focus();
+      input.select();
+
+      // Меняем кнопку на "Сохранить"
+      editBtn.textContent = '💾';
+      editBtn.onclick = () => saveTitle(watchedId, oldTitle);
+
+      // Enter = сохранить, Escape = отмена
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') saveTitle(watchedId, oldTitle);
+        if (e.key === 'Escape') cancelEdit(watchedId, oldTitle);
+      });
+    }
+
+    async function saveTitle(watchedId, oldTitle) {
+      const input = document.getElementById(`title-input-${watchedId}`);
+      const newTitle = input.value.trim();
+      const editBtn = document.getElementById(`edit-btn-${watchedId}`);
+
+      if (!newTitle || newTitle === oldTitle) {
+        cancelEdit(watchedId, oldTitle);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('title', newTitle);
+      formData.append('rating', '');
+
+      try {
+        const r = await fetch(`/api/watched/${watchedId}/edit`, { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          // Восстанавливаем div с новым названием
+          const div = document.createElement('div');
+          div.className = 'watched-title';
+          div.id = `title-${watchedId}`;
+          div.textContent = newTitle;
+          input.replaceWith(div);
+          editBtn.textContent = '✏️';
+          editBtn.onclick = () => editTitle(watchedId);
+        } else {
+          alert(data.error || 'Ошибка');
+          cancelEdit(watchedId, oldTitle);
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+        cancelEdit(watchedId, oldTitle);
+      }
+    }
+
+    function cancelEdit(watchedId, oldTitle) {
+      const input = document.getElementById(`title-input-${watchedId}`);
+      if (!input) return;
+      const div = document.createElement('div');
+      div.className = 'watched-title';
+      div.id = `title-${watchedId}`;
+      div.textContent = oldTitle;
+      input.replaceWith(div);
+      const editBtn = document.getElementById(`edit-btn-${watchedId}`);
+      editBtn.textContent = '✏️';
+      editBtn.onclick = () => editTitle(watchedId);
+    }
   </script>
 </body>
 </html>

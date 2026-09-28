@@ -116,6 +116,45 @@
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .mode-switcher {
+      display: flex;
+      background: rgba(0,0,0,0.3);
+      border-radius: 50px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .mode-btn {
+      background: transparent;
+      border: none;
+      color: #B0B0B0;
+      padding: 8px 16px;
+      border-radius: 50px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: all 0.2s;
+      margin: 0;
+    }
+    .mode-btn.active {
+      background: var(--accent);
+      color: #1A1A1A;
+    }
+    .mode-btn:hover:not(.active) {
+      color: var(--accent);
+    }
+    .spin-duration {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #B0B0B0;
+      font-size: 0.82rem;
+    }
+    .spin-duration input[type="range"] {
+      width: 80px;
+      accent-color: var(--accent);
     }
     .winner-banner {
       background: var(--accent);
@@ -255,8 +294,15 @@
         <canvas id="wheel-canvas" width="600" height="600"></canvas>
       </div>
       <div class="buttons-row">
+        <div class="mode-switcher">
+          <button id="mode-normal" class="mode-btn active" onclick="setMode('normal')">Классический</button>
+          <button id="mode-elimination" class="mode-btn" onclick="setMode('elimination')">На выбывание</button>
+        </div>
         <button id="spin-btn" class="spin-btn" disabled>КРУТИТЬ</button>
-        <button id="spin-elimination-btn" class="spin-elimination-btn" disabled title="Крутить на выбывание — удаляет одного, последний оставшийся = победитель">🎯 НА ВЫБЫВАНИЕ</button>
+        <div class="spin-duration">
+          <label for="duration-slider">⏱ <span id="duration-label">5</span>с</label>
+          <input type="range" id="duration-slider" min="3" max="15" value="5" step="1" oninput="updateDuration(this.value)">
+        </div>
       </div>
       <div id="winner-banner" class="winner-banner"></div>
     </section>
@@ -308,6 +354,19 @@
     let items = [];
     let spinning = false;
     let currentRotation = 0;
+    let currentMode = 'normal'; // 'normal' | 'elimination'
+    let spinDuration = 5000; // ms
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.getElementById('mode-normal').classList.toggle('active', mode === 'normal');
+      document.getElementById('mode-elimination').classList.toggle('active', mode === 'elimination');
+    }
+
+    function updateDuration(val) {
+      spinDuration = parseInt(val) * 1000;
+      document.getElementById('duration-label').textContent = val;
+    }
 
     // === Canvas ===
     const canvas = document.getElementById('wheel-canvas');
@@ -543,7 +602,7 @@
       const targetRotation = currentRotation + extraTurns * Math.PI * 2
         + (-Math.PI / 2 - winnerCenterAngle) - (currentRotation % (Math.PI * 2));
 
-      animateSpin(targetRotation, 5000, () => {
+      animateSpin(targetRotation, spinDuration, () => {
         // Анимация завершена — показать победителя
         const banner = document.getElementById('winner-banner');
         banner.textContent = `🎉 Победитель: ${winner.name}!`;
@@ -640,8 +699,13 @@
       }
     });
 
-    document.getElementById('spin-btn').addEventListener('click', spin);
-    document.getElementById('spin-elimination-btn').addEventListener('click', spinElimination);
+    document.getElementById('spin-btn').addEventListener('click', () => {
+      if (currentMode === 'elimination') {
+        spinElimination();
+      } else {
+        spin();
+      }
+    });
     document.getElementById('clear-btn').addEventListener('click', clearWheel);
 
     // === Elimination spin ===
@@ -683,7 +747,7 @@
       const targetRotation = currentRotation + extraTurns * Math.PI * 2
         + (-Math.PI / 2 - elimCenterAngle) - (currentRotation % (Math.PI * 2));
 
-      animateSpin(targetRotation, 5000, () => {
+      animateSpin(targetRotation, spinDuration, () => {
         const banner = document.getElementById('winner-banner');
         if (isFinal) {
           // Финал — победитель объявлен

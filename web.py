@@ -675,6 +675,47 @@ async def delete_watched_endpoint(
     return RedirectResponse(url="/watched?deleted=1", status_code=303)
 
 
+@app.post("/api/watched/{watched_id}/edit")
+async def api_edit_watched(
+    watched_id: int,
+    _user: dict = Depends(require_user),
+    title: str = Form(""),
+    rating: int | None = Form(None),
+):
+    """Редактировать название и/или оценку фильма в бэклоге."""
+    guild_id = get_current_guild_id(_user)
+    
+    if title.strip():
+        updated = await db.g_update_watched_title(guild_id, watched_id, title.strip())
+        if not updated:
+            return JSONResponse({"error": "not found"}, status_code=404)
+    
+    if rating is not None and 1 <= rating <= 10:
+        updated = await db.g_update_watched_rating(guild_id, watched_id, rating)
+        if not updated:
+            return JSONResponse({"error": "not found or invalid rating"}, status_code=404)
+    
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/watched/{watched_id}/rate")
+async def api_rate_watched(
+    watched_id: int,
+    _user: dict = Depends(require_user),
+    rating: int = Form(...),
+):
+    """Поставить оценку фильму в бэклоге (1-10)."""
+    if not (1 <= rating <= 10):
+        return JSONResponse({"error": "rating must be 1-10"}, status_code=400)
+    
+    guild_id = get_current_guild_id(_user)
+    updated = await db.g_update_watched_rating(guild_id, watched_id, rating)
+    if not updated:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    
+    return JSONResponse({"ok": True, "rating": rating})
+
+
 # === Users management (admin only) ===
 
 @app.get("/users", response_class=HTMLResponse)
