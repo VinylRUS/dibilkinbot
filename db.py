@@ -992,6 +992,30 @@ async def g_delete_watched(guild_id: int, watched_id: int) -> bool:
         return cur.rowcount > 0
 
 
+async def g_update_watched_title(guild_id: int, watched_id: int, new_title: str) -> bool:
+    """Изменить название фильма в бэклоге."""
+    table = _guild.guild_table(guild_id, "watched")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET title = ? WHERE id = ?", (new_title.strip(), watched_id)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_update_watched_rating(guild_id: int, watched_id: int, rating: int) -> bool:
+    """Поставить/обновить оценку фильму в бэклоге."""
+    if not (1 <= rating <= 10):
+        return False
+    table = _guild.guild_table(guild_id, "watched")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET rating = ? WHERE id = ?", (rating, watched_id)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
 # --- g_quotes ---
 
 async def g_add_quote(guild_id: int, author: str, author_user_id: int | None, text: str,
