@@ -224,17 +224,35 @@ class KinovecherBot(commands.Bot):
         # === Проверка новой версии → пост в канал обновлений ===
         try:
             from changelog_parser import get_latest_version, get_latest_changelog
-            current_version = get_latest_version("CHANGELOG.md")
+            import os
+
+            # CHANGELOG.md может быть в корне /app (bind-mount) или рядом с кодом
+            changelog_path = "CHANGELOG.md"
+            if not os.path.exists(changelog_path):
+                # Пробуем абсолютные пути
+                for p in ["/app/CHANGELOG.md", os.path.join(os.path.dirname(__file__), "CHANGELOG.md")]:
+                    if os.path.exists(p):
+                        changelog_path = p
+                        break
+
+            current_version = get_latest_version(changelog_path)
             last_announced = await db.get_setting("last_announced_version")
+
+            log.info("Version check: current=%s, last_announced=%s, changelog_path=%s, exists=%s",
+                     current_version, last_announced, changelog_path, os.path.exists(changelog_path))
 
             if last_announced != current_version:
                 log.info("New version detected: %s (was: %s) — posting update", current_version, last_announced)
 
                 updates_channel_id_str = await db.get_setting("channel_updates_id")
-                if updates_channel_id_str and updates_channel_id_str.isdigit():
+                if not updates_channel_id_str or not updates_channel_id_str.isdigit():
+                    log.warning("channel_updates_id not set — skipping changelog post")
+                else:
                     channel = self.get_channel(int(updates_channel_id_str))
-                    if channel:
-                        entry = get_latest_changelog("CHANGELOG.md")
+                    if channel is None:
+                        log.warning("Updates channel %s not found", updates_channel_id_str)
+                    else:
+                        entry = get_latest_changelog(changelog_path)
                         embed = discord.Embed(
                             title=f"🐝 DeeBeelkin обновился до {current_version}!",
                             color=0xFFB703,
@@ -243,17 +261,26 @@ class KinovecherBot(commands.Bot):
 
                         if entry and entry.sections:
                             for section_title, items in entry.sections.items():
-                                emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() else "📋"
-                                text = "\n".join(f"{emoji} {item}" for item in items[:15])
+                                # Фильтруем: "Техническое" НЕ попадает в анон
+                                if "техн" in section_title.lower():
+                                    continue
+                                emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() or "улучш" in section_title.lower() else "📋"
+                                # Ограничиваем длину — Discord embed field max 1024
+                                text = "\n".join(f"{emoji} {item}" for item in items[:10])
+                                if len(text) > 1000:
+                                    text = text[:1000] + "…"
                                 embed.add_field(name=section_title, value=text, inline=False)
 
                         embed.set_footer(text=f"DeeBeelkin {current_version}")
                         await channel.send(embed=embed)
+                        log.info("Changelog posted to channel %s", updates_channel_id_str)
 
                 # Сохраняем текущую версию как последнюю объявленную
                 await db.set_setting("last_announced_version", current_version, is_secret=False)
+            else:
+                log.info("Version %s already announced — skipping", current_version)
         except Exception as e:
-            log.warning("Changelog post failed: %s", e)
+            log.warning("Changelog post failed: %s", e, exc_info=True)
 
     async def on_message(self, message: discord.Message) -> None:
         """Авто-захват цитат: если сообщение в канале #цитатник от человека —
