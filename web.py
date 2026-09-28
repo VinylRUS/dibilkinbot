@@ -1,4 +1,12 @@
-"""FastAPI веб-панель: логин по Discord ID или логин/пароль, права is_admin."""
+"""FastAPI веб-панель.
+
+- Логин по Discord ID (через проверку участия в сервере с ботом) или логин/пароль для админа
+- Multi-tenant: каждый юзер видит данные своего current_guild_id
+- Страницы: /, /wheel, /winners, /watched, /quotes, /profile, /select_guild
+- Админ-only: /tokens, /channels, /features, /users, /guilds
+- WebSocket на /ws/wheel для real-time обновлений колеса
+- JSON API: /api/wheel/*, /api/quotes/*, /api/watchlist/*, /api/winners/*/rate
+"""
 from __future__ import annotations
 
 import secrets
@@ -140,9 +148,10 @@ def _theme(request: Request) -> str:
 
 
 # Регистрируем глобально для всех шаблонов, чтобы не передавать явно
+from timezone_utils import format_msk, format_msk_short
 templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "light")
-templates.env.globals["format_msk"] = lambda dt_str: __import__("timezone_utils").format_msk(dt_str)
-templates.env.globals["format_msk_short"] = lambda dt_str: __import__("timezone_utils").format_msk_short(dt_str)
+templates.env.globals["format_msk"] = format_msk
+templates.env.globals["format_msk_short"] = format_msk_short
 
 
 def get_current_guild_id(user_payload: dict) -> int:
@@ -1148,107 +1157,6 @@ async def api_wheel_items(_user: dict = Depends(require_user)):
     return JSONResponse({"items": safe_items, "count": len(safe_items)})
 
 
-# === FilmNight API (управление сбором фильмов из веб-панели) ===
-
-@app.get("/api/filmnight/status")
-async def api_filmnight_status(_user: dict = Depends(require_user)):
-    """Статус активного сбора фильмов."""
-    guild_id = get_current_guild_id(_user)
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
-    fn = await db.g_get_active_filmnight(guild_id)
-    if not fn:
-        return JSONResponse({"active": False})
-    items = await db.g_list_wheel_items(guild_id, active_only=True)
-    unique_users = len(set(item["added_by"] for item in items)) if items else 0
-    return JSONResponse({
-        "active": True,
-        "id": fn["id"],
-        "max_per_user": fn["max_per_user"],
-        "started_by": fn["started_by"],
-        "started_at": fn["started_at"],
-        "items_count": len(items),
-        "unique_users": unique_users,
-    })
-
-
-@app.post("/api/filmnight/start")
-async def api_filmnight_start(
-    _user: dict = Depends(require_user),
-    max_per_user: int = Form(3),
-):
-    """Запустить сбор фильмов из веб-панели + пост в Discord."""
-    guild_id = get_current_guild_id(_user)
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
-    user_discord_id = _user.get("discord_id", 0)
-    fn_id = await db.g_start_filmnight(guild_id, user_discord_id, max_per_user)
-
-    # Постим в Discord-канал анонсов (если настроен)
-    announce_channel_id_str = await db.get_setting("channel_announce_id")
-    if announce_channel_id_str and announce_channel_id_str.isdigit():
-        try:
-            import bot as bot_module
-            bot_instance = bot_module.get_bot_instance()
-            if bot_instance:
-                channel = bot_instance.get_channel(int(announce_channel_id_str))
-                if channel:
-                    import discord
-                    embed = discord.Embed(
-                        title="🎬 Сбор фильмов начат!",
-                        description=(
-                            f"Лимит: **{max_per_user}** фильмов на участника\n\n"
-                            f"Используйте `/wheel add <название>` чтобы предложить фильм.\n"
-                            f"Крутить: веб-панель → /wheel"
-                        ),
-                        color=0x2ECC71,
-                    )
-                    await channel.send(embed=embed)
-        except Exception as e:
-            import logging
-            logging.getLogger("web").warning("Discord filmnight announce failed: %s", e)
-
-    return JSONResponse({"ok": True, "id": fn_id, "max_per_user": max_per_user})
-
-
-@app.post("/api/filmnight/end")
-async def api_filmnight_end(_user: dict = Depends(require_user)):
-    """Завершить сбор фильмов из веб-панели + пост в Discord."""
-    guild_id = get_current_guild_id(_user)
-    user_discord_id = _user.get("discord_id", 0)
-
-    # Статистика перед завершением
-    items = await db.g_list_wheel_items(guild_id, active_only=True)
-    unique_users = len(set(item["added_by"] for item in items)) if items else 0
-
-    completed = await db.g_complete_filmnight(guild_id, user_discord_id)
-
-    # Постим в Discord-канал анонсов
-    announce_channel_id_str = await db.get_setting("channel_announce_id")
-    if announce_channel_id_str and announce_channel_id_str.isdigit():
-        try:
-            import bot as bot_module
-            bot_instance = bot_module.get_bot_instance()
-            if bot_instance:
-                channel = bot_instance.get_channel(int(announce_channel_id_str))
-                if channel:
-                    import discord
-                    embed = discord.Embed(
-                        title="✅ Сбор фильмов завершён!",
-                        description=(
-                            f"Собрано: **{len(items)}** фильмов от **{unique_users}** участник(ов)\n\n"
-                            f"Крутить колесо: веб-панель → /wheel"
-                        ),
-                        color=0xFFB703,
-                    )
-                    await channel.send(embed=embed)
-        except Exception as e:
-            import logging
-            logging.getLogger("web").warning("Discord filmnight end announce failed: %s", e)
-
-    return JSONResponse({"ok": completed})
-
-
 # === Wheel API ===
 
 @app.post("/api/wheel/items")
@@ -1495,17 +1403,3 @@ async def ws_wheel(websocket: WebSocket):
         import logging
         logging.getLogger("ws_manager").debug("WS error: %s", e)
         await ws_manager.disconnect(websocket)
-
-
-# === File download (для отдачи архивов через preview) ===
-from fastapi.responses import FileResponse
-
-@app.get("/download/{filename}")
-async def download_file(filename: str):
-    """Отдать файл из /home/z/my-project/download/ — для скачивания архивов."""
-    import os
-    filepath = os.path.join("/home/z/my-project/download", filename)
-    if not os.path.exists(filepath):
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(filepath, filename=filename)

@@ -12,7 +12,6 @@ from __future__ import annotations
 import aiosqlite
 import logging
 from datetime import datetime
-from typing import Optional
 
 from config import settings
 
@@ -225,7 +224,7 @@ async def upsert_guild(
         async with db.execute("SELECT 1 FROM guilds WHERE guild_id = ?", (guild_id,)) as cur:
             existing = await cur.fetchone()
         if existing:
-            # Обновляем基本信息
+            # Обновляем базовую информацию
             await db.execute(
                 "UPDATE guilds SET name = ?, icon_url = COALESCE(?, icon_url), "
                 "owner_id = COALESCE(?, owner_id), member_count = ? WHERE guild_id = ?",
