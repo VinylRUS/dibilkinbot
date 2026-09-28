@@ -1156,17 +1156,33 @@ async def api_watchlist_edit(
 
 @app.get("/wheel", response_class=HTMLResponse)
 async def wheel_page(request: Request, _user: dict = Depends(require_user)):
-    """Страница с Canvas-анимацией колеса."""
+    """Страница с Canvas-анимацией колеса.
+
+    Передаём в шаблон:
+    - items: список лотов (анонимизированный)
+    - last_collection: последний завершённый сбор (для баннера «Колесо загружено из сбора»)
+    - active_collection: активный сбор (если есть — предупреждаем)
+    - recent_winner: последний победитель за час (для блокировки повторной крутки)
+    """
     guild_id = get_current_guild_id(_user)
     raw_items = await db.g_list_wheel_items(guild_id, active_only=True)
-
-    # Анонимизируем: убираем added_by и added_at
     items = _anonymize_items(raw_items)
+
+    # Инфо о сборах для баннера
+    last_collection = await db.g_get_last_completed_collection(guild_id)
+    active_collection = await db.g_get_active_collection(guild_id)
+
+    # Недавний победитель (за последний час) — для блокировки повторной крутки
+    recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
 
     return templates.TemplateResponse(request, "wheel.html", {
         "user": _user,
         "items": items,
         "current_guild_id": guild_id,
+        "last_collection": last_collection,
+        "active_collection": active_collection,
+        "recent_winner": recent_winner,
+        "wheel_count": len(items),
     })
 
 
@@ -1268,9 +1284,27 @@ async def api_load_from_watchlist(_user: dict = Depends(require_user)):
 
 @app.post("/api/wheel/spin")
 async def api_spin_wheel(_user: dict = Depends(require_user)):
-    """Запустить спин."""
+    """Запустить спин (классический режим — один победитель)."""
     import random
     guild_id = get_current_guild_id(_user)
+
+    # Проверка 1: если есть активный сбор — крутить нельзя (сначала завершите сбор)
+    active_collection = await db.g_get_active_collection(guild_id)
+    if active_collection:
+        return JSONResponse({
+            "error": "Идёт активный сбор фильмов. Сначала завершите его на странице /movienight — выбранные фильмы загрузятся в колесо.",
+            "error_code": "active_collection_exists",
+        }, status_code=400)
+
+    # Проверка 2: если уже был победитель после завершённого сбора — крутить нельзя
+    recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
+    if recent_winner:
+        return JSONResponse({
+            "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
+            "error_code": "winner_already_determined",
+            "winner": recent_winner,
+        }, status_code=400)
+
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
@@ -1329,6 +1363,24 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
     """Режим 'на выбывание'."""
     import random
     guild_id = get_current_guild_id(_user)
+
+    # Проверка 1: если есть активный сбор — крутить нельзя
+    active_collection = await db.g_get_active_collection(guild_id)
+    if active_collection:
+        return JSONResponse({
+            "error": "Идёт активный сбор фильмов. Сначала завершите его на странице /movienight — выбранные фильмы загрузятся в колесо.",
+            "error_code": "active_collection_exists",
+        }, status_code=400)
+
+    # Проверка 2: если уже был победитель после завершённого сбора — крутить нельзя
+    recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
+    if recent_winner:
+        return JSONResponse({
+            "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
+            "error_code": "winner_already_determined",
+            "winner": recent_winner,
+        }, status_code=400)
+
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items"}, status_code=400)

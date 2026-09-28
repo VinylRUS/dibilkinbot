@@ -1456,6 +1456,49 @@ async def g_get_collection_by_token(guild_id: int, token: str) -> dict | None:
         }
 
 
+async def g_get_last_completed_collection(guild_id: int) -> dict | None:
+    """Получить последнюю завершённую коллекцию (статус completed) — для баннера на /wheel."""
+    table = _guild.guild_table(guild_id, "collections")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, status, max_per_user, started_by, started_at, completed_at, completed_by, spin_started_at "
+            f"FROM {table} WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "status": row[1], "max_per_user": row[2],
+            "started_by": row[3], "started_at": row[4], "completed_at": row[5],
+            "completed_by": row[6], "spin_started_at": row[7],
+        }
+
+
+async def g_get_recent_winner(guild_id: int, since_minutes: int = 60) -> dict | None:
+    """Получить последнего победителя за последние N минут (для блокировки повторной крутки).
+
+    Логика: если после завершения сбора был определён победитель — крутить больше нельзя.
+    Возвращает winner dict или None.
+    """
+    import time
+    table_w = _guild.guild_table(guild_id, "winners")
+    cutoff = (datetime.utcnow().timestamp() - since_minutes * 60)
+    cutoff_iso = datetime.utcfromtimestamp(cutoff).isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, lot_name, tmdb_id, confidence, detected_at FROM {table_w} "
+            f"WHERE detected_at > ? ORDER BY detected_at DESC LIMIT 1",
+            (cutoff_iso,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "lot_name": row[1], "tmdb_id": row[2],
+            "confidence": row[3], "detected_at": row[4],
+        }
+
+
 async def g_add_collection_participant(
     guild_id: int, collection_id: int, user_discord_id: int,
     username: str | None = None, display_name: str | None = None, avatar_url: str | None = None,

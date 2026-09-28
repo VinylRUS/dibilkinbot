@@ -584,14 +584,9 @@
           }
           break;
         case 'collection_completed':
-          // Сбор завершён — крутка пошла. Если организатор — редирект на /wheel.
-          if (isOrganizer) {
-            window.location.href = '/wheel';
-          } else {
-            // Обычный юзер видит сообщение
-            alert('🎉 Сбор завершён! Фильмы загружены в колесо.');
-            location.reload();
-          }
+          // Сбор завершён — фильмы загружены в колесо. Показываем кнопку «Перейти к колесу».
+          // Никакого авто-редиректа — организатор сам решает когда крутить.
+          showCollectionCompleted(msg.payload.picks_count);
           break;
         case 'collection_cancelled':
           alert('❌ Сбор отменён организатором.');
@@ -782,7 +777,8 @@
         const r = await fetch('/api/collection/start_spin', { method: 'POST', body: formData });
         const data = await r.json();
         if (r.ok) {
-          window.location.href = '/wheel';
+          // Показываем кнопку «Перейти к колесу» вместо автоперехода
+          showCollectionCompleted(data.picks_count);
         } else {
           alert(data.error || 'Ошибка');
           btn.disabled = false;
@@ -793,6 +789,29 @@
         btn.disabled = false;
         btn.textContent = force ? '⚡ Начать принудительно' : '🎡 Начать крутку колеса';
       }
+    }
+
+    function showCollectionCompleted(picksCount) {
+      // Заменяем organizer controls на блок «Перейти к колесу»
+      const orgControls = document.querySelector('.organizer-controls');
+      if (orgControls) {
+        orgControls.innerHTML = `
+          <h4>✅ Сбор завершён</h4>
+          <p style="font-size: 0.85rem; margin: 0 0 14px; color: var(--text-muted);">
+            Фильмы загружены в колесо (${picksCount} шт.). Перейдите к колесу чтобы крутить.
+          </p>
+          <a href="/wheel" class="org-btn" style="text-decoration: none; display: block; text-align: center;">
+            🎡 Перейти к колесу
+          </a>
+        `;
+      }
+      // Скрываем прогресс-бар и список выбора (сбор завершён)
+      const progressBar = document.querySelector('.progress-bar');
+      if (progressBar) progressBar.style.display = 'none';
+      const pickList = document.getElementById('pick-list');
+      if (pickList) pickList.style.display = 'none';
+      const readyBtn = document.getElementById('ready-btn');
+      if (readyBtn) readyBtn.style.display = 'none';
     }
 
     async function cancelCollection() {
