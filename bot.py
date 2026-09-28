@@ -931,7 +931,22 @@ class WatchlistCog(commands.Cog):
         name = meta["title"] if meta else title
         tmdb_id = meta["tmdb_id"] if meta else None
 
-        watchlist_id = await db.g_add_to_watchlist(guild_id, interaction.user.id, name, tmdb_id)
+        watchlist_id, error = await db.g_add_to_watchlist(guild_id, interaction.user.id, name, tmdb_id)
+
+        if error == "already_in_other_watchlist":
+            # Фильм уже в вишлисте у другого юзера — НЕ создаём дубликат
+            await interaction.response.send_message(
+                f"⚠️ Фильм «{name}» уже кем-то добавлен в список желаемого.\n"
+                "Это сюрприз для колеса — нельзя иметь у двух людей сразу.",
+                ephemeral=True,
+            )
+            return
+        if error == "already_yours":
+            await interaction.response.send_message(
+                f"ℹ️ Фильм «{name}» уже в вашем списке желаемого.",
+                ephemeral=True,
+            )
+            return
 
         embed = discord.Embed(
             title="✅ Добавлено в список желаемого",

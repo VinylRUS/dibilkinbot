@@ -65,3 +65,40 @@ async def broadcast_spin_started(items: list[dict], spin_id: str) -> None:
 async def broadcast_spin_result(winner: dict, spin_id: str) -> None:
     """Сообщить клиентам что спин завершён, победитель известен."""
     await broadcast("spin_result", {"winner": winner, "spin_id": spin_id})
+
+
+# === Collection events ===
+
+async def broadcast_collection_started(collection: dict) -> None:
+    """Сбор начат — все клиенты на /movienight должны обновиться."""
+    await broadcast("collection_started", {"collection": collection})
+
+
+async def broadcast_collection_participant_joined(participant: dict) -> None:
+    """Новый участник зашёл в сбор."""
+    await broadcast("collection_participant_joined", {"participant": participant})
+
+
+async def broadcast_collection_participant_ready(participant: dict) -> None:
+    """Участник нажал «Готов» или «Не готов»."""
+    await broadcast("collection_participant_ready", {"participant": participant})
+
+
+async def broadcast_collection_picks_updated(user_discord_id: int, picks_count: int) -> None:
+    """Юзер обновил свой выбор — без раскрытия какие именно фильмы (сюрприз!)."""
+    await broadcast("collection_picks_updated", {"user_discord_id": user_discord_id, "picks_count": picks_count})
+
+
+async def broadcast_collection_participant_kicked(user_discord_id: int, kicked_by: int) -> None:
+    """Участник кикнут."""
+    await broadcast("collection_participant_kicked", {"user_discord_id": user_discord_id, "kicked_by": kicked_by})
+
+
+async def broadcast_collection_completed(picks_count: int) -> None:
+    """Сбор завершён, началась крутка колеса — все picks уже в колесе."""
+    await broadcast("collection_completed", {"picks_count": picks_count})
+
+
+async def broadcast_collection_cancelled(cancelled_by: int) -> None:
+    """Сбор отменён."""
+    await broadcast("collection_cancelled", {"cancelled_by": cancelled_by})

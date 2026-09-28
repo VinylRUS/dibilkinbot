@@ -127,9 +127,24 @@
       <div class="flash">✓ Запись удалена.</div>
     {% endif %}
 
+    <!-- Поиск -->
+    <form class="search-form" method="get" action="/winners">
+      <input type="text" name="q" value="{{ search }}" placeholder="🔍 Поиск по победителям..." autocomplete="off">
+      <button type="submit">🔍 Найти</button>
+      {% if search %}
+        <a href="/winners" class="page-btn clear-btn">✕ Сбросить</a>
+      {% endif %}
+    </form>
+
     {% if winners|length == 0 %}
       <article class="card">
-        <div class="empty">Пока нет победителей. Крутаните колесо на <a href="/wheel">/wheel</a>.</div>
+        <div class="empty">
+          {% if search %}
+            Ничего не найдено по запросу «{{ search }}».
+          {% else %}
+            Пока нет победителей. Крутаните колесо на <a href="/wheel">/wheel</a>.
+          {% endif %}
+        </div>
       </article>
     {% endif %}
 
@@ -186,6 +201,12 @@
         </div>
       </div>
     {% endfor %}
+
+    {% include "_pagination.html" with context %}
+
+    <p class="pagination-info">
+      Всего: {{ total }} · Страница {{ page }} из {{ total_pages }}
+    </p>
   </main>
 
   <script>

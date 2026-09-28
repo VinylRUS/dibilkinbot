@@ -14,6 +14,7 @@
       Комьюнити <span class="chevron">▼</span>
     </button>
     <div class="dropdown">
+      <a href="/movienight" {% if active == 'movienight' %}class="active"{% endif %}>Киновечер</a>
       <a href="/wheel" {% if active == 'wheel' %}class="active"{% endif %}>Колесо</a>
       <a href="/winners" {% if active == 'winners' %}class="active"{% endif %}>Победители</a>
       <a href="/watched" {% if active == 'watched' %}class="active"{% endif %}>Бэклог</a>

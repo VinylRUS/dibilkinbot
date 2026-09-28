@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -152,6 +152,57 @@ GUILD_SCHEMA_TEMPLATES = {
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_watched ON {table}(is_watched);
+        CREATE INDEX IF NOT EXISTS idx_{table}_tmdb ON {table}(tmdb_id);
+    """,
+    "collections": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            status TEXT NOT NULL DEFAULT 'active',
+            max_per_user INTEGER NOT NULL DEFAULT 5,
+            started_by INTEGER NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            completed_by INTEGER,
+            cancelled_at TEXT,
+            cancelled_by INTEGER,
+            token TEXT NOT NULL,
+            spin_started_at TEXT,
+            spin_started_by INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
+        CREATE INDEX IF NOT EXISTS idx_{table}_token ON {table}(token);
+    """,
+    "collection_participants": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            username TEXT,
+            display_name TEXT,
+            avatar_url TEXT,
+            joined_at TEXT NOT NULL,
+            is_ready INTEGER DEFAULT 0,
+            ready_at TEXT,
+            kicked_at TEXT,
+            kicked_by INTEGER,
+            UNIQUE(collection_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_collection ON {table}(collection_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_ready ON {table}(collection_id, is_ready);
+    """,
+    "collection_picks": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            watchlist_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            tmdb_id INTEGER,
+            picked_at TEXT NOT NULL,
+            UNIQUE(collection_id, user_discord_id, watchlist_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_collection ON {table}(collection_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(collection_id, user_discord_id);
     """,
 }
 

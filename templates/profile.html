@@ -145,7 +145,14 @@
           setTimeout(() => window.location.reload(), 800);
         } else {
           result.className = 'add-result error';
-          result.textContent = '❌ ' + (data.error || 'Ошибка');
+          // Особый значок для «уже кем-то добавлен»
+          if (data.error_code === 'already_in_other_watchlist') {
+            result.textContent = '⚠️ ' + (data.error || 'Фильм уже добавлен другим участником');
+          } else if (data.error_code === 'already_yours') {
+            result.textContent = 'ℹ️ ' + (data.error || 'Фильм уже в вашем списке');
+          } else {
+            result.textContent = '❌ ' + (data.error || 'Ошибка');
+          }
           result.style.display = 'block';
         }
       } catch (err) {

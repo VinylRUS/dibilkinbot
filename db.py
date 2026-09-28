@@ -986,14 +986,31 @@ async def g_is_watched(guild_id: int, title: str) -> bool:
             return await cur.fetchone() is not None
 
 
-async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0) -> list[tuple]:
+async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search: str | None = None) -> list[tuple]:
+    """Список просмотренных фильмов с пагинацией и опциональным поиском."""
     table = _guild.guild_table(guild_id, "watched")
     async with _connect() as db:
-        async with db.execute(
-            f"SELECT id, title, watched_at, rating FROM {table} ORDER BY watched_at DESC LIMIT ? OFFSET ?",
-            (limit, offset)
-        ) as cur:
+        if search:
+            sql = f"SELECT id, title, watched_at, rating FROM {table} WHERE title LIKE ? ORDER BY watched_at DESC LIMIT ? OFFSET ?"
+            params = (f"%{search}%", limit, offset)
+        else:
+            sql = f"SELECT id, title, watched_at, rating FROM {table} ORDER BY watched_at DESC LIMIT ? OFFSET ?"
+            params = (limit, offset)
+        async with db.execute(sql, params) as cur:
             return await cur.fetchall()
+
+
+async def g_count_watched(guild_id: int, search: str | None = None) -> int:
+    """Подсчитать количество записей в бэклоге (с опциональным поиском)."""
+    table = _guild.guild_table(guild_id, "watched")
+    async with _connect() as db:
+        if search:
+            async with db.execute(f"SELECT COUNT(*) FROM {table} WHERE title LIKE ?", (f"%{search}%",)) as cur:
+                row = await cur.fetchone()
+        else:
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                row = await cur.fetchone()
+        return row[0] if row else 0
 
 
 async def g_delete_watched(guild_id: int, watched_id: int) -> bool:
@@ -1148,16 +1165,29 @@ async def g_delete_winner(guild_id: int, winner_id: int) -> bool:
         return cur.rowcount > 0
 
 
-async def g_get_winners_with_ratings(guild_id: int, limit: int = 50) -> list[dict]:
+async def g_get_winners_with_ratings(guild_id: int, limit: int = 50, offset: int = 0, search: str | None = None) -> list[dict]:
+    """Победители с агрегированными рейтингами + пагинация + поиск."""
     table_w = _guild.guild_table(guild_id, "winners")
     table_r = _guild.guild_table(guild_id, "ratings")
     async with _connect() as db:
-        async with db.execute(
-            f"SELECT w.id, w.lot_name, w.tmdb_id, w.confidence, w.detected_at, w.confirmed_at, "
-            f"  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
-            f"FROM {table_w} w LEFT JOIN {table_r} r ON r.winner_id = w.id "
-            f"GROUP BY w.id ORDER BY w.detected_at DESC LIMIT ?", (limit,)
-        ) as cur:
+        if search:
+            sql = (
+                f"SELECT w.id, w.lot_name, w.tmdb_id, w.confidence, w.detected_at, w.confirmed_at, "
+                f"  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
+                f"FROM {table_w} w LEFT JOIN {table_r} r ON r.winner_id = w.id "
+                f"WHERE w.lot_name LIKE ? "
+                f"GROUP BY w.id ORDER BY w.detected_at DESC LIMIT ? OFFSET ?"
+            )
+            params = (f"%{search}%", limit, offset)
+        else:
+            sql = (
+                f"SELECT w.id, w.lot_name, w.tmdb_id, w.confidence, w.detected_at, w.confirmed_at, "
+                f"  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
+                f"FROM {table_w} w LEFT JOIN {table_r} r ON r.winner_id = w.id "
+                f"GROUP BY w.id ORDER BY w.detected_at DESC LIMIT ? OFFSET ?"
+            )
+            params = (limit, offset)
+        async with db.execute(sql, params) as cur:
             rows = await cur.fetchall()
         return [
             {"id": r[0], "lot_name": r[1], "tmdb_id": r[2], "confidence": r[3],
@@ -1165,6 +1195,19 @@ async def g_get_winners_with_ratings(guild_id: int, limit: int = 50) -> list[dic
              "avg_rating": round(r[6], 1) if r[6] else 0.0, "ratings_count": r[7]}
             for r in rows
         ]
+
+
+async def g_count_winners(guild_id: int, search: str | None = None) -> int:
+    """Подсчёт количества победителей (с опциональным поиском)."""
+    table_w = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        if search:
+            async with db.execute(f"SELECT COUNT(*) FROM {table_w} WHERE lot_name LIKE ?", (f"%{search}%",)) as cur:
+                row = await cur.fetchone()
+        else:
+            async with db.execute(f"SELECT COUNT(*) FROM {table_w}") as cur:
+                row = await cur.fetchone()
+        return row[0] if row else 0
 
 
 # --- g_ratings ---
@@ -1336,18 +1379,343 @@ async def g_recent_activity(guild_id: int, limit: int = 20) -> list[dict]:
     return items[:limit]
 
 
+# --- g_collections (сбор фильмов для киновечера) ---
+
+import secrets as _secrets
+
+
+def _gen_collection_token() -> str:
+    """Случайный 20-символьный токен для ссылки на сбор."""
+    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    return "".join(_secrets.choice(alphabet) for _ in range(20))
+
+
+async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) -> dict:
+    """Запустить новый сбор фильмов. Если уже есть активный — вернуть его (не создавать новый).
+    Возвращает dict с полями: id, status, max_per_user, started_by, started_at, token.
+    """
+    table = _guild.guild_table(guild_id, "collections")
+    async with _connect() as db:
+        # Проверяем активный сбор
+        async with db.execute(
+            f"SELECT id, status, max_per_user, started_by, started_at, token FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            return {
+                "id": row[0], "status": row[1], "max_per_user": row[2],
+                "started_by": row[3], "started_at": row[4], "token": row[5],
+            }
+        # Создаём новый
+        token = _gen_collection_token()
+        now = datetime.utcnow().isoformat()
+        cur = await db.execute(
+            f"INSERT INTO {table} (status, max_per_user, started_by, started_at, token) VALUES ('active', ?, ?, ?, ?)",
+            (max_per_user, started_by, now, token),
+        )
+        await db.commit()
+        return {
+            "id": cur.lastrowid, "status": "active", "max_per_user": max_per_user,
+            "started_by": started_by, "started_at": now, "token": token,
+        }
+
+
+async def g_get_active_collection(guild_id: int) -> dict | None:
+    """Получить активный сбор или None."""
+    table = _guild.guild_table(guild_id, "collections")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, status, max_per_user, started_by, started_at, completed_at, completed_by, cancelled_at, cancelled_by, token, spin_started_at, spin_started_by "
+            f"FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "status": row[1], "max_per_user": row[2],
+            "started_by": row[3], "started_at": row[4], "completed_at": row[5],
+            "completed_by": row[6], "cancelled_at": row[7], "cancelled_by": row[8],
+            "token": row[9], "spin_started_at": row[10], "spin_started_by": row[11],
+        }
+
+
+async def g_get_collection_by_token(guild_id: int, token: str) -> dict | None:
+    """Получить сбор по токену (для /collect/{token} ссылки)."""
+    table = _guild.guild_table(guild_id, "collections")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, status, max_per_user, started_by, started_at, token FROM {table} WHERE token = ? LIMIT 1",
+            (token,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "status": row[1], "max_per_user": row[2],
+            "started_by": row[3], "started_at": row[4], "token": row[5],
+        }
+
+
+async def g_add_collection_participant(
+    guild_id: int, collection_id: int, user_discord_id: int,
+    username: str | None = None, display_name: str | None = None, avatar_url: str | None = None,
+) -> bool:
+    """Добавить участника в сбор. Если уже есть — обновить имя/аватар (не создаёт дубликат).
+    Возвращает True если создан новый, False если уже был.
+    """
+    table = _guild.guild_table(guild_id, "collection_participants")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id FROM {table} WHERE collection_id = ? AND user_discord_id = ? LIMIT 1",
+            (collection_id, user_discord_id)
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            # Обновляем username/display_name/avatar если переданы
+            if username or display_name or avatar_url:
+                await db.execute(
+                    f"UPDATE {table} SET username = COALESCE(?, username), "
+                    f"display_name = COALESCE(?, display_name), "
+                    f"avatar_url = COALESCE(?, avatar_url) "
+                    f"WHERE collection_id = ? AND user_discord_id = ?",
+                    (username, display_name, avatar_url, collection_id, user_discord_id)
+                )
+                await db.commit()
+            return False
+        # Создаём нового участника
+        await db.execute(
+            f"INSERT INTO {table} (collection_id, user_discord_id, username, display_name, avatar_url, joined_at) "
+            f"VALUES (?, ?, ?, ?, ?, ?)",
+            (collection_id, user_discord_id, username, display_name, avatar_url, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return True
+
+
+async def g_list_collection_participants(guild_id: int, collection_id: int) -> list[dict]:
+    """Список участников сбора (включая кикнутых — для истории)."""
+    table = _guild.guild_table(guild_id, "collection_participants")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, user_discord_id, username, display_name, avatar_url, joined_at, is_ready, ready_at, kicked_at, kicked_by "
+            f"FROM {table} WHERE collection_id = ? ORDER BY joined_at ASC",
+            (collection_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "id": r[0], "user_discord_id": r[1], "username": r[2],
+                "display_name": r[3], "avatar_url": r[4], "joined_at": r[5],
+                "is_ready": bool(r[6]), "ready_at": r[7],
+                "kicked_at": r[8], "kicked_by": r[9],
+            }
+            for r in rows
+        ]
+
+
+async def g_set_participant_ready(
+    guild_id: int, collection_id: int, user_discord_id: int, is_ready: bool,
+) -> bool:
+    """Отметить участника готовым/не готовым. Возвращает True если обновлено."""
+    table = _guild.guild_table(guild_id, "collection_participants")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET is_ready = ?, ready_at = ? "
+            f"WHERE collection_id = ? AND user_discord_id = ? AND kicked_at IS NULL",
+            (1 if is_ready else 0, datetime.utcnow().isoformat() if is_ready else None, collection_id, user_discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_kick_collection_participant(
+    guild_id: int, collection_id: int, user_discord_id: int, kicked_by: int,
+) -> bool:
+    """Кикнуть участника (помечает kicked_at + удаляет его picks). Возвращает True если ок."""
+    table_p = _guild.guild_table(guild_id, "collection_participants")
+    table_pick = _guild.guild_table(guild_id, "collection_picks")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table_p} SET kicked_at = ?, kicked_by = ?, is_ready = 0, ready_at = NULL "
+            f"WHERE collection_id = ? AND user_discord_id = ? AND kicked_at IS NULL",
+            (datetime.utcnow().isoformat(), kicked_by, collection_id, user_discord_id),
+        )
+        # Удаляем picks этого юзера
+        await db.execute(
+            f"DELETE FROM {table_pick} WHERE collection_id = ? AND user_discord_id = ?",
+            (collection_id, user_discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_save_collection_picks(
+    guild_id: int, collection_id: int, user_discord_id: int,
+    picks: list[dict],
+) -> int:
+    """Заменить выбор юзера в сборе. picks = list of {watchlist_id, title, tmdb_id}.
+    Возвращает количество сохранённых picks.
+    """
+    table_p = _guild.guild_table(guild_id, "collection_picks")
+    async with _connect() as db:
+        # Удаляем старые picks этого юзера в этом сборе
+        await db.execute(
+            f"DELETE FROM {table_p} WHERE collection_id = ? AND user_discord_id = ?",
+            (collection_id, user_discord_id),
+        )
+        now = datetime.utcnow().isoformat()
+        for pick in picks:
+            await db.execute(
+                f"INSERT INTO {table_p} (collection_id, user_discord_id, watchlist_id, title, tmdb_id, picked_at) "
+                f"VALUES (?, ?, ?, ?, ?, ?)",
+                (collection_id, user_discord_id, pick["watchlist_id"], pick["title"], pick.get("tmdb_id"), now),
+            )
+        await db.commit()
+        return len(picks)
+
+
+async def g_get_user_picks(guild_id: int, collection_id: int, user_discord_id: int) -> list[dict]:
+    """Получить выбор конкретного юзера в сборе (для отображения выбранных чекбоксов)."""
+    table_p = _guild.guild_table(guild_id, "collection_picks")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, watchlist_id, title, tmdb_id, picked_at FROM {table_p} "
+            f"WHERE collection_id = ? AND user_discord_id = ? ORDER BY id",
+            (collection_id, user_discord_id)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {"id": r[0], "watchlist_id": r[1], "title": r[2], "tmdb_id": r[3], "picked_at": r[4]}
+            for r in rows
+        ]
+
+
+async def g_get_all_collection_picks(guild_id: int, collection_id: int) -> list[dict]:
+    """Все picks всех участников сбора — для загрузки в колесо."""
+    table_p = _guild.guild_table(guild_id, "collection_picks")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, user_discord_id, watchlist_id, title, tmdb_id, picked_at FROM {table_p} "
+            f"WHERE collection_id = ? ORDER BY id",
+            (collection_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "id": r[0], "user_discord_id": r[1], "watchlist_id": r[2],
+                "title": r[3], "tmdb_id": r[4], "picked_at": r[5],
+            }
+            for r in rows
+        ]
+
+
+async def g_count_user_picks(guild_id: int, collection_id: int, user_discord_id: int) -> int:
+    """Сколько picks у юзера в сборе."""
+    table_p = _guild.guild_table(guild_id, "collection_picks")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_p} WHERE collection_id = ? AND user_discord_id = ?",
+            (collection_id, user_discord_id)
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+
+async def g_cancel_collection(guild_id: int, collection_id: int, cancelled_by: int) -> bool:
+    """Отменить сбор (статус → cancelled, picks и participants очищаются)."""
+    table_c = _guild.guild_table(guild_id, "collections")
+    table_p = _guild.guild_table(guild_id, "collection_participants")
+    table_pick = _guild.guild_table(guild_id, "collection_picks")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table_c} SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? "
+            f"WHERE id = ? AND status = 'active'",
+            (datetime.utcnow().isoformat(), cancelled_by, collection_id),
+        )
+        # Очищаем picks и participants
+        await db.execute(f"DELETE FROM {table_pick} WHERE collection_id = ?", (collection_id,))
+        await db.execute(f"DELETE FROM {table_p} WHERE collection_id = ?", (collection_id,))
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_complete_collection_spin(
+    guild_id: int, collection_id: int, completed_by: int,
+) -> list[dict]:
+    """Завершить сбор: достать все picks, перемешать, вернуть список для загрузки в колесо.
+    Статус collection → 'completed', spin_started_at заполняется, picks/participants очищаются.
+    Возвращает shuffled список picks (готов для добавления в колесо).
+    """
+    import random
+    table_c = _guild.guild_table(guild_id, "collections")
+    table_p = _guild.guild_table(guild_id, "collection_participants")
+    table_pick = _guild.guild_table(guild_id, "collection_picks")
+    async with _connect() as db:
+        # Достаём все picks
+        async with db.execute(
+            f"SELECT user_discord_id, watchlist_id, title, tmdb_id FROM {table_pick} WHERE collection_id = ? ORDER BY id",
+            (collection_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        picks = [
+            {"user_discord_id": r[0], "watchlist_id": r[1], "title": r[2], "tmdb_id": r[3]}
+            for r in rows
+        ]
+        # Перемешиваем
+        random.shuffle(picks)
+        # Помечаем сбор завершённым со spin_started
+        now = datetime.utcnow().isoformat()
+        await db.execute(
+            f"UPDATE {table_c} SET status = 'completed', completed_at = ?, completed_by = ?, spin_started_at = ?, spin_started_by = ? "
+            f"WHERE id = ? AND status = 'active'",
+            (now, completed_by, now, completed_by, collection_id),
+        )
+        # Очищаем picks и participants (история не сохраняется)
+        await db.execute(f"DELETE FROM {table_pick} WHERE collection_id = ?", (collection_id,))
+        await db.execute(f"DELETE FROM {table_p} WHERE collection_id = ?", (collection_id,))
+        await db.commit()
+        return picks
+
+
 # --- g_watchlist (список желаемого) ---
 
-async def g_add_to_watchlist(guild_id: int, user_discord_id: int, title: str, tmdb_id: int | None = None) -> int:
-    """Добавить фильм в личный список желаемого юзера."""
+async def g_add_to_watchlist(guild_id: int, user_discord_id: int, title: str, tmdb_id: int | None = None) -> tuple[int | None, str | None]:
+    """Добавить фильм в личный список желаемого юзера.
+
+    Проверка дублей: ищем в вишлисте ВСЕХ юзеров этого guild (не только текущего):
+    - Если есть tmdb_id — ищем по tmdb_id
+    - Если tmdb_id None — ищем по lower(title) = lower(new_title)
+    Если найден у ДРУГОГО юзера — НЕ создаём дубликат, возвращаем (None, "already_in_other_watchlist").
+    Если найден у ТЕКУЩЕГО юзера — возвращаем (existing_id, "already_yours").
+    Если не найден — создаём, возвращаем (new_id, None).
+
+    Возвращает кортеж (watchlist_id | None, error_code | None).
+    """
     table = _guild.guild_table(guild_id, "watchlist")
     async with _connect() as db:
+        # Ищем существующую запись у ЛЮБОГО юзера
+        if tmdb_id is not None:
+            sql = f"SELECT id, user_discord_id FROM {table} WHERE tmdb_id = ? AND is_watched = 0 LIMIT 1"
+            params: tuple = (tmdb_id,)
+        else:
+            sql = f"SELECT id, user_discord_id FROM {table} WHERE lower(title) = lower(?) AND is_watched = 0 LIMIT 1"
+            params = (title,)
+        async with db.execute(sql, params) as cur:
+            existing = await cur.fetchone()
+
+        if existing:
+            existing_id, existing_user = existing
+            if existing_user == user_discord_id:
+                return existing_id, "already_yours"
+            return None, "already_in_other_watchlist"
+
+        # Не найден — создаём
         cur = await db.execute(
             f"INSERT INTO {table} (user_discord_id, title, tmdb_id, added_at) VALUES (?, ?, ?, ?)",
             (user_discord_id, title, tmdb_id, datetime.utcnow().isoformat()),
         )
         await db.commit()
-        return cur.lastrowid
+        return cur.lastrowid, None
 
 
 async def g_remove_from_watchlist(guild_id: int, watchlist_id: int, user_discord_id: int) -> bool:
