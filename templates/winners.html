@@ -138,7 +138,7 @@
         <div class="winner-info">
           <div class="winner-name">{{ w.lot_name }}</div>
           <div class="winner-meta">
-            <span class="mono">{{ w.detected_at[:16].replace('T', ' ') }}</span>
+            <span class="mono">{{ format_msk(w.detected_at) }}</span>
             <span class="badge {{ w.confidence }}">{{ w.confidence }}</span>
             {% if w.tmdb_id %}
               <span class="mono">КП#{{ w.tmdb_id }}</span>

@@ -134,6 +134,7 @@ class KinovecherBot(commands.Bot):
             ("WheelCog", WheelCog),
             ("QuotesCog", QuotesCog),
             ("MovieNightCog", MovieNightCog),
+            ("WatchlistCog", WatchlistCog),
             ("FilmNightCog", FilmNightCog),
             ("SettingsCog", SettingsCog),
             ("LinkCog", LinkCog),
@@ -1043,6 +1044,99 @@ class MovieNightCog(commands.Cog):
 
 
 # === COG: FilmNight (сбор фильмов для киновечера) ===
+
+class WatchlistCog(commands.Cog):
+    """Команды для управления личным списком желаемого."""
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    @app_commands.command(name="addfilm", description="Добавить фильм в список желаемого")
+    @app_commands.describe(title="Название фильма")
+    async def addfilm(self, interaction: discord.Interaction, title: str):
+        title = title.strip()
+        if not title:
+            await interaction.response.send_message("Название не может быть пустым.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
+        # Ищем метаданные в Кинопоиске
+        meta = await kp.lookup_movie(title)
+        name = meta["title"] if meta else title
+        tmdb_id = meta["tmdb_id"] if meta else None
+
+        watchlist_id = await db.g_add_to_watchlist(guild_id, interaction.user.id, name, tmdb_id)
+
+        embed = discord.Embed(
+            title="✅ Добавлено в список желаемого",
+            description=f"**{name}**" + (f" ({meta['year']})" if meta and meta.get("year") else ""),
+            color=0xFFB703,
+        )
+        if meta and meta.get("poster_url"):
+            embed.set_thumbnail(url=meta["poster_url"])
+        embed.set_footer(text=f"#{watchlist_id} · /myfilms — ваш список")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="delfilm", description="Удалить фильм из списка желаемого")
+    @app_commands.describe(title="Название фильма (или часть)")
+    async def delfilm(self, interaction: discord.Interaction, title: str):
+        title = title.strip()
+        guild_id = interaction.guild_id or 0
+
+        items = await db.g_list_watchlist(guild_id, interaction.user.id, include_watched=True)
+        # Ищем по частичному совпадению
+        matches = [item for item in items if title.lower() in item[1].lower()]
+
+        if not matches:
+            await interaction.response.send_message(
+                f"«{title}» не найден в вашем списке.",
+                ephemeral=True,
+            )
+            return
+
+        if len(matches) == 1:
+            # Одно совпадение — удаляем
+            await db.g_remove_from_watchlist(guild_id, matches[0][0], interaction.user.id)
+            await interaction.response.send_message(
+                f"✅ «{matches[0][1]}» удалён из списка желаемого.",
+                ephemeral=True,
+            )
+        else:
+            # Несколько — показываем список
+            lines = [f"Найдено {len(matches)} фильмов. Уточните название:"]
+            for i, (w_id, w_title, _, _, _) in enumerate(matches[:10], 1):
+                lines.append(f"{i}. {w_title}")
+            await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    @app_commands.command(name="myfilms", description="Показать ваш список желаемого")
+    async def myfilms(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        items = await db.g_list_watchlist(guild_id, interaction.user.id, include_watched=False)
+
+        if not items:
+            await interaction.response.send_message(
+                "Ваш список желаемого пуст. Используйте /addfilm чтобы добавить.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"📋 Список желаемого ({len(items)})",
+            color=0xFFB703,
+            timestamp=datetime.utcnow(),
+        )
+        lines = []
+        for i, (w_id, title, tmdb_id, added_at, _) in enumerate(items, 1):
+            lines.append(f"{i}. **{title}**")
+        embed.description = "\n".join(lines[:25])
+        if len(items) > 25:
+            embed.set_footer(text=f"Показано 25 из {len(items)}")
+        else:
+            embed.set_footer(text=f"Всего: {len(items)} фильмов")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 class SettingsCog(commands.Cog):
     """Команды настройки."""

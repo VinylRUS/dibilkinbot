@@ -5,6 +5,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Профиль · DeeBeelkin</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .watchlist-add-form {
+      display: flex; gap: 8px; margin-bottom: 14px;
+    }
+    .watchlist-add-form input {
+      flex: 1; padding: 8px 12px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 0.9rem;
+    }
+    .watchlist-add-form input:focus { outline: none; border-color: var(--accent); }
+    .watchlist-add-form button {
+      background: var(--accent); color: var(--accent-text); border: none;
+      padding: 0 16px; border-radius: 6px; cursor: pointer; font-weight: 600;
+      margin: 0; font-size: 0.9rem; white-space: nowrap;
+    }
+    .watchlist-add-form button:hover { background: var(--accent-hover); }
+    .watchlist-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; border-bottom: 1px solid var(--border); gap: 12px;
+    }
+    .watchlist-item:last-child { border-bottom: none; }
+    .watchlist-title { font-weight: 600; color: var(--text); font-size: 0.9rem; flex: 1; }
+    .watchlist-title.watched { color: var(--text-muted); text-decoration: line-through; }
+    .watchlist-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .wl-edit-btn, .wl-del-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-muted); cursor: pointer; padding: 3px 8px;
+      border-radius: 4px; font-size: 0.75rem; margin: 0;
+    }
+    .wl-edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .wl-del-btn { border-color: var(--red); color: var(--red); }
+    .wl-del-btn:hover { background: var(--red); color: #fff; }
+    .wl-title-input {
+      background: var(--bg); border: 1px solid var(--accent); border-radius: 4px;
+      padding: 4px 8px; color: var(--text); font-size: 0.9rem; font-weight: 600;
+      width: 100%; flex: 1;
+    }
+    .add-result { font-size: 0.82rem; margin-bottom: 8px; }
+    .add-result.ok { color: var(--badge-confirmed-text); }
+    .add-result.error { color: var(--red); }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
@@ -34,16 +75,149 @@
         <span class="hint">Telegram</span>
         <span>
           {% if tg_link and tg_link[5] %}
-            <span class="badge confirmed">✓ @{{ tg_link[2] or 'без username' }} (id: {{ tg_link[1] }})</span>
+            <span class="badge confirmed">✓ @{{ tg_link[2] or 'без username' }}</span>
           {% else %}
             <span class="badge unconfirmed">не привязан</span>
           {% endif %}
         </span>
       </div>
+      {% if not (tg_link and tg_link[5]) %}
       <p class="hint" style="margin-top: 14px;">
-        Чтобы привязать Telegram: в Discord используй команду <code>/linktg</code>, получишь код — отправь его боту в Telegram.
+        Привязать Telegram: команда <code>/linktg</code> в Discord → код → отправь боту в TG.
       </p>
+      {% endif %}
+    </article>
+
+    <h2>📋 Список желаемого</h2>
+    <article class="card">
+      <!-- Форма добавления -->
+      <form id="watchlist-add-form" class="watchlist-add-form">
+        <input type="text" id="wl-title-input" placeholder="Название фильма..." autocomplete="off">
+        <button type="submit">+ Добавить</button>
+      </form>
+      <div id="wl-add-result" class="add-result" style="display:none;"></div>
+
+      <!-- Список -->
+      {% if watchlist|length == 0 %}
+        <div class="empty">Список желаемого пуст. Добавьте фильм выше или используйте /addfilm в Discord.</div>
+      {% else %}
+        {% for w_id, title, tmdb_id, added_at, is_watched in watchlist %}
+          <div class="watchlist-item" id="wl-{{ w_id }}">
+            <div class="watchlist-title {{ 'watched' if is_watched else '' }}" id="wl-title-{{ w_id }}">{{ title }}</div>
+            <div class="watchlist-actions">
+              {% if not is_watched %}
+                <button class="wl-edit-btn" onclick="editWatchlistTitle({{ w_id }})" id="wl-edit-{{ w_id }}">✏️</button>
+                <button class="wl-del-btn" onclick="deleteWatchlistItem({{ w_id }})">×</button>
+              {% else %}
+                <span class="badge confirmed" style="font-size:0.72rem;">просмотрен</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% endif %}
     </article>
   </main>
+
+  <script>
+    // === Добавление ===
+    document.getElementById('watchlist-add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('wl-title-input');
+      const result = document.getElementById('wl-add-result');
+      const title = input.value.trim();
+      if (!title) return;
+
+      const btn = e.target.querySelector('button');
+      btn.disabled = true; btn.textContent = '...';
+      result.style.display = 'none';
+
+      const formData = new FormData();
+      formData.append('title', title);
+      try {
+        const r = await fetch('/api/watchlist/add', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          result.className = 'add-result ok';
+          result.textContent = '✓ «' + data.title + '» добавлен';
+          result.style.display = 'block';
+          input.value = '';
+          input.focus();
+          setTimeout(() => window.location.reload(), 800);
+        } else {
+          result.className = 'add-result error';
+          result.textContent = '❌ ' + (data.error || 'Ошибка');
+          result.style.display = 'block';
+        }
+      } catch (err) {
+        result.className = 'add-result error';
+        result.textContent = '❌ ' + err.message;
+        result.style.display = 'block';
+      }
+      btn.disabled = false; btn.textContent = '+ Добавить';
+      input.focus();
+    });
+
+    // === Удаление ===
+    async function deleteWatchlistItem(id) {
+      if (!confirm('Удалить фильм из списка?')) return;
+      try {
+        const r = await fetch(`/api/watchlist/${id}`, { method: 'DELETE' });
+        if (r.ok) {
+          const el = document.getElementById(`wl-${id}`);
+          if (el) el.remove();
+        }
+      } catch (e) { alert('Ошибка: ' + e.message); }
+    }
+
+    // === Редактирование ===
+    function editWatchlistTitle(id) {
+      const titleEl = document.getElementById(`wl-title-${id}`);
+      const editBtn = document.getElementById(`wl-edit-${id}`);
+      const oldTitle = titleEl.textContent;
+      const input = document.createElement('input');
+      input.type = 'text'; input.value = oldTitle;
+      input.className = 'wl-title-input'; input.id = `wl-input-${id}`;
+      titleEl.replaceWith(input);
+      input.focus(); input.select();
+      editBtn.textContent = '💾';
+      editBtn.onclick = () => saveWatchlistTitle(id, oldTitle);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') saveWatchlistTitle(id, oldTitle);
+        if (e.key === 'Escape') cancelWLEdit(id, oldTitle);
+      });
+    }
+
+    async function saveWatchlistTitle(id, oldTitle) {
+      const input = document.getElementById(`wl-input-${id}`);
+      const newTitle = input.value.trim();
+      const editBtn = document.getElementById(`wl-edit-${id}`);
+      if (!newTitle || newTitle === oldTitle) { cancelWLEdit(id, oldTitle); return; }
+      const formData = new FormData();
+      formData.append('title', newTitle);
+      try {
+        const r = await fetch(`/api/watchlist/${id}/edit`, { method: 'POST', body: formData });
+        if (r.ok) {
+          const div = document.createElement('div');
+          div.className = 'watchlist-title'; div.id = `wl-title-${id}`;
+          div.textContent = newTitle;
+          input.replaceWith(div);
+          editBtn.textContent = '✏️';
+          editBtn.onclick = () => editWatchlistTitle(id);
+        } else { cancelWLEdit(id, oldTitle); }
+      } catch (e) { cancelWLEdit(id, oldTitle); }
+    }
+
+    function cancelWLEdit(id, oldTitle) {
+      const input = document.getElementById(`wl-input-${id}`);
+      if (!input) return;
+      const div = document.createElement('div');
+      div.className = 'watchlist-title'; div.id = `wl-title-${id}`;
+      div.textContent = oldTitle;
+      input.replaceWith(div);
+      const editBtn = document.getElementById(`wl-edit-${id}`);
+      editBtn.textContent = '✏️';
+      editBtn.onclick = () => editWatchlistTitle(id);
+    }
+  </script>
 </body>
 </html>
