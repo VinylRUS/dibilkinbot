@@ -39,7 +39,7 @@
 
   <a href="/profile" class="nav-link {% if active == 'profile' %}active{% endif %}">Профиль</a>
 
-  <form method="post" action="/theme" style="display:inline; margin: 0;">
+  <form method="post" action="/theme" class="theme-form">
     <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="theme-toggle">
       {{ '☀️' if theme_from_request(request) == 'dark' else '🌙' }}
     </button>
