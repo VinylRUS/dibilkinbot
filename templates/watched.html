@@ -5,26 +5,163 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Бэклог · DeeBeelkin</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .add-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .add-form input {
+      flex: 1;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .add-form input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .add-form button {
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 0 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin: 0;
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .add-form button:hover { background: var(--accent-hover); }
+    .add-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .add-result {
+      font-size: 0.82rem;
+      margin-top: 6px;
+      margin-bottom: 10px;
+    }
+    .add-result.ok { color: var(--badge-confirmed-text); }
+    .add-result.error { color: var(--red); }
+    .watched-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .watched-card:last-child { border-bottom: none; }
+    .watched-title {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .watched-date {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      margin-top: 2px;
+    }
+    .rating-block { text-align: right; min-width: 80px; }
+    .no-rating { color: var(--text-muted); font-style: italic; font-size: 0.85rem; }
+    .rating-value { font-weight: 700; color: var(--accent); font-size: 1rem; }
+    .rating-label { color: var(--text-muted); font-size: 0.75rem; }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
 
   <main class="container">
     <h2>🎬 Бэклог просмотренных фильмов</h2>
+
+    {% if request.query_params.get('deleted') %}
+      <div class="saved">✓ Запись удалена.</div>
+    {% endif %}
+
+    <!-- Форма добавления -->
+    <form id="add-watched-form" class="add-form">
+      <input type="text" id="movie-title" placeholder="Название фильма..." autocomplete="off">
+      <button type="submit">+ Добавить</button>
+    </form>
+    <div id="add-result" class="add-result" style="display:none;"></div>
+
+    <!-- Список -->
     <article class="card">
-      <table>
-        <tr><th>Название</th><th>Дата</th><th>Оценка</th></tr>
-        {% for title, watched_at, rating in watched %}
-          <tr>
-            <td>{{ title }}</td>
-            <td class="mono">{{ watched_at[:16].replace('T', ' ') }}</td>
-            <td>{{ '⭐' * rating if rating else '—' }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="3" class="empty">Бэклог пуст.</td></tr>
+      {% if watched|length == 0 %}
+        <div class="empty">
+          Бэклог пуст. Добавьте фильм выше или крутаните колесо.
+        </div>
+      {% else %}
+        {% for w_id, title, watched_at, rating in watched %}
+          <div class="watched-card">
+            <div>
+              <div class="watched-title">{{ title }}</div>
+              <div class="watched-date mono">{{ watched_at[:16].replace('T', ' ') }}</div>
+            </div>
+            <div class="rating-block">
+              {% if rating %}
+                <div class="rating-value">⭐ {{ rating }}/10</div>
+                <div class="rating-label">оценка</div>
+              {% else %}
+                <div class="no-rating">без оценки</div>
+              {% endif %}
+            </div>
+            {% if is_admin %}
+              <form method="post" action="/watched/{{ w_id }}/delete" style="margin:0;"
+                    onsubmit="return confirm('Удалить «{{ title }}» из бэклога?');">
+                <button type="submit" style="background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0;font-size:0.8rem;">×</button>
+              </form>
+            {% endif %}
+          </div>
         {% endfor %}
-      </table>
+      {% endif %}
     </article>
   </main>
+
+  <script>
+    document.getElementById('add-watched-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('movie-title');
+      const result = document.getElementById('add-result');
+      const title = input.value.trim();
+      if (!title) return;
+
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = '...';
+      result.style.display = 'none';
+
+      const formData = new FormData();
+      formData.append('title', title);
+
+      try {
+        const r = await fetch('/api/watched/add', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          result.className = 'add-result ok';
+          result.textContent = '✓ «' + title + '» добавлен в бэклог';
+          result.style.display = 'block';
+          input.value = '';
+          setTimeout(() => window.location.reload(), 1000);
+        } else if (r.status === 409) {
+          result.className = 'add-result error';
+          result.textContent = '⚠ «' + title + '» уже в бэклоге';
+          result.style.display = 'block';
+        } else {
+          result.className = 'add-result error';
+          result.textContent = '❌ ' + (data.error || 'Ошибка');
+          result.style.display = 'block';
+        }
+      } catch (err) {
+        result.className = 'add-result error';
+        result.textContent = '❌ Сетевая ошибка: ' + err.message;
+        result.style.display = 'block';
+      }
+      btn.disabled = false;
+      btn.textContent = '+ Добавить';
+    });
+  </script>
 </body>
 </html>

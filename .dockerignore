@@ -1,0 +1,11 @@
+# файлы, которые НЕ должны попасть в образ Docker
+# (разделяемый build context = весь корень репо)
+data/
+__pycache__/
+*.pyc
+.venv/
+.env
+.git/
+.gitignore
+*.log
+*.md

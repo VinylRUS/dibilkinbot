@@ -12,18 +12,84 @@ from discord.ext import commands
 
 import crypto
 import db
-import kinopoisk as tmdb
+import kinopoisk as kp
+from kinopoisk import lookup_by_id
 import telegram
 from config import settings
-from pointauc import PointaucClient, PointaucError
-from pointauc_watcher import LotsWatcher
 from telegram import send_message, tg_escape
 
 log = logging.getLogger("bot")
 
 intents = discord.Intents.default()
-intents.message_content = False
+intents.message_content = True  # нужен для авто-захвата цитат (on_message + реакции)
 intents.guilds = True
+intents.members = True
+intents.reactions = True  # нужен для on_raw_reaction_add (захват цитат реакцией)
+intents.message_content = True  # дублируем для надёжности
+
+
+# === Проверка member сервера ===
+
+async def is_guild_member(discord_id: int) -> tuple[bool, dict | None]:
+    """Проверить, является ли discord_id участником какого-либо сервера с ботом.
+
+    Возвращает (True, member_info_dict) если да, иначе (False, None).
+    member_info содержит: display_name, username, avatar_url, top_role_name, roles.
+    """
+    if not _bot_running:
+        return False, None
+    bot = _get_bot()
+    if bot is None:
+        return False, None
+
+    for guild in bot.guilds:
+        member = guild.get_member(discord_id)
+        if member is None:
+            # нет в кеше — пробуем fetch
+            try:
+                member = await guild.fetch_member(discord_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+        if member is not None:
+            # Собираем информацию о пользователе
+            roles = [r.name for r in member.roles if r.name != "@everyone"]
+            top_role = member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None
+            return True, {
+                "display_name": member.display_name or member.name,
+                "username": str(member),
+                "avatar_url": str(member.display_avatar.url) if member.display_avatar else None,
+                "guild_name": guild.name,
+                "guild_id": guild.id,
+                "roles": roles,
+                "top_role": top_role,
+                "joined_at": member.joined_at.isoformat() if member.joined_at else None,
+                "is_owner": guild.owner_id == discord_id,
+            }
+    return False, None
+
+
+# Глобальные ссылки для доступа из web.py
+_bot_running = False
+_bot_ref = None
+
+
+def _get_bot():
+    return _bot_ref
+
+
+def get_bot_instance():
+    """Публичный accessor для web.py / main.py — возвращает активный bot или None."""
+    return _bot_ref if _bot_running else None
+
+
+def _set_bot(b):
+    global _bot_ref
+    _bot_ref = b
+
+
+def _set_bot_running(running: bool):
+    global _bot_running
+    _bot_running = running
 
 
 # === Токены: приоритет из БД (зашифрованы), fallback на env ===
@@ -33,13 +99,6 @@ async def get_token(key: str, env_value: str | None) -> str | None:
     if raw:
         return crypto.decrypt(raw)
     return env_value
-
-
-async def get_pointauc_client() -> PointaucClient | None:
-    token = await get_token("pointauc_token", settings.pointauc_token)
-    if not token:
-        return None
-    return PointaucClient(token)
 
 
 async def get_tg_config() -> tuple[str | None, str | None]:
@@ -68,14 +127,15 @@ class KinovecherBot(commands.Bot):
             intents=intents,
             help_command=None,
         )
-        self.lots_watcher: LotsWatcher | None = None
+        self._user_cache = {}  # discord_id → last_seen_username (для оптимизации)
 
     async def setup_hook(self) -> None:
         cogs = [
             ("WheelCog", WheelCog),
-            ("WatchedCog", WatchedCog),
             ("QuotesCog", QuotesCog),
             ("MovieNightCog", MovieNightCog),
+            ("FilmNightCog", FilmNightCog),
+            ("SettingsCog", SettingsCog),
             ("LinkCog", LinkCog),
         ]
         for name, cls in cogs:
@@ -94,10 +154,32 @@ class KinovecherBot(commands.Bot):
                 log.info("  /%s", cmd.name)
 
     async def on_ready(self) -> None:
+        _set_bot(self)
+        _set_bot_running(True)
         log.info("Bot logged in as %s (id=%s)", self.user, self.user.id)
         log.info("Bot sees %d guild(s):", len(self.guilds))
         for g in self.guilds:
             log.info("  - '%s' (id=%s)", g.name, g.id)
+
+        # Регистрируем все guilds в БД + создаём недостающие таблицы + апрувим существующие
+        import guild as guild_module
+        for g in self.guilds:
+            try:
+                # auto_approve=True для всех guilds при on_ready — если бот на сервере, значит апрувим
+                is_new = await guild_module.upsert_guild(
+                    g.id, g.name,
+                    icon_url=str(g.icon.url) if g.icon else None,
+                    owner_id=g.owner_id,
+                    member_count=g.member_count,
+                    auto_approve=True,  # ← апрувим все guilds где бот присутствует
+                )
+                await guild_module.init_guild_tables(g.id)
+                if is_new:
+                    log.info("New guild: %s (id=%s) — approved", g.name, g.id)
+                else:
+                    log.info("Existing guild: %s (id=%s) — re-approved", g.name, g.id)
+            except Exception as e:
+                log.error("Failed to register guild %s: %s", g.id, e)
 
         all_cmds = self.tree.get_commands()
         log.info("Tree at on_ready: %d commands", len(all_cmds))
@@ -105,12 +187,6 @@ class KinovecherBot(commands.Bot):
         if not all_cmds:
             log.error("⚠️ Tree is EMPTY at on_ready! Cogs failed to load.")
             return
-
-        # Запуск LotsWatcher'а (один раз)
-        if self.lots_watcher is None:
-            self.lots_watcher = LotsWatcher(on_lot_removed=self._handle_lot_removed)
-            self.lots_watcher.start(get_pointauc_client)
-            log.info("LotsWatcher started")
 
         if not self.guilds:
             log.warning("Bot is in 0 guilds. Cache may be cold — restart in 30s.")
@@ -127,6 +203,10 @@ class KinovecherBot(commands.Bot):
             except Exception as e:
                 log.warning("copy_global_to failed for '%s': %s", guild.name, e)
             try:
+                # Полная очистка старых команд перед синхронизацией
+                # Это нужно когда структура команд изменилась (например /filmnight → /filmnight start)
+                self.tree.clear_commands(guild=guild)
+                self.tree.copy_global_to(guild=guild)
                 synced = await self.tree.sync(guild=guild)
                 names = []
                 for c in synced:
@@ -141,82 +221,455 @@ class KinovecherBot(commands.Bot):
             except Exception as e:
                 log.error("✗ Failed to sync to guild '%s': %s", guild.name, e, exc_info=True)
 
-    async def _handle_lot_removed(self, lot_name: str, lot_id: str | None) -> None:
-        """Callback из LotsWatcher — лот исчез из колеса, потенциально победитель."""
-        log.info("Potential winner: lot_name='%s' lot_id=%s", lot_name, lot_id)
+        # === Проверка новой версии → пост в канал обновлений ===
+        try:
+            from changelog_parser import get_latest_version, get_latest_changelog
+            current_version = get_latest_version("CHANGELOG.md")
+            last_announced = await db.get_setting("last_announced_version")
 
-        # Если уже просмотрен — пропускаем (юзер мог /watched раньше, чем детектился lot_removed)
-        if await db.is_watched(lot_name):
-            log.info("'%s' already watched — skipping winner event", lot_name)
+            if last_announced != current_version:
+                log.info("New version detected: %s (was: %s) — posting update", current_version, last_announced)
+
+                updates_channel_id_str = await db.get_setting("channel_updates_id")
+                if updates_channel_id_str and updates_channel_id_str.isdigit():
+                    channel = self.get_channel(int(updates_channel_id_str))
+                    if channel:
+                        entry = get_latest_changelog("CHANGELOG.md")
+                        embed = discord.Embed(
+                            title=f"🐝 DeeBeelkin обновился до {current_version}!",
+                            color=0xFFB703,
+                            timestamp=datetime.utcnow(),
+                        )
+
+                        if entry and entry.sections:
+                            for section_title, items in entry.sections.items():
+                                emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() else "📋"
+                                text = "\n".join(f"{emoji} {item}" for item in items[:15])
+                                embed.add_field(name=section_title, value=text, inline=False)
+
+                        embed.set_footer(text=f"DeeBeelkin {current_version}")
+                        await channel.send(embed=embed)
+
+                # Сохраняем текущую версию как последнюю объявленную
+                await db.set_setting("last_announced_version", current_version, is_secret=False)
+        except Exception as e:
+            log.warning("Changelog post failed: %s", e)
+
+    async def on_message(self, message: discord.Message) -> None:
+        """Авто-захват цитат: если сообщение в канале #цитатник от человека —
+        сохраняем как цитату, удаляем исходное, постим embed.
+        """
+        # Пропускаем свои сообщения и сообщения других ботов
+        if message.author.bot:
             return
 
-        # Ищем метаданные в кеше (могли быть добавлены через /wheel add)
-        # Поиск в movie_meta по query_title=lot_name
-        cached = await db.get_movie_meta(lot_name)
-        tmdb_id = cached[0] if cached else None
+        # Пропускаем если это не текстовый канал
+        if not message.channel or not message.guild:
+            return
 
-        # Записываем победителя как unconfirmed
-        winner_id = await db.add_winner(lot_id, lot_name, tmdb_id, confidence="unconfirmed")
+        guild_id = message.guild.id
 
-        # Постим в канал #winners (если настроен)
-        winners_channel_id_str = await db.get_setting("channel_winners_id")
-        channel = None
-        if winners_channel_id_str and winners_channel_id_str.isdigit():
-            channel = self.get_channel(int(winners_channel_id_str))
+        # Проверяем что это канал #цитатник
+        quotes_channel_id_str = await db.get_setting("channel_quotes_id")
+        if not quotes_channel_id_str or not quotes_channel_id_str.isdigit():
+            return
+        if message.channel.id != int(quotes_channel_id_str):
+            return
 
-        if channel is not None:
-            embed = await self._build_winner_embed(lot_name, tmdb_id, winner_id, confirmed=False)
-            try:
-                await channel.send(embed=embed)
-            except Exception as e:
-                log.error("Failed to post winner to channel: %s", e)
+        # Пропускаем пустые сообщения (embed-only, attachments)
+        text = message.content.strip()
+        if not text:
+            return
 
-        # TG-кросс-пост победителя (в отдельный чат, если задан)
-        tg_winners_chat = await db.get_setting("tg_winners_chat_id")
-        if tg_winners_chat:
-            await tg_crosspost(
-                f"🎡 <b>Победитель колеса</b> (unconfirmed)\n<b>{tg_escape(lot_name)}</b>",
-                chat_id=tg_winners_chat,
-            )
+        # Сохраняем цитату в БД
+        author_display = message.author.display_name or message.author.name
+        author_avatar = str(message.author.display_avatar.url) if message.author.display_avatar else None
+        message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
 
-    async def _build_winner_embed(self, lot_name: str, tmdb_id: int | None,
-                                   winner_id: int, confirmed: bool) -> discord.Embed:
-        """Построить embed для победителя. Если есть Кинопоиск meta — с постером."""
+        quote_id = await db.g_add_quote(
+            guild_id,
+            author=author_display,
+            author_user_id=message.author.id,
+            text=text,
+            recorded_by=message.author.id,
+            author_avatar_url=author_avatar,
+            message_link=message_link,
+        )
+
+        # Удаляем исходное сообщение
+        try:
+            await message.delete()
+        except (discord.Forbidden, discord.NotFound):
+            pass
+
+        # Постим embed вместо него
         embed = discord.Embed(
-            title=f"🎡 Победитель колеса — {lot_name}",
-            color=0x2ECC71 if confirmed else 0xF39C12,
+            description=f"_{text}_",
+            color=0xFFB703,
             timestamp=datetime.utcnow(),
         )
-        embed.set_footer(text=f"{'✓ confirmed' if confirmed else '⚠️ unconfirmed'} · winner #{winner_id} · используй /watched для подтверждения")
-
-        if tmdb_id:
-            meta = await tmdb.lookup_by_id(tmdb_id)
-            if meta:
-                if meta.get("year"):
-                    embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
-                if meta.get("poster_url"):
-                    embed.set_image(url=meta["poster_url"])
-                if meta.get("tagline"):
-                    embed.description = f"_{meta['tagline']}_"
-                if meta.get("plot"):
-                    plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
-                    embed.add_field(name="Описание", value=plot, inline=False)
-                rating_str = f"⭐ {meta['vote_average']}/10"
-                if meta.get("vote_count"):
-                    rating_str += f" ({meta['vote_count']} голосов)"
-                embed.add_field(name="Рейтинг", value=rating_str, inline=True)
-                if meta.get("genres"):
-                    embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=True)
-                if meta.get("runtime"):
-                    embed.add_field(name="Длительность", value=f"{meta['runtime']} мин", inline=True)
-                if meta.get("imdb_id"):
-                    embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
-                embed.add_field(name="Кинопоиск", value="[Источник](https://kinopoisk.dev/) · *использует kinopoisk.dev API*", inline=False)
+        if author_avatar:
+            embed.set_author(name=author_display, icon_url=author_avatar)
         else:
-            embed.description = f"_{lot_name}_"
-            embed.add_field(name="Кинопоиск", value="Метаданные не найдены — добавь через /wheel add для постера", inline=False)
+            embed.set_author(name=author_display)
+        embed.set_footer(text=f"Записал: {message.author.display_name} · #{quote_id}")
+
+        await message.channel.send(embed=embed)
+
+        # Опциональный TG кросс-пост
+        tg_quotes_enabled = await db.get_setting("tg_crosspost_quotes")
+        if tg_quotes_enabled == "1":
+            tg_text = f"💬 <b>{tg_escape(author_display)}</b>\n\n<i>{tg_escape(text)}</i>"
+            await tg_crosspost(tg_text)
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        """Захват цитат реакцией: если юзер ставит настроенный эмодзи на сообщении
+        в любом канале — бот сохраняет как цитату и постит embed в #цитатник.
+        """
+        # Пропускаем реакции от ботов
+        if payload.user_id == self.user.id:
+            return
+
+        # Получаем настроенный эмодзи (по умолчанию 🗣️)
+        quote_emoji = await db.get_setting("quote_emoji") or "🗣️"
+        emoji_str = str(payload.emoji)
+
+        # Сравниваем (учитываем что Discord может передавать с skin tone и т.д.)
+        if emoji_str != quote_emoji:
+            # Проверяем по имени (для кастомных эмодзи)
+            if hasattr(payload.emoji, 'name') and payload.emoji.name != quote_emoji:
+                return
+            elif not hasattr(payload.emoji, 'name'):
+                return
+
+        # Получаем канал и сообщение
+        channel = self.get_channel(payload.channel_id)
+        if channel is None:
+            return
+
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except (discord.NotFound, discord.Forbidden):
+            return
+
+        # Пропускаем сообщения ботов
+        if message.author.bot:
+            return
+
+        text = message.content.strip()
+        if not text:
+            return  # пустое сообщение (только embed/attachment)
+
+        guild_id = payload.guild_id or 0
+
+        # Проверяем что канал #цитатник настроен
+        quotes_channel_id_str = await db.get_setting("channel_quotes_id")
+        if not quotes_channel_id_str or not quotes_channel_id_str.isdigit():
+            return
+
+        # Если реакция поставлена В канале #цитатник — не дублируем
+        if message.channel.id == int(quotes_channel_id_str):
+            return
+
+        # Сохраняем цитату
+        author_display = message.author.display_name or message.author.name
+        author_avatar = str(message.author.display_avatar.url) if message.author.display_avatar else None
+        message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
+
+        # Проверяем дубликат по message_link
+        existing = await db.g_list_quotes(guild_id, limit=500, search=None)
+        existing_links = {q[7] for q in existing if q[7]}
+        if message_link in existing_links:
+            # Уже сохранена — удаляем реакцию
+            try:
+                await message.remove_reaction(payload.emoji, payload.member or await self.fetch_user(payload.user_id))
+            except (discord.Forbidden, discord.NotFound):
+                pass
+            return
+
+        quote_id = await db.g_add_quote(
+            guild_id,
+            author=author_display,
+            author_user_id=message.author.id,
+            text=text,
+            recorded_by=payload.user_id,  # кто поставил реакцию — тот и "записал"
+            author_avatar_url=author_avatar,
+            message_link=message_link,
+        )
+
+        # Постим embed в #цитатник
+        quotes_channel = self.get_channel(int(quotes_channel_id_str))
+        if quotes_channel:
+            embed = discord.Embed(
+                description=f"_{text}_",
+                color=0xFFB703,
+                timestamp=datetime.utcnow(),
+            )
+            if author_avatar:
+                embed.set_author(name=author_display, icon_url=author_avatar)
+            else:
+                embed.set_author(name=author_display)
+            # Кто поставил реакцию = кто записал
+            reactor = payload.member or await self.fetch_user(payload.user_id)
+            reactor_name = reactor.display_name if reactor else "Неизвестен"
+            embed.set_footer(text=f"Записал: {reactor_name} · #{quote_id}")
+            embed.add_field(name="Источник", value=f"[Перейти]({message_link})", inline=False)
+
+            await quotes_channel.send(embed=embed)
+
+        # TG кросс-пост
+        tg_quotes_enabled = await db.get_setting("tg_crosspost_quotes")
+        if tg_quotes_enabled == "1":
+            tg_text = f"💬 <b>{tg_escape(author_display)}</b>\n\n<i>{tg_escape(text)}</i>"
+            await tg_crosspost(tg_text)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """Вызывается когда бота добавляют на сервер (новый или после кика).
+        Если бот уже был здесь — переапрувливаем автоматически.
+        """
+        log.info("🎉 Bot added to guild: %s (id=%s, members=%d)", guild.name, guild.id, guild.member_count)
+        try:
+            import guild as guild_module
+            # auto_approve=True — если бот уже был на этом сервере, переапрувливаем
+            # (бота могли кикнуть и добавить обратно)
+            is_new = await guild_module.upsert_guild(
+                guild.id, guild.name,
+                icon_url=str(guild.icon.url) if guild.icon else None,
+                owner_id=guild.owner_id,
+                member_count=guild.member_count,
+                auto_approve=True,  # ← всегда апрувим при on_guild_join
+            )
+            await guild_module.init_guild_tables(guild.id)
+            if is_new:
+                log.info("New guild registered: %s (id=%s)", guild.name, guild.id)
+            else:
+                log.info("Re-approved existing guild: %s (id=%s)", guild.name, guild.id)
+        except Exception as e:
+            log.error("Failed to register new guild %s: %s", guild.id, e)
+
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        """Вызывается когда бота удаляют с сервера.
+        НЕ удаляем данные автоматически — админ может сделать это через /guilds.
+        Просто помечаем как не approved.
+        """
+        log.info("Bot removed from guild: %s (id=%s)", guild.name, guild.id)
+        try:
+            import guild as guild_module
+            await guild_module.reject_guild(guild.id)
+            log.info("Guild %s marked as not approved (data preserved)", guild.id)
+        except Exception as e:
+            log.error("Failed to mark guild %s as removed: %s", guild.id, e)
+
+    async def on_wheel_spin_completed(self, winner: dict) -> None:
+        """Вызывается из web.py после завершения спина колеса.
+        Отправляет embed с победителем в Discord-канал #winners (если настроен).
+        Также постит в Telegram с постером и метаданными (если настроен).
+        """
+        log.info("Wheel spin completed, winner: %s", winner)
+
+        # 1. Получаем метаданные (один раз для Discord + Telegram)
+        meta = await self._resolve_winner_meta(winner)
+
+        # 2. Discord пост
+        winners_channel_id_str = await db.get_setting("channel_winners_id")
+        if winners_channel_id_str and winners_channel_id_str.isdigit():
+            channel = self.get_channel(int(winners_channel_id_str))
+            if channel is not None:
+                embed = self._build_winner_embed(winner, meta)
+                try:
+                    await channel.send(embed=embed)
+                except Exception as e:
+                    log.error("Failed to post winner to Discord channel: %s", e)
+            else:
+                log.warning("Winners channel %s not found", winners_channel_id_str)
+        else:
+            log.info("No channel_winners_id set, skipping Discord post")
+
+        # 3. Telegram пост (с постером и метаданными если есть)
+        await self._post_winner_to_telegram(winner, meta)
+
+    async def _resolve_winner_meta(self, winner: dict) -> dict | None:
+        """Получить метаданные фильма из БД/Кинопоиска.
+        Если kp_id есть — lookup_by_id. Если нет — lookup_movie по названию.
+        Возвращает meta dict или None.
+        """
+        from kinopoisk import lookup_by_id, lookup_movie
+
+        kp_id = winner.get("tmdb_id")
+
+        # Если kp_id нет — пробуем найти по названию
+        if not kp_id:
+            log.info("Winner '%s' has no kp_id — trying lookup_movie() by name", winner["name"])
+            meta = await lookup_movie(winner["name"])
+            if meta:
+                kp_id = meta.get("tmdb_id")
+                log.info("Found kp_id=%s for '%s' via lookup_movie", kp_id, winner["name"])
+                # Обновляем запись в wheel_items
+                try:
+                    async with db._connect() as conn:
+                        await conn.execute(
+                            "UPDATE wheel_items SET tmdb_id = ? WHERE id = ?",
+                            (kp_id, winner["id"]),
+                        )
+                        await conn.commit()
+                except Exception as e:
+                    log.warning("Failed to update wheel_items.tmdb_id: %s", e)
+                return meta
+            return None
+
+        # Если kp_id есть — lookup_by_id
+        return await lookup_by_id(kp_id)
+
+    def _build_winner_embed(self, winner: dict, meta: dict | None) -> "discord.Embed":
+        """Построить Discord embed из метаданных.
+        Имя добавившего фильм раскрывается ТОЛЬКО при победе.
+        """
+        embed = discord.Embed(
+            title=f"🎡 Победитель колеса — {winner['name']}",
+            color=0x2ECC71,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text="✓ confirmed · автоматически из веб-панели")
+
+        # Раскрываем кто предложил фильм — только при победе
+        added_by_id = winner.get("added_by")
+        if added_by_id:
+            # Пытаемся найти display_name через Discord
+            guild = None
+            if self.guilds:
+                guild = self.guilds[0]  # первый guild где бот есть
+            if guild:
+                member = guild.get_member(added_by_id)
+                if member:
+                    embed.add_field(name="🎬 Кто предложил", value=member.mention, inline=False)
+                else:
+                    embed.add_field(name="🎬 Кто предложил", value=f"<@{added_by_id}>", inline=False)
+
+        if meta:
+            if meta.get("year"):
+                embed.title = f"🎡 Победитель — {meta['title']} ({meta['year']})"
+            if meta.get("poster_url"):
+                embed.set_image(url=meta["poster_url"])
+            if meta.get("tagline"):
+                embed.description = f"_{meta['tagline']}_"
+            if meta.get("plot"):
+                plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
+                embed.add_field(name="Описание", value=plot, inline=False)
+            rating_str = f"⭐ {meta['vote_average']}/10"
+            if meta.get("vote_count"):
+                rating_str += f" ({meta['vote_count']} голосов)"
+            embed.add_field(name="Рейтинг", value=rating_str, inline=True)
+            if meta.get("genres"):
+                embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=True)
+            if meta.get("imdb_id"):
+                embed.add_field(name="IMDB", value=f"[tt{meta['imdb_id']}](https://www.imdb.com/title/tt{meta['imdb_id']}/)", inline=False)
+            embed.add_field(name="Кинопоиск", value="[Источник](https://kinopoiskapiunofficial.tech/)", inline=False)
+        else:
+            embed.description = f"_{winner['name']}_"
+            embed.add_field(name="Кинопоиск", value="Метаданные не найдены", inline=False)
 
         return embed
+
+    async def _post_winner_to_telegram(self, winner: dict, meta: dict | None) -> None:
+        """Пост победителя в Telegram.
+        Если есть метаданные (постер) → send_photo с HTML caption + кнопкой.
+        Если нет → send_message с простым текстом.
+        Использует tg_winners_chat_id + tg_winners_thread_id (если заданы).
+        Fallback на telegram_chat_id + telegram_thread_id.
+        """
+        # Выбираем чат: приоритет tg_winners_chat_id, потом telegram_chat_id
+        tg_chat = await db.get_setting("tg_winners_chat_id") or await db.get_setting("telegram_chat_id")
+        if not tg_chat:
+            log.info("No Telegram chat configured, skipping TG post")
+            return
+
+        # thread_id: приоритет tg_winners_thread_id, потом telegram_thread_id
+        tg_thread = await db.get_setting("tg_winners_thread_id") or await db.get_setting("telegram_thread_id")
+        tg_thread_id = int(tg_thread) if tg_thread and tg_thread.isdigit() else None
+
+        # Получаем токен
+        from telegram import send_message, send_photo
+        raw_token = await db.get_setting("telegram_token")
+        if raw_token:
+            tg_token = crypto.decrypt(raw_token)
+        else:
+            tg_token = settings.telegram_token
+        if not tg_token:
+            log.info("No Telegram token, skipping TG post")
+            return
+
+        # URL веб-панели для кнопки "Оценить" — дефолт или из настроек
+        panel_url = await db.get_setting("panel_base_url") or "https://dibilkis.bothost.tech"
+        rate_button = None
+        if panel_url:
+            rate_button = {
+                "inline_keyboard": [[
+                    {"text": "📊 Оценить в панели", "url": f"{panel_url.rstrip('/')}/winners"},
+                ]]
+            }
+
+        if meta and meta.get("poster_url"):
+            # Rich post: фото + HTML caption + кнопка
+            title = meta.get("title", winner["name"])
+            year = meta.get("year", "")
+            rating = meta.get("vote_average", 0)
+            votes = meta.get("vote_count", 0)
+            genres = meta.get("genres", [])
+            runtime = meta.get("runtime")
+            plot = meta.get("plot", "")
+            imdb_id = meta.get("imdb_id")
+
+            caption_parts = [
+                "🎡 <b>Победитель колеса!</b>\n",
+                f"🎬 <b>{tg_escape(title)}</b>",
+            ]
+            if year:
+                caption_parts.append(f"({tg_escape(year)})")
+            caption_parts.append("\n")
+
+            if rating:
+                rating_str = f"⭐ <b>{rating}</b>/10"
+                if votes:
+                    rating_str += f" ({votes:,} голосов)"
+                caption_parts.append(rating_str + "\n")
+
+            if genres:
+                caption_parts.append(f"🎭 {tg_escape(', '.join(genres))}\n")
+
+            if runtime:
+                caption_parts.append(f"⏱ {runtime} мин\n")
+
+            if plot:
+                # Обрезаем чтобы уложиться в 1024 символа caption лимита
+                max_plot = 500
+                if len(plot) > max_plot:
+                    plot = plot[:max_plot].rstrip() + "…"
+                caption_parts.append(f"\n{tg_escape(plot)}\n")
+
+            caption_parts.append(f"\n📺 <a href=\"https://kinopoisk.ru/film/{meta.get('tmdb_id', '')}/\">Кинопоиск</a>")
+            if imdb_id:
+                caption_parts.append(f" · <a href=\"https://www.imdb.com/title/tt{imdb_id}/\">IMDb</a>")
+
+            caption = "".join(caption_parts)
+
+            log.info("Posting winner to TG (photo+caption, %d chars)", len(caption))
+            await send_photo(
+                tg_token, tg_chat, meta["poster_url"], caption,
+                thread_id=tg_thread_id, reply_markup=rate_button,
+            )
+        else:
+            # Fallback: простой текст без постера
+            text = (
+                f"🎡 <b>Победитель колеса!</b>\n\n"
+                f"🎬 <b>{tg_escape(winner['name'])}</b>\n"
+                f"<i>Метаданные не найдены</i>"
+            )
+            log.info("Posting winner to TG (text only, no poster)")
+            await send_message(
+                tg_token, tg_chat, text,
+                thread_id=tg_thread_id,
+            )
+
 
 
 # === COG: Wheel ===
@@ -225,9 +678,9 @@ class WheelCog(commands.Cog):
     def __init__(self, bot: KinovecherBot):
         self.bot = bot
 
-    wheel = app_commands.Group(name="wheel", description="Колесо фильмов (Pointauc)")
+    wheel = app_commands.Group(name="wheel", description="Колесо фильмов")
 
-    @wheel.command(name="add", description="Добавить фильм в колесо Pointauc + метаданные из Кинопоиска")
+    @wheel.command(name="add", description="Добавить фильм в колесо + метаданные из Кинопоиска")
     @app_commands.describe(title="Название фильма (русское или оригинальное)")
     async def wheel_add(self, interaction: discord.Interaction, title: str):
         title = title.strip()
@@ -235,35 +688,62 @@ class WheelCog(commands.Cog):
             await interaction.response.send_message("Название не может быть пустым.", ephemeral=True)
             return
 
-        if await db.is_watched(title):
+        guild_id = interaction.guild_id or 0
+
+        # Убеждаемся что таблицы существуют (включая filmnights)
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
+        # Проверяем есть ли активный сбор фильмов (filmnight)
+        try:
+            filmnight = await db.g_get_active_filmnight(guild_id)
+        except Exception as e:
+            log.error("Failed to check filmnight: %s", e)
+            filmnight = None
+        if not filmnight:
+            await interaction.response.send_message(
+                "❌ Нет активного набора фильмов в колесо.\n"
+                "Используйте `/filmnight start` чтобы начать сбор.",
+                ephemeral=True,
+            )
+            return
+
+        # Проверяем лимит фильмов от одного юзера
+        user_count = await db.g_count_user_wheel_items(guild_id, interaction.user.id)
+        if user_count >= filmnight["max_per_user"]:
+            await interaction.response.send_message(
+                f"❌ Вы уже добавили {user_count} фильм(ов) из {filmnight['max_per_user']} разрешённых.\n"
+                f"Дождитесь начала спина или попросите админа увеличить лимит.",
+                ephemeral=True,
+            )
+            return
+
+        if await db.g_is_watched(guild_id, title):
             await interaction.response.send_message(
                 f"«{title}» уже просмотрен — его нельзя вернуть в колесо.",
                 ephemeral=True,
             )
             return
 
-        client = await get_pointauc_client()
-        if client is None:
-            await interaction.response.send_message(
-                "❌ Pointauc token не настроен. Укажите его в веб-панели.",
-                ephemeral=True,
-            )
-            return
-
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        # Параллельно: добавляем в Pointauc + ищем метаданные в Кинопоиске
-        pointauc_task = asyncio.create_task(client.add_bid(title, cost=0))
-        tmdb_task = asyncio.create_task(tmdb.lookup_movie(title))
+        # Ищем метаданные в Кинопоиске
+        meta = await kp.lookup_movie(title)
 
+        # Если нашли метаданные — используем локализованный title для колеса
+        name_for_wheel = meta["title"] if meta else title
+        tmdb_id = meta["tmdb_id"] if meta else None
+
+        # Добавляем в локальную БД
+        item_id = await db.g_add_wheel_item(guild_id, name_for_wheel, tmdb_id, interaction.user.id)
+
+        # Broadcast через WebSocket (если кто-то смотрит /wheel страницу)
         try:
-            bid_ids = await pointauc_task
-        except PointaucError as e:
-            tmdb_task.cancel()
-            await interaction.followup.send(f"⚠️ Pointauc error: {e}", ephemeral=True)
-            return
-
-        meta = await tmdb_task
+            import ws_manager
+            items = await db.g_list_wheel_items(guild_id, active_only=True)
+            await ws_manager.broadcast_wheel_updated(items)
+        except Exception as e:
+            log.debug("WS broadcast failed: %s", e)
 
         # Строим ответ с метаданными если есть
         if meta:
@@ -285,113 +765,62 @@ class WheelCog(commands.Cog):
                 embed.add_field(name="Описание", value=plot, inline=False)
             if meta.get("poster_url"):
                 embed.set_thumbnail(url=meta["poster_url"])
-            embed.set_footer(text=f"Pointauc bid: {bid_ids[0] if bid_ids else '—'} · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoisk.dev API*")
+            embed.set_footer(text=f"Веб-панель: /wheel · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoiskapiunofficial.tech*")
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(
-                f"✅ «{title}» добавлен в колесо.\nBid ID: `{bid_ids[0] if bid_ids else '—'}`\n"
-                "_Кинопоиск метаданные недоступны — задайте токен в панели, либо фильм не найден._",
+                f"✅ «{title}» добавлен в колесо.\n"
+                "_Кинопоиск метаданные недоступны — задайте токен в панели, либо фильм не найден._\n"
+                "Открыть колесо: /wheel в веб-панели",
                 ephemeral=True,
             )
 
-    @wheel.command(name="list", description="Показать текущие пункты колеса (Pointauc)")
+    @wheel.command(name="list", description="Показать текущие пункты колеса")
     async def wheel_list(self, interaction: discord.Interaction):
-        # Если LotsWatcher активен — отдаём из кеша (быстро)
-        if self.bot.lots_watcher and self.bot.lots_watcher.get_known_lots():
-            lots = self.bot.lots_watcher.get_known_lots()
-            lines = [f"**Колесо Pointauc** ({len(lots)} шт., из кеша):"]
-            for i, (lot_id, name) in enumerate(lots.items(), 1):
-                lines.append(f"{i}. **{name}**")
-            text = "\n".join(lines)
-            if len(text) > 1900:
-                text = text[:1900] + "\n... (обрезано)"
-            await interaction.response.send_message(text, ephemeral=True)
-            return
-
-        # Fallback: прямой запрос
-        client = await get_pointauc_client()
-        if client is None:
+        guild_id = interaction.guild_id or 0
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
+        if not items:
             await interaction.response.send_message(
-                "❌ Pointauc token не настроен в веб-панели.",
+                "Колесо пустое. Добавь через `/wheel add <название>` или через веб-панель /wheel",
                 ephemeral=True,
             )
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            lots = await client.list_lots()
-        except PointaucError as e:
-            await interaction.followup.send(f"⚠️ Pointauc error: {e}", ephemeral=True)
-            return
-
-        if not lots:
-            await interaction.followup.send("Колесо пустое.", ephemeral=True)
-            return
-
-        lines = [f"**Колесо Pointauc** ({len(lots)} шт.):"]
-        for i, lot in enumerate(lots, 1):
-            name = lot.get("name") or lot.get("Name") or "—"
-            amount = lot.get("amount") or lot.get("Amount") or 0
-            lines.append(f"{i}. **{name}** — сумма: {amount}")
-
+        lines = [f"**Колесо** ({len(items)} шт.):"]
+        for i, item in enumerate(items, 1):
+            lines.append(f"{i}. **{item['name']}**")
         text = "\n".join(lines)
         if len(text) > 1900:
             text = text[:1900] + "\n... (обрезано)"
-        await interaction.followup.send(text, ephemeral=True)
+        await interaction.response.send_message(
+            text + "\n\nКрутить: /wheel в веб-панели",
+            ephemeral=True,
+        )
 
-
-# === COG: Watched ===
-
-class WatchedCog(commands.Cog):
-    def __init__(self, bot: KinovecherBot):
-        self.bot = bot
-
-    @app_commands.command(name="watched", description="Подтвердить просмотр фильма + пост в TG-бэклог")
-    @app_commands.describe(
-        title="Название фильма (точно как в колесе)",
-        rating="Оценка 1-10 (опционально)",
-    )
-    async def watched(self, interaction: discord.Interaction, title: str, rating: int | None = None):
-        title = title.strip()
-        if rating is not None and not (1 <= rating <= 10):
-            await interaction.response.send_message("Оценка должна быть 1-10.", ephemeral=True)
-            return
-
-        added = await db.add_watched(title, rating, interaction.user.id)
-        if not added:
+    @wheel.command(name="remove", description="Удалить фильм из колеса (по номеру из /wheel list)")
+    @app_commands.describe(number="Номер фильма в списке /wheel list")
+    async def wheel_remove(self, interaction: discord.Interaction, number: int):
+        guild_id = interaction.guild_id or 0
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
+        if number < 1 or number > len(items):
             await interaction.response.send_message(
-                f"«{title}» уже помечен просмотренным ранее.",
+                f"Номер должен быть от 1 до {len(items)}",
                 ephemeral=True,
             )
             return
-
-        # Авто-подтверждение недавних unconfirmed победителей (за последние 30 мин)
-        recent_unconfirmed = await db.get_recent_unconfirmed_winners(minutes=30)
-        confirmed_winner = None
-        for w_id, lot_name, tmdb_id in recent_unconfirmed:
-            if lot_name.lower() == title.lower():
-                await db.confirm_winner(w_id, interaction.user.id)
-                confirmed_winner = (w_id, lot_name, tmdb_id)
-                break
-
-        # TG-бэклог
-        stars = "⭐" * rating if rating else "—"
-        tg_text = (
-            f"🎬 <b>{tg_escape(title)}</b>\n"
-            f"Дата: {datetime.utcnow().strftime('%Y-%m-%d')}\n"
-            f"Оценка: {stars}"
+        item = items[number - 1]
+        await db.g_remove_wheel_item(guild_id, item["id"])
+        await db.g_reassign_colors(guild_id)
+        try:
+            import ws_manager
+            updated = await db.g_list_wheel_items(guild_id, active_only=True)
+            await ws_manager.broadcast_wheel_updated(updated)
+        except Exception:
+            pass
+        await interaction.response.send_message(
+            f"✅ «{item['name']}» удалён из колеса.",
+            ephemeral=True,
         )
-        await tg_crosspost(tg_text)
-
-        # Discord ответ
-        msg = (
-            f"✅ «{title}» добавлен в бэклог просмотренного. "
-            f"{'Оценка: ' + stars if rating else 'Без оценки.'}"
-        )
-        if confirmed_winner:
-            msg += f"\n\n✓ Подтверждён победитель колеса #{confirmed_winner[0]}."
-        await interaction.response.send_message(msg, ephemeral=False)
-
 
 # === COG: Quotes ===
 
@@ -421,9 +850,11 @@ class QuotesCog(commands.Cog):
             await interaction.response.send_message("❌ Канал #цитатник недоступен боту.", ephemeral=True)
             return
 
+        # Парсинг автора: @mention или plain text
         author_display = author
         author_user_id = None
         author_member = None
+        author_avatar_url = None
         if author.startswith("<@") and author.endswith(">"):
             try:
                 author_user_id = int(author.strip("<@!>"))
@@ -432,26 +863,48 @@ class QuotesCog(commands.Cog):
 
             if author_user_id is not None and interaction.guild is not None:
                 author_member = interaction.guild.get_member(author_user_id)
-                if author_member is not None:
-                    author_display = author_member.display_name
-                else:
+                if author_member is None:
                     try:
                         author_member = await interaction.guild.fetch_member(author_user_id)
-                        author_display = author_member.display_name
                     except (discord.NotFound, discord.Forbidden):
-                        author_display = f"User {author_user_id}"
+                        pass
+                if author_member is not None:
+                    author_display = author_member.display_name
+                    author_avatar_url = str(author_member.display_avatar.url) if author_member.display_avatar else None
 
-        quote_id = await db.add_quote(author_display, author_user_id, text, interaction.user.id)
+        # Ссылка на исходное сообщение (если команда вызвана из канала)
+        message_link = None
+        if interaction.channel and interaction.guild:
+            message_link = f"https://discord.com/channels/{interaction.guild.id}/{interaction.channel.id}/{interaction.id}"
 
+        # Сохраняем в БД с аватаром и ссылкой
+        guild_id = interaction.guild_id or 0
+        quote_id = await db.g_add_quote(
+            guild_id, author_display, author_user_id, text,
+            interaction.user.id, author_avatar_url, message_link,
+        )
+
+        # Стильный embed: цветная полоска слева, аватар автора, упоминание автора, footer
         embed = discord.Embed(
             description=f"_{text}_",
-            color=0xF1C40F,
+            color=0xFFB703,  # медовый, вписывается в общий стиль
             timestamp=datetime.utcnow(),
         )
-        embed.set_author(name=author_display)
+        # set_author с аватаром
+        if author_avatar_url:
+            embed.set_author(name=author_display, icon_url=author_avatar_url)
+        else:
+            embed.set_author(name=author_display)
+
+        # Поле "Автор" с упоминанием (если это был @mention)
         if author_member is not None:
             embed.add_field(name="Автор", value=author_member.mention, inline=True)
-        embed.set_footer(text=f"Записал: {interaction.user.display_name} · #{quote_id}")
+
+        # Footer с записавшим
+        embed.set_footer(
+            text=f"Записал: {interaction.user.display_name} · #{quote_id}",
+            icon_url=str(interaction.user.display_avatar.url) if interaction.user.display_avatar else None,
+        )
 
         await channel.send(embed=embed)
         await interaction.response.send_message(
@@ -459,6 +912,7 @@ class QuotesCog(commands.Cog):
             ephemeral=True,
         )
 
+        # Опциональный TG кросс-пост
         tg_quotes_enabled = await db.get_setting("tg_crosspost_quotes")
         if tg_quotes_enabled == "1":
             tg_text = f"💬 <b>{tg_escape(author_display)}</b>\n\n<i>{tg_escape(text)}</i>"
@@ -508,7 +962,7 @@ class MovieNightCog(commands.Cog):
             try:
                 event = await guild.create_scheduled_event(
                     name=description or "Киновечер",
-                    description=description or "Собираемся смотреть фильм с колеса Pointauc.",
+                    description=description or "Собираемся смотреть фильм с колеса.",
                     start_time=dt,
                     entity_type=discord.EntityType.external,
                     location="Discord voice channel",
@@ -517,11 +971,10 @@ class MovieNightCog(commands.Cog):
             except Exception as e:
                 log.warning("Failed to create scheduled event: %s", e)
 
-        await db.add_movie_night(
-            title=description,
-            scheduled_at=dt,
-            created_by=interaction.user.id,
-            event_id=event.id if event else None,
+        guild_id = interaction.guild_id or 0
+        await db.g_add_movie_night(
+            guild_id, description, dt, interaction.user.id,
+            event.id if event else None,
         )
 
         announce_channel = None
@@ -533,7 +986,7 @@ class MovieNightCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"🎬 Киновечер — {dt.strftime('%d.%m.%Y %H:%M UTC')}",
-            description=description or "Смотрим фильм с колеса Pointauc.",
+            description=description or "Смотрим фильм с колеса.",
             color=0xE74C3C,
             timestamp=datetime.utcnow(),
         )
@@ -560,6 +1013,192 @@ class MovieNightCog(commands.Cog):
                 f"{tg_escape(description) if description else ''}"
             )
             await tg_crosspost(tg_text)
+
+
+# === COG: FilmNight (сбор фильмов для киновечера) ===
+
+class SettingsCog(commands.Cog):
+    """Команды настройки."""
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    @app_commands.command(name="setquoteemoji", description="Установить эмодзи для захвата цитат реакцией")
+    @app_commands.describe(emoji="Эмодзи (например 🗣️, 💬, ⭐, или любой другой)")
+    async def setquoteemoji(self, interaction: discord.Interaction, emoji: str):
+        emoji = emoji.strip()
+        if not emoji:
+            await interaction.response.send_message("Эмодзи не может быть пустым.", ephemeral=True)
+            return
+
+        # Сохраняем в БД (глобальная настройка)
+        await db.set_setting("quote_emoji", emoji, is_secret=False)
+
+        await interaction.response.send_message(
+            f"✅ Эмодзи для захвата цитат установлен: {emoji}\n\n"
+            f"Теперь любой участник может поставить {emoji} на сообщение в любом канале — "
+            f"бот сохранит его как цитату и постит embed в #цитатник.",
+            ephemeral=False,
+        )
+
+    @app_commands.command(name="changelog", description="Показать последнюю версию и что нового")
+    async def changelog(self, interaction: discord.Interaction):
+        from changelog_parser import get_latest_version, get_latest_changelog
+
+        version = get_latest_version("CHANGELOG.md")
+        entry = get_latest_changelog("CHANGELOG.md")
+
+        embed = discord.Embed(
+            title=f"🐝 DeeBeelkin {version}",
+            color=0xFFB703,
+            timestamp=datetime.utcnow(),
+        )
+
+        if entry and entry.sections:
+            for section_title, items in entry.sections.items():
+                emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() else "📋"
+                # Ограничиваем длину — Discord embed field max 1024
+                text = "\n".join(f"{emoji} {item}" for item in items[:10])
+                if len(text) > 1000:
+                    text = text[:1000] + "…"
+                embed.add_field(name=section_title, value=text, inline=False)
+        else:
+            embed.description = "Changelog не найден."
+
+        embed.set_footer(text=f"DeeBeelkin {version}")
+        await interaction.response.send_message(embed=embed, ephemeral=False)
+
+
+# === COG: FilmNight (сбор фильмов для киновечера) ===
+
+class FilmNightCog(commands.Cog):
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    filmnight = app_commands.Group(name="filmnight", description="Сбор фильмов для киновечера")
+
+    @filmnight.command(name="start", description="Начать сбор фильмов для киновечера")
+    @app_commands.describe(
+        max_per_user="Сколько фильмов может добавить один участник (по умолчанию 3)",
+    )
+    async def filmnight_start(self, interaction: discord.Interaction, max_per_user: int = 3):
+        if max_per_user < 1:
+            max_per_user = 1
+        if max_per_user > 20:
+            max_per_user = 20
+
+        guild_id = interaction.guild_id or 0
+
+        # Убеждаемся что таблицы существуют
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
+        # Проверяем нет ли уже активного сбора
+        existing = await db.g_get_active_filmnight(guild_id)
+        if existing:
+            wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+            unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
+            embed = discord.Embed(
+                title="🎬 Сбор фильмов уже активен!",
+                description=(
+                    f"Лимит: **{existing['max_per_user']}** фильмов на участника\n"
+                    f"Уже предложено: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n\n"
+                    f"Добавляйте через `/wheel add <название>`\n"
+                    f"Сбор завершится автоматически при первом спине.\n"
+                    f"Или используйте `/filmnight end` для ручного завершения."
+                ),
+                color=0xFFB703,
+                timestamp=datetime.utcnow(),
+            )
+            embed.set_footer(text=f"Сбор начал: <@{existing['started_by']}>")
+            await interaction.response.send_message(embed=embed)
+            return
+
+        # Запускаем новый сбор
+        fn_id = await db.g_start_filmnight(guild_id, interaction.user.id, max_per_user)
+        embed = discord.Embed(
+            title="🎬 Сбор фильмов начат!",
+            description=(
+                f"Лимит: **{max_per_user}** фильмов на участника\n\n"
+                f"Используйте `/wheel add <название>` чтобы предложить фильм.\n"
+                f"Крутить колесо может кто угодно — откройте веб-панель → /wheel.\n\n"
+                f"Сбор завершится автоматически при первом спине.\n"
+                f"Или используйте `/filmnight end` для ручного завершения."
+            ),
+            color=0x2ECC71,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text=f"Запустил: {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
+
+    @filmnight.command(name="end", description="Завершить активный сбор фильмов")
+    async def filmnight_end(self, interaction: discord.Interaction):
+        """Завершить активный сбор. Любой участник может завершить."""
+        guild_id = interaction.guild_id or 0
+
+        # Убеждаемся что таблицы существуют
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
+        existing = await db.g_get_active_filmnight(guild_id)
+        if not existing:
+            await interaction.response.send_message(
+                "❌ Нет активного сбора фильмов.\n"
+                "Используйте `/filmnight start` чтобы начать новый сбор.",
+                ephemeral=True,
+            )
+            return
+
+        # Завершаем
+        wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+        unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
+        completed = await db.g_complete_filmnight(guild_id, interaction.user.id)
+
+        embed = discord.Embed(
+            title="✅ Сбор фильмов завершён!",
+            description=(
+                f"Собрано: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n\n"
+                f"Откройте веб-панель → /wheel чтобы крутить колесо."
+            ),
+            color=0x2ECC71,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text=f"Завершил: {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
+
+    @filmnight.command(name="status", description="Показать статус активного сбора")
+    async def filmnight_status(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+
+        # Убеждаемся что таблицы существуют
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+
+        existing = await db.g_get_active_filmnight(guild_id)
+        if not existing:
+            await interaction.response.send_message(
+                "❌ Нет активного сбора фильмов.\n"
+                "Используйте `/filmnight start` чтобы начать.",
+                ephemeral=True,
+            )
+            return
+
+        wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+        unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
+
+        embed = discord.Embed(
+            title="🎬 Статус сбора фильмов",
+            description=(
+                f"Лимит: **{existing['max_per_user']}** фильмов на участника\n"
+                f"Предложено: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n"
+                f"Начат: <@{existing['started_by']}>\n\n"
+                f"Добавляйте через `/wheel add <название>`\n"
+                f"Завершить: `/filmnight end`\n"
+                f"Крутить: веб-панель → /wheel"
+            ),
+            color=0xFFB703,
+            timestamp=datetime.utcnow(),
+        )
+        await interaction.response.send_message(embed=embed)
 
 
 # === COG: TG Link ===

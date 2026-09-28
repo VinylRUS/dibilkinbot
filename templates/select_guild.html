@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Выбор сервера · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .guild-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 32px;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: var(--shadow);
+    }
+    h1 {
+      margin: 0 0 24px 0;
+      font-size: 1.4rem;
+      color: var(--accent);
+      text-align: center;
+    }
+    .guild-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+    .guild-item:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .guild-item.current {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .guild-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--accent-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+    .guild-icon img {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .guild-info { flex: 1; }
+    .guild-name {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 1rem;
+    }
+    .guild-meta {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      margin-top: 2px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      margin-left: 6px;
+    }
+    .badge.current {
+      background: var(--accent);
+      color: var(--accent-text);
+    }
+    .badge.pending {
+      background: var(--badge-unconfirmed-bg);
+      color: var(--badge-unconfirmed-text);
+    }
+    .error {
+      background: var(--badge-unconfirmed-bg);
+      color: var(--red);
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 0.88rem;
+    }
+    .empty {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 40px 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="guild-card">
+    <h1>🐝 Выбор сервера</h1>
+
+    {% if request.query_params.get('error') == 'no_access' %}
+      <div class="error">❌ У вас нет доступа к этому серверу.</div>
+    {% endif %}
+
+    {% if guilds|length == 0 %}
+      <div class="empty">
+        У вас пока нет доступных серверов.<br><br>
+        {% if user.is_admin %}
+          Админ может добавить серверы на <a href="/guilds">/guilds</a> странице.
+        {% else %}
+          Попросите админа добавить ваш сервер.
+        {% endif %}
+      </div>
+    {% else %}
+      <form method="post" action="/select_guild">
+        {% for g in guilds %}
+          <button type="submit" name="guild_id" value="{{ g.guild_id }}"
+                  class="guild-item {{ 'current' if g.guild_id == current_guild_id else '' }}"
+                  style="border:none; background: var(--card); width:100%; text-align:left;">
+            <div class="guild-icon">
+              {% if g.icon_url %}
+                <img src="{{ g.icon_url }}" alt="">
+              {% else %}
+                {{ g.name[0]|upper if g.name else '?' }}
+              {% endif %}
+            </div>
+            <div class="guild-info">
+              <div class="guild-name">
+                {{ g.name }}
+                {% if g.guild_id == current_guild_id %}
+                  <span class="badge current">текущий</span>
+                {% endif %}
+                {% if not g.approved %}
+                  <span class="badge pending">pending</span>
+                {% endif %}
+              </div>
+              <div class="guild-meta">
+                {{ g.member_count }} участников
+                {% if g.guild_id == 0 %} · default{% endif %}
+              </div>
+            </div>
+          </button>
+        {% endfor %}
+      </form>
+    {% endif %}
+
+    <p style="text-align:center; margin-top:24px;">
+      <a href="/" style="color: var(--text-muted); text-decoration:none; font-size:0.85rem;">← Назад в панель</a>
+    </p>
+  </div>
+</body>
+</html>

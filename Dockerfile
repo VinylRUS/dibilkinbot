@@ -1,42 +1,30 @@
-# Dockerfile для BotHost Pro.
-# Согласно документации BotHost (https://bothost.ru/docs/custom-dockerfile.md,
-# https://bothost.ru/docs/database-storage.md), Python совместим с bind-mount на /app
-# без изменений — исходники запускаются напрямую.
-#
-# Структура при работе на BotHost:
-#   /app/           ← BotHost bind-mount'ит сюда Git source при старте контейнера
-#   /app/data/      ← персистентный volume, BotHost НЕ затирает при git-push
-#   /app/data/bot.db ← SQLite, переживает редеплой
-#
-# Локальная разработка: образ просто использует код из build context.
+# Dockerfile для BotHost Pro — оптимизированный с uv.
+# uv в 10-100x быстрее pip для установки пакетов.
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
+# Минимальные системные пакеты (build-essential для cryptography)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем зависимости (это не зависит от bind-mount — venv в /opt)
+# Устанавливаем uv (быстрый пакетный менеджер)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# === СЛОЙ ЗАВИСИМОСТЕЙ (кешится — не пересобирается при git-push) ===
 COPY requirements.txt /tmp/requirements.txt
-RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt \
+RUN uv venv /opt/venv \
+    && VIRTUAL_ENV=/opt/venv uv pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
-# Создаём персистентную папку BotHost (если ещё не создана) с правами на запись
+# === СЛОЙ КОДА (пересобирается при git-push) ===
 RUN mkdir -p /app/data && chmod 777 /app/data
-
-# Копируем код. На BotHost это перетрётся bind-mount'ом Git source — это нормально.
-# Локально (без bind-mount) код будет жить в /app/.
 WORKDIR /app
 COPY . /app/
 
 ENV DATABASE_PATH=/app/data/bot.db
 ENV PYTHONUNBUFFERED=1
-
-# ВАЖНО: используем прямой путь к python из venv — надёжнее чем PATH на BotHost.
-# (BotHost иногда перезаписывает PATH при деплое, и CMD ["python", ...] находит системный python без uvicorn.)
-ENV VENV_PYTHON=/opt/venv/bin/python
+ENV PATH="/opt/venv/bin:$PATH"
 
 EXPOSE 8000
-
 CMD ["/opt/venv/bin/python", "main.py"]

@@ -22,12 +22,16 @@
           <label>{{ label }}</label>
           <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="ID (число)">
           <p class="hint">
+            {% if key == 'panel_base_url' %}URL вашей веб-панели (например https://your-bot.bothost.tech). Используется для inline-кнопок в Telegram. Без него кнопка "Оценить" не появится.{% endif %}
             {% if key == 'channel_quotes_id' %}ПКМ по каналу в Discord (режим разработчика) → Копировать ID{% endif %}
             {% if key == 'channel_announce_id' %}Канал, куда бот постит embed'ы анонсов.{% endif %}
             {% if key == 'channel_winners_id' %}Куда бот постит победителей колеса с постером.{% endif %}
+            {% if key == 'channel_updates_id' %}Канал куда бот постит анонсы обновлений при новой версии. Создай закрытый канал для этого.{% endif %}
             {% if key == 'role_movie_ping_id' %}ПКМ по роли → Копировать ID.{% endif %}
             {% if key == 'telegram_chat_id' %}Числовой ID чата (например, -1001234567890). Узнать: @userinfobot.{% endif %}
-            {% if key == 'tg_winners_chat_id' %}Отдельный TG-чат для победителей (опционально).{% endif %}
+            {% if key == 'telegram_thread_id' %}ID темы в форуме TG. Создайте тему в группе, перешлите любое сообщение из неё боту — он сохранит thread_id. Оставьте пустым для General topic.{% endif %}
+            {% if key == 'tg_winners_chat_id' %}Отдельный TG-чат для победителей колеса с постером (опционально).{% endif %}
+            {% if key == 'tg_winners_thread_id' %}ID темы форума для победителей (опционально).{% endif %}
           </p>
         {% endfor %}
         <button type="submit">Сохранить</button>
