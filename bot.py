@@ -1,10 +1,20 @@
-"""Discord-бот: slash-команды /wheel, /watched, /funword, /movienight, /linktg + авто-detect победителей."""
+"""Discord-бот DeeBeelkin.
+
+Cog'и:
+- QuotesCog: /funword + авто-захват цитат в канале #цитатник и реакцией
+- MovieNightCog: /movienight — анонс киновечера + Discord Scheduled Event
+- WatchlistCog: /addfilm, /delfilm, /myfilms — личный список желаемого (ephemeral)
+- SettingsCog: /setquoteemoji, /changelog
+- LinkCog: /linktg — привязка Telegram для личных уведомлений
+
+Также: on_wheel_spin_completed — постинг победителя в Discord+TG, вызывается из web.py.
+"""
 from __future__ import annotations
 
 import asyncio
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -12,8 +22,6 @@ from discord.ext import commands
 
 import crypto
 import db
-import kinopoisk as kp
-from kinopoisk import lookup_by_id
 import telegram
 from config import settings
 from telegram import send_message, tg_escape
@@ -25,7 +33,6 @@ intents.message_content = True  # нужен для авто-захвата ци
 intents.guilds = True
 intents.members = True
 intents.reactions = True  # нужен для on_raw_reaction_add (захват цитат реакцией)
-intents.message_content = True  # дублируем для надёжности
 
 
 # === Проверка member сервера ===
@@ -131,11 +138,9 @@ class KinovecherBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         cogs = [
-            ("WheelCog", WheelCog),
             ("QuotesCog", QuotesCog),
             ("MovieNightCog", MovieNightCog),
             ("WatchlistCog", WatchlistCog),
-            ("FilmNightCog", FilmNightCog),
             ("SettingsCog", SettingsCog),
             ("LinkCog", LinkCog),
         ]
@@ -402,7 +407,9 @@ class KinovecherBot(commands.Bot):
         # Сохраняем цитату
         author_display = message.author.display_name or message.author.name
         author_avatar = str(message.author.display_avatar.url) if message.author.display_avatar else None
-        message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
+        # message.guild может быть None для DM (хотя on_raw_reaction_add с настроенным emoji в DM — редкость, но безопасно)
+        guild_id_for_link = message.guild.id if message.guild else (payload.guild_id or 0)
+        message_link = f"https://discord.com/channels/{guild_id_for_link}/{message.channel.id}/{message.id}"
 
         # Проверяем дубликат по message_link
         existing = await db.g_list_quotes(guild_id, limit=500, search=None)
@@ -551,6 +558,7 @@ class KinovecherBot(commands.Bot):
     def _build_winner_embed(self, winner: dict, meta: dict | None) -> "discord.Embed":
         """Построить Discord embed из метаданных.
         Имя добавившего фильм раскрывается ТОЛЬКО при победе.
+        Синхронный метод: не делает Discord API запросов, использует только кеш self.guilds[*].get_member(...).
         """
         embed = discord.Embed(
             title=f"🎡 Победитель колеса — {winner['name']}",
@@ -562,16 +570,16 @@ class KinovecherBot(commands.Bot):
         # Раскрываем кто предложил фильм — только при победе
         added_by_id = winner.get("added_by")
         if added_by_id:
-            # Пытаемся найти display_name через Discord
-            guild = None
-            if self.guilds:
-                guild = self.guilds[0]  # первый guild где бот есть
-            if guild:
-                member = guild.get_member(added_by_id)
-                if member:
-                    embed.add_field(name="🎬 Кто предложил", value=member.mention, inline=False)
-                else:
-                    embed.add_field(name="🎬 Кто предложил", value=f"<@{added_by_id}>", inline=False)
+            # Ищем участника по всем серверам где бот присутствует (только кеш, без API запросов)
+            member = None
+            for g in self.guilds:
+                member = g.get_member(added_by_id)
+                if member is not None:
+                    break
+            if member:
+                embed.add_field(name="🎬 Кто предложил", value=member.mention, inline=False)
+            else:
+                embed.add_field(name="🎬 Кто предложил", value=f"<@{added_by_id}>", inline=False)
 
         if meta:
             if meta.get("year"):
@@ -626,8 +634,9 @@ class KinovecherBot(commands.Bot):
             log.info("No Telegram token, skipping TG post")
             return
 
-        # URL веб-панели для кнопки "Оценить" — дефолт или из настроек
-        panel_url = await db.get_setting("panel_base_url") or "https://dibilkis.bothost.tech"
+        # URL веб-панели для кнопки "Оценить" — из настроек (panel_base_url)
+        # Если не задан — кнопку не показываем (хардкодить домен нельзя — это чужой бот у других юзеров)
+        panel_url = await db.get_setting("panel_base_url")
         rate_button = None
         if panel_url:
             rate_button = {
@@ -699,156 +708,6 @@ class KinovecherBot(commands.Bot):
             )
 
 
-
-# === COG: Wheel ===
-
-class WheelCog(commands.Cog):
-    def __init__(self, bot: KinovecherBot):
-        self.bot = bot
-
-    wheel = app_commands.Group(name="wheel", description="Колесо фильмов")
-
-    @wheel.command(name="add", description="Добавить фильм в колесо + метаданные из Кинопоиска")
-    @app_commands.describe(title="Название фильма (русское или оригинальное)")
-    async def wheel_add(self, interaction: discord.Interaction, title: str):
-        title = title.strip()
-        if not title:
-            await interaction.response.send_message("Название не может быть пустым.", ephemeral=True)
-            return
-
-        guild_id = interaction.guild_id or 0
-
-        # Убеждаемся что таблицы существуют (включая filmnights)
-        import guild as guild_module
-        await guild_module.init_guild_tables(guild_id)
-
-        # Проверяем есть ли активный сбор фильмов (filmnight)
-        try:
-            filmnight = await db.g_get_active_filmnight(guild_id)
-        except Exception as e:
-            log.error("Failed to check filmnight: %s", e)
-            filmnight = None
-        if not filmnight:
-            await interaction.response.send_message(
-                "❌ Нет активного набора фильмов в колесо.\n"
-                "Используйте `/filmnight start` чтобы начать сбор.",
-                ephemeral=True,
-            )
-            return
-
-        # Проверяем лимит фильмов от одного юзера
-        user_count = await db.g_count_user_wheel_items(guild_id, interaction.user.id)
-        if user_count >= filmnight["max_per_user"]:
-            await interaction.response.send_message(
-                f"❌ Вы уже добавили {user_count} фильм(ов) из {filmnight['max_per_user']} разрешённых.\n"
-                f"Дождитесь начала спина или попросите админа увеличить лимит.",
-                ephemeral=True,
-            )
-            return
-
-        if await db.g_is_watched(guild_id, title):
-            await interaction.response.send_message(
-                f"«{title}» уже просмотрен — его нельзя вернуть в колесо.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
-        # Ищем метаданные в Кинопоиске
-        meta = await kp.lookup_movie(title)
-
-        # Если нашли метаданные — используем локализованный title для колеса
-        name_for_wheel = meta["title"] if meta else title
-        tmdb_id = meta["tmdb_id"] if meta else None
-
-        # Добавляем в локальную БД
-        item_id = await db.g_add_wheel_item(guild_id, name_for_wheel, tmdb_id, interaction.user.id)
-
-        # Broadcast через WebSocket (если кто-то смотрит /wheel страницу)
-        try:
-            import ws_manager
-            items = await db.g_list_wheel_items(guild_id, active_only=True)
-            await ws_manager.broadcast_wheel_updated(items)
-        except Exception as e:
-            log.debug("WS broadcast failed: %s", e)
-
-        # Строим ответ с метаданными если есть
-        if meta:
-            embed = discord.Embed(
-                title=f"✅ «{meta['title']}» добавлен в колесо",
-                color=0x2ECC71,
-                timestamp=datetime.utcnow(),
-            )
-            if meta.get("original_title") and meta["original_title"] != meta["title"]:
-                embed.add_field(name="Оригинал", value=meta["original_title"], inline=True)
-            if meta.get("year"):
-                embed.add_field(name="Год", value=meta["year"], inline=True)
-            if meta.get("vote_average"):
-                embed.add_field(name="Рейтинг", value=f"⭐ {meta['vote_average']}/10", inline=True)
-            if meta.get("genres"):
-                embed.add_field(name="Жанры", value=", ".join(meta["genres"]), inline=False)
-            if meta.get("plot"):
-                plot = meta["plot"][:300] + "…" if len(meta["plot"]) > 300 else meta["plot"]
-                embed.add_field(name="Описание", value=plot, inline=False)
-            if meta.get("poster_url"):
-                embed.set_thumbnail(url=meta["poster_url"])
-            embed.set_footer(text=f"Веб-панель: /wheel · Кинопоиск ID: {meta['tmdb_id']} · *uses kinopoiskapiunofficial.tech*")
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        else:
-            await interaction.followup.send(
-                f"✅ «{title}» добавлен в колесо.\n"
-                "_Кинопоиск метаданные недоступны — задайте токен в панели, либо фильм не найден._\n"
-                "Открыть колесо: /wheel в веб-панели",
-                ephemeral=True,
-            )
-
-    @wheel.command(name="list", description="Показать текущие пункты колеса")
-    async def wheel_list(self, interaction: discord.Interaction):
-        guild_id = interaction.guild_id or 0
-        items = await db.g_list_wheel_items(guild_id, active_only=True)
-        if not items:
-            await interaction.response.send_message(
-                "Колесо пустое. Добавь через `/wheel add <название>` или через веб-панель /wheel",
-                ephemeral=True,
-            )
-            return
-
-        lines = [f"**Колесо** ({len(items)} шт.):"]
-        for i, item in enumerate(items, 1):
-            lines.append(f"{i}. **{item['name']}**")
-        text = "\n".join(lines)
-        if len(text) > 1900:
-            text = text[:1900] + "\n... (обрезано)"
-        await interaction.response.send_message(
-            text + "\n\nКрутить: /wheel в веб-панели",
-            ephemeral=True,
-        )
-
-    @wheel.command(name="remove", description="Удалить фильм из колеса (по номеру из /wheel list)")
-    @app_commands.describe(number="Номер фильма в списке /wheel list")
-    async def wheel_remove(self, interaction: discord.Interaction, number: int):
-        guild_id = interaction.guild_id or 0
-        items = await db.g_list_wheel_items(guild_id, active_only=True)
-        if number < 1 or number > len(items):
-            await interaction.response.send_message(
-                f"Номер должен быть от 1 до {len(items)}",
-                ephemeral=True,
-            )
-            return
-        item = items[number - 1]
-        await db.g_remove_wheel_item(guild_id, item["id"])
-        await db.g_reassign_colors(guild_id)
-        try:
-            import ws_manager
-            updated = await db.g_list_wheel_items(guild_id, active_only=True)
-            await ws_manager.broadcast_wheel_updated(updated)
-        except Exception:
-            pass
-        await interaction.response.send_message(
-            f"✅ «{item['name']}» удалён из колеса.",
-            ephemeral=True,
-        )
 
 # === COG: Quotes ===
 
@@ -956,7 +815,7 @@ class MovieNightCog(commands.Cog):
     @app_commands.command(name="movienight", description="Анонс киновечера + Scheduled Event + пинг роли")
     @app_commands.describe(
         date="Дата в формате ГГГГ-ММ-ДД (например 2025-12-31)",
-        time="Время в формате ЧЧ:ММ (например 20:00), часовой пояс UTC",
+        time="Время в формате ЧЧ:ММ (например 20:00), по московскому времени",
         description="Короткое описание (опционально)",
     )
     async def movienight(
@@ -966,11 +825,15 @@ class MovieNightCog(commands.Cog):
         time: str,
         description: str | None = None,
     ):
+        from timezone_utils import MSK
         try:
-            dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+            # Парсим как локальное время по МСК, конвертируем в UTC для хранения
+            dt_msk = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
+            dt = dt_msk.astimezone(timezone.utc).replace(tzinfo=None)  # naive UTC для совместимости со старым кодом
+            dt_display = dt_msk  # для отображения пользователю — в МСК
         except ValueError:
             await interaction.response.send_message(
-                "❌ Формат даты/времени неверный. Пример: 2025-12-31 20:00",
+                "❌ Формат даты/времени неверный. Пример: 2025-12-31 20:00 (по МСК)",
                 ephemeral=True,
             )
             return
@@ -1013,7 +876,7 @@ class MovieNightCog(commands.Cog):
         event_link = f"https://discord.com/events/{guild.id}/{event.id}" if event and guild else ""
 
         embed = discord.Embed(
-            title=f"🎬 Киновечер — {dt.strftime('%d.%m.%Y %H:%M UTC')}",
+            title=f"🎬 Киновечер — {dt_display.strftime('%d.%m.%Y %H:%M')} МСК",
             description=description or "Смотрим фильм с колеса.",
             color=0xE74C3C,
             timestamp=datetime.utcnow(),
@@ -1037,13 +900,13 @@ class MovieNightCog(commands.Cog):
         if tg_announce_enabled == "1":
             tg_text = (
                 f"🎬 <b>Киновечер</b>\n"
-                f"Когда: {dt.strftime('%d.%m.%Y %H:%M UTC')}\n"
+                f"Когда: {dt_display.strftime('%d.%m.%Y %H:%M')} МСК\n"
                 f"{tg_escape(description) if description else ''}"
             )
             await tg_crosspost(tg_text)
 
 
-# === COG: FilmNight (сбор фильмов для киновечера) ===
+# === COG: Watchlist (список желаемого) ===
 
 class WatchlistCog(commands.Cog):
     """Команды для управления личным списком желаемого."""
@@ -1053,6 +916,7 @@ class WatchlistCog(commands.Cog):
     @app_commands.command(name="addfilm", description="Добавить фильм в список желаемого")
     @app_commands.describe(title="Название фильма")
     async def addfilm(self, interaction: discord.Interaction, title: str):
+        from kinopoisk import lookup_movie
         title = title.strip()
         if not title:
             await interaction.response.send_message("Название не может быть пустым.", ephemeral=True)
@@ -1063,7 +927,7 @@ class WatchlistCog(commands.Cog):
         await guild_module.init_guild_tables(guild_id)
 
         # Ищем метаданные в Кинопоиске
-        meta = await kp.lookup_movie(title)
+        meta = await lookup_movie(title)
         name = meta["title"] if meta else title
         tmdb_id = meta["tmdb_id"] if meta else None
 
@@ -1187,139 +1051,6 @@ class SettingsCog(commands.Cog):
 
         embed.set_footer(text=f"DeeBeelkin {version}")
         await interaction.response.send_message(embed=embed, ephemeral=False)
-
-
-# === COG: FilmNight (сбор фильмов для киновечера) ===
-
-class FilmNightCog(commands.Cog):
-    def __init__(self, bot: KinovecherBot):
-        self.bot = bot
-
-    filmnight = app_commands.Group(name="filmnight", description="Сбор фильмов для киновечера")
-
-    @filmnight.command(name="start", description="Начать сбор фильмов для киновечера")
-    @app_commands.describe(
-        max_per_user="Сколько фильмов может добавить один участник (по умолчанию 3)",
-    )
-    async def filmnight_start(self, interaction: discord.Interaction, max_per_user: int = 3):
-        if max_per_user < 1:
-            max_per_user = 1
-        if max_per_user > 20:
-            max_per_user = 20
-
-        guild_id = interaction.guild_id or 0
-
-        # Убеждаемся что таблицы существуют
-        import guild as guild_module
-        await guild_module.init_guild_tables(guild_id)
-
-        # Проверяем нет ли уже активного сбора
-        existing = await db.g_get_active_filmnight(guild_id)
-        if existing:
-            wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
-            unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
-            embed = discord.Embed(
-                title="🎬 Сбор фильмов уже активен!",
-                description=(
-                    f"Лимит: **{existing['max_per_user']}** фильмов на участника\n"
-                    f"Уже предложено: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n\n"
-                    f"Добавляйте через `/wheel add <название>`\n"
-                    f"Сбор завершится автоматически при первом спине.\n"
-                    f"Или используйте `/filmnight end` для ручного завершения."
-                ),
-                color=0xFFB703,
-                timestamp=datetime.utcnow(),
-            )
-            embed.set_footer(text=f"Сбор начал: <@{existing['started_by']}>")
-            await interaction.response.send_message(embed=embed)
-            return
-
-        # Запускаем новый сбор
-        fn_id = await db.g_start_filmnight(guild_id, interaction.user.id, max_per_user)
-        embed = discord.Embed(
-            title="🎬 Сбор фильмов начат!",
-            description=(
-                f"Лимит: **{max_per_user}** фильмов на участника\n\n"
-                f"Используйте `/wheel add <название>` чтобы предложить фильм.\n"
-                f"Крутить колесо может кто угодно — откройте веб-панель → /wheel.\n\n"
-                f"Сбор завершится автоматически при первом спине.\n"
-                f"Или используйте `/filmnight end` для ручного завершения."
-            ),
-            color=0x2ECC71,
-            timestamp=datetime.utcnow(),
-        )
-        embed.set_footer(text=f"Запустил: {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
-
-    @filmnight.command(name="end", description="Завершить активный сбор фильмов")
-    async def filmnight_end(self, interaction: discord.Interaction):
-        """Завершить активный сбор. Любой участник может завершить."""
-        guild_id = interaction.guild_id or 0
-
-        # Убеждаемся что таблицы существуют
-        import guild as guild_module
-        await guild_module.init_guild_tables(guild_id)
-
-        existing = await db.g_get_active_filmnight(guild_id)
-        if not existing:
-            await interaction.response.send_message(
-                "❌ Нет активного сбора фильмов.\n"
-                "Используйте `/filmnight start` чтобы начать новый сбор.",
-                ephemeral=True,
-            )
-            return
-
-        # Завершаем
-        wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
-        unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
-        completed = await db.g_complete_filmnight(guild_id, interaction.user.id)
-
-        embed = discord.Embed(
-            title="✅ Сбор фильмов завершён!",
-            description=(
-                f"Собрано: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n\n"
-                f"Откройте веб-панель → /wheel чтобы крутить колесо."
-            ),
-            color=0x2ECC71,
-            timestamp=datetime.utcnow(),
-        )
-        embed.set_footer(text=f"Завершил: {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
-
-    @filmnight.command(name="status", description="Показать статус активного сбора")
-    async def filmnight_status(self, interaction: discord.Interaction):
-        guild_id = interaction.guild_id or 0
-
-        # Убеждаемся что таблицы существуют
-        import guild as guild_module
-        await guild_module.init_guild_tables(guild_id)
-
-        existing = await db.g_get_active_filmnight(guild_id)
-        if not existing:
-            await interaction.response.send_message(
-                "❌ Нет активного сбора фильмов.\n"
-                "Используйте `/filmnight start` чтобы начать.",
-                ephemeral=True,
-            )
-            return
-
-        wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
-        unique_users = len(set(item["added_by"] for item in wheel_items)) if wheel_items else 0
-
-        embed = discord.Embed(
-            title="🎬 Статус сбора фильмов",
-            description=(
-                f"Лимит: **{existing['max_per_user']}** фильмов на участника\n"
-                f"Предложено: **{len(wheel_items)}** фильмов от **{unique_users}** участник(ов)\n"
-                f"Начат: <@{existing['started_by']}>\n\n"
-                f"Добавляйте через `/wheel add <название>`\n"
-                f"Завершить: `/filmnight end`\n"
-                f"Крутить: веб-панель → /wheel"
-            ),
-            color=0xFFB703,
-            timestamp=datetime.utcnow(),
-        )
-        await interaction.response.send_message(embed=embed)
 
 
 # === COG: TG Link ===
