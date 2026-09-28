@@ -1,0 +1,66 @@
+{# Общий пагинатор. Принимает: page, total_pages, base_url (без ?), search (опционально).
+   Генерирует: ← 1 2 3 ... N → с ellipsis если страниц > 7.
+   URL вид: {base_url}?page=N&q={search} (если search есть) или {base_url}?page=N
+#}
+{% if total_pages > 1 %}
+<nav class="pagination">
+  {% set q_param = '&q=' ~ search if search else '' %}
+  {# Кнопка "Назад" #}
+  {% if page > 1 %}
+    <a href="{{ base_url }}?page={{ page - 1 }}{{ q_param }}" class="page-btn prev" rel="prev">← Назад</a>
+  {% else %}
+    <span class="page-btn disabled">← Назад</span>
+  {% endif %}
+
+  {# Вычисляем диапазон страниц #}
+  {% if total_pages <= 7 %}
+    {% set start = 1 %}
+    {% set end = total_pages %}
+  {% else %}
+    {% if page <= 4 %}
+      {% set start = 1 %}
+      {% set end = 5 %}
+      {% set show_first_dots = false %}
+      {% set show_last_dots = true %}
+    {% elif page >= total_pages - 3 %}
+      {% set start = total_pages - 4 %}
+      {% set end = total_pages %}
+      {% set show_first_dots = true %}
+      {% set show_last_dots = false %}
+    {% else %}
+      {% set start = page - 1 %}
+      {% set end = page + 1 %}
+      {% set show_first_dots = true %}
+      {% set show_last_dots = true %}
+    {% endif %}
+  {% endif %}
+
+  {# Первая страница + dots #}
+  {% if total_pages > 7 and show_first_dots %}
+    <a href="{{ base_url }}?page=1{{ q_param }}" class="page-btn">1</a>
+    <span class="page-dots">…</span>
+  {% endif %}
+
+  {# Страницы в диапазоне #}
+  {% for p in range(start, end + 1) %}
+    {% if p == page %}
+      <span class="page-btn active">{{ p }}</span>
+    {% else %}
+      <a href="{{ base_url }}?page={{ p }}{{ q_param }}" class="page-btn">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+
+  {# Последняя страница + dots #}
+  {% if total_pages > 7 and show_last_dots %}
+    <span class="page-dots">…</span>
+    <a href="{{ base_url }}?page={{ total_pages }}{{ q_param }}" class="page-btn">{{ total_pages }}</a>
+  {% endif %}
+
+  {# Кнопка "Вперёд" #}
+  {% if page < total_pages %}
+    <a href="{{ base_url }}?page={{ page + 1 }}{{ q_param }}" class="page-btn next" rel="next">Вперёд →</a>
+  {% else %}
+    <span class="page-btn disabled">Вперёд →</span>
+  {% endif %}
+</nav>
+{% endif %}

@@ -264,11 +264,11 @@
           </article>
         {% endfor %}
 
-        {% if has_more %}
-          <div class="pagination">
-            <a href="/quotes?q={{ search }}&page={{ page + 1 }}">← Ещё цитаты</a>
-          </div>
-        {% endif %}
+        {% include "_pagination.html" with context %}
+
+        <p class="pagination-info">
+          Всего: {{ total }} · Страница {{ page }} из {{ total_pages }}
+        </p>
       </div>
 
       <!-- Форма создания -->

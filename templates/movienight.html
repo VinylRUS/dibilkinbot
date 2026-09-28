@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Киновечер · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .mn-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .mn-grid { grid-template-columns: 1fr; }
+    }
+    .mn-hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      text-align: center;
+      margin-bottom: 18px;
+    }
+    .mn-hero h2 {
+      margin: 0 0 8px;
+      font-size: 1.5rem;
+      display: block;
+    }
+    .mn-hero h2::before { display: none; }
+    .mn-hero p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin: 0;
+    }
+    .mn-status-row {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .mn-stat {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .mn-stat strong { color: var(--accent); font-size: 1rem; }
+
+    .start-form {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-top: 16px;
+    }
+    .start-form label {
+      display: block;
+      margin: 14px 0 6px;
+    }
+    .start-form input[type="number"] {
+      width: 100px;
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 1.1rem;
+      text-align: center;
+    }
+    .start-form button {
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-top: 18px;
+    }
+    .start-form button:hover { background: var(--accent-hover); }
+    .start-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .pick-list {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .pick-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .pick-item:hover { background: var(--card-alt); }
+    .pick-item:last-child { border-bottom: none; }
+    .pick-item.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .pick-checkbox {
+      width: 22px;
+      height: 22px;
+      border: 2px solid var(--border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .pick-item.checked .pick-checkbox {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-text);
+    }
+    .pick-item.checked .pick-checkbox::after {
+      content: "✓";
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+    .pick-title {
+      flex: 1;
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.92rem;
+    }
+
+    .progress-bar {
+      background: var(--card-alt);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+    }
+    .progress-bar .progress-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .progress-bar .progress-value {
+      font-weight: 700;
+      color: var(--text);
+      font-size: 1.1rem;
+    }
+    .progress-bar .progress-value.complete { color: var(--green); }
+    .progress-bar .progress-value.over { color: var(--red); }
+
+    .ready-btn {
+      width: 100%;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 1rem;
+      margin-top: 16px;
+      transition: all 0.15s;
+    }
+    .ready-btn:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
+    .ready-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .ready-btn.ready {
+      background: var(--green);
+      color: #fff;
+    }
+    .ready-btn.ready:hover:not(:disabled) { background: #3c6233; }
+
+    /* === Sidebar участников === */
+    .participants-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      position: sticky;
+      top: 76px;
+    }
+    .participants-panel h3 {
+      margin: 0 0 14px;
+      font-size: 0.95rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .participant-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .participant-row:last-child { border-bottom: none; }
+    .participant-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--card-alt);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+    }
+    .participant-avatar img {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .participant-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .participant-name {
+      font-weight: 600;
+      font-size: 0.88rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .participant-meta {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+    .participant-status {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .participant-status.ready { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .participant-status.waiting { background: var(--accent); animation: pulse 1.5s infinite; }
+    .participant-status.kicked { background: var(--text-muted); opacity: 0.4; }
+    .participant-kick {
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+      cursor: pointer;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      margin: 0;
+      transition: all 0.15s;
+    }
+    .participant-kick:hover { background: var(--red); color: #fff; }
+    .participant-row.kicked {
+      opacity: 0.4;
+    }
+    .participant-row.kicked .participant-name {
+      text-decoration: line-through;
+    }
+
+    /* === Organizer controls === */
+    .organizer-controls {
+      background: var(--card-alt);
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+    .organizer-controls h4 {
+      margin: 0 0 10px;
+      font-size: 0.85rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .org-btn {
+      display: block;
+      width: 100%;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.9rem;
+      margin-top: 8px;
+      transition: all 0.15s;
+    }
+    .org-btn:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
+    .org-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .org-btn.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .org-btn.secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .org-btn.danger {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+    .org-btn.danger:hover:not(:disabled) { background: var(--red); color: #fff; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state-icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+    .flash {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-size: 0.9rem;
+    }
+    .flash.error {
+      background: var(--badge-unconfirmed-bg);
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+    .flash.info {
+      background: var(--badge-confirmed-bg);
+      color: var(--badge-confirmed-text);
+    }
+    .ws-status {
+      position: fixed;
+      top: 68px;
+      right: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      z-index: 50;
+    }
+    .ws-status.online { color: var(--green); border-color: var(--green); }
+    .ws-status.offline { color: var(--red); border-color: var(--red); }
+  </style>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    {% if request.query_params.get('error') == 'invalid_token' %}
+      <div class="flash error">❌ Ссылка недействительна или сбор удалён.</div>
+    {% elif request.query_params.get('error') == 'not_active' %}
+      <div class="flash error">ℹ️ Сбор уже завершён или отменён.</div>
+    {% elif request.query_params.get('joined') %}
+      <div class="flash info">✓ Вы присоединились к сбору!</div>
+    {% endif %}
+
+    {% if not collection %}
+      {# === Нет активного сбора === #}
+      <div class="mn-hero">
+        <h2>🎬 Киновечер</h2>
+        <p>Сбор пока закрыт. Чтобы начать киновечер, запустите сбор фильмов.</p>
+      </div>
+
+      <div class="start-form">
+        <h3 style="margin: 0 0 14px; font-size: 1.05rem;">🚀 Начать сбор</h3>
+        <p class="hint" style="margin-bottom: 16px;">
+          Любой участник может начать сбор. После старта в Discord-канале анонсов появится ссылка для всех.
+          Каждый участник выбирает ровно <strong>N фильмов</strong> из своего списка желаемого и жмёт «Готов».
+        </p>
+        <label for="max_per_user">Лимит фильмов на участника (1-10)</label>
+        <input type="number" id="max_per_user" name="max_per_user" value="5" min="1" max="10">
+        <button type="button" onclick="startCollection()">🎬 Начать сбор</button>
+        <div id="start-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+      </div>
+
+    {% else %}
+      {# === Есть активный сбор === #}
+      <div class="mn-grid">
+        <div>
+          <div class="mn-hero">
+            <h2>🎬 Сбор фильмов активен</h2>
+            <p>Лимит: <strong>{{ max_per_user }}</strong> фильм(ов) на участника</p>
+            <div class="mn-status-row">
+              <div class="mn-stat">
+                Участников: <strong id="stat-participants">{{ participants | length }}</strong>
+              </div>
+              <div class="mn-stat">
+                Готовы: <strong id="stat-ready">{{ participants | selectattr('is_ready') | list | length }}</strong>
+              </div>
+              <div class="mn-stat">
+                Всего фильмов выбрано: <strong id="stat-picks">{{ user_picks_count }}</strong>
+              </div>
+            </div>
+          </div>
+
+          {% if watchlist | length == 0 %}
+            <div class="empty-state">
+              <div class="empty-state-icon">📭</div>
+              <p>Ваш список желаемого пуст.</p>
+              <p style="margin-top: 8px; font-size: 0.85rem;">
+                Добавьте фильмы через <a href="/profile">/profile</a> или команду <code>/addfilm</code> в Discord,
+                затем вернитесь сюда и выберите из них.
+              </p>
+            </div>
+          {% else %}
+            {# Прогресс выбора #}
+            <div class="progress-bar">
+              <div class="progress-label">Ваш выбор</div>
+              <div class="progress-value" id="picks-progress">
+                <span id="picks-count">{{ user_picks_count }}</span> / {{ max_per_user }}
+              </div>
+            </div>
+
+            {# Список вишлиста с чекбоксами #}
+            <div class="pick-list" id="pick-list">
+              {% for w_id, title, tmdb_id, added_at, is_watched in watchlist %}
+                {% set picked = w_id in user_picks | map(attribute='watchlist_id') | list %}
+                <div class="pick-item {{ 'checked' if picked else '' }}"
+                     data-watchlist-id="{{ w_id }}"
+                     data-title="{{ title }}"
+                     data-tmdb-id="{{ tmdb_id or '' }}"
+                     onclick="togglePick({{ w_id }})">
+                  <div class="pick-checkbox"></div>
+                  <div class="pick-title">{{ title }}</div>
+                </div>
+              {% endfor %}
+            </div>
+
+            <button type="button" class="ready-btn {{ 'ready' if user_picks_count == max_per_user else '' }}"
+                    id="ready-btn"
+                    onclick="toggleReady()">
+              {% if user_picks_count == max_per_user %}
+                ✓ Готов! (нажмите чтобы отменить)
+              {% else %}
+                Выберите {{ max_per_user - user_picks_count }} ещё фильм(ов)
+              {% endif %}
+            </button>
+          {% endif %}
+
+          {% if is_organizer %}
+            {# === Organizer controls === #}
+            <div class="organizer-controls">
+              <h4>🎛 Управление сбором</h4>
+              <button type="button" class="org-btn" id="start-spin-btn" onclick="startSpin(false)">
+                🎡 Начать крутку колеса
+              </button>
+              <button type="button" class="org-btn secondary" onclick="startSpin(true)">
+                ⚡ Начать принудительно
+              </button>
+              <button type="button" class="org-btn danger" onclick="cancelCollection()">
+                ✕ Отменить сбор
+              </button>
+              <div id="org-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+            </div>
+          {% endif %}
+        </div>
+
+        {# === Sidebar: список участников === #}
+        <aside>
+          <div class="participants-panel">
+            <h3>👥 Участники <span style="color: var(--text-muted); font-size: 0.78rem; font-weight: 400;">({{ participants | length }})</span></h3>
+            <div id="participants-list">
+              {% for p in participants %}
+                <div class="participant-row {{ 'kicked' if p.kicked_at else '' }}"
+                     data-user-id="{{ p.user_discord_id }}"
+                     data-is-ready="{{ 'true' if p.is_ready else 'false' }}">
+                  <div class="participant-avatar">
+                    {% if p.avatar_url %}
+                      <img src="{{ p.avatar_url }}" alt="">
+                    {% else %}
+                      👤
+                    {% endif %}
+                  </div>
+                  <div class="participant-info">
+                    <div class="participant-name">{{ p.display_name or p.username or 'User#' ~ p.user_discord_id }}</div>
+                    <div class="participant-meta">
+                      {% if p.kicked_at %}
+                        кикнут
+                      {% elif p.is_ready %}
+                        ✓ готов
+                      {% else %}
+                        ⏳ выбирает...
+                      {% endif %}
+                    </div>
+                  </div>
+                  <div class="participant-status {{ 'ready' if p.is_ready else ('kicked' if p.kicked_at else 'waiting') }}"></div>
+                  {% if is_organizer and not p.kicked_at and p.user_discord_id != collection.started_by %}
+                    <button type="button" class="participant-kick" onclick="kickParticipant({{ p.user_discord_id }})">✕</button>
+                  {% endif %}
+                </div>
+              {% else %}
+                <p class="hint" style="text-align: center; padding: 16px 0;">Пока никого нет. Поделитесь ссылкой в Discord!</p>
+              {% endfor %}
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {# Ссылка на сбор для шерингa #}
+      {% if is_organizer %}
+        <div style="margin-top: 24px; padding: 14px 18px; background: var(--card-alt); border-radius: 8px; font-size: 0.82rem;">
+          <strong>📋 Ссылка для участников:</strong>
+          <code id="collect-link" style="display: block; margin-top: 8px; padding: 8px 12px; background: var(--bg); border-radius: 4px; word-break: break-all;">
+            (нужен panel_base_url в /channels)
+          </code>
+          <button type="button" onclick="copyLink()" style="margin-top: 8px; padding: 6px 14px; background: var(--accent); color: var(--accent-text); border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem;">📋 Копировать</button>
+        </div>
+      {% endif %}
+    {% endif %}
+
+  </main>
+
+  <div class="ws-status offline" id="ws-status">● offline</div>
+
+  <script>
+    // === Состояние ===
+    const maxPerUser = {{ max_per_user if collection else 5 }};
+    const isOrganizer = {{ 'true' if is_organizer else 'false' }};
+    const hasCollection = {{ 'true' if collection else 'false' }};
+    let selectedIds = new Set([
+      {% for pick in user_picks %}
+        {{ pick.watchlist_id }}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]);
+    let userIsReady = {{ 'true' if (user_picks_count == max_per_user and max_per_user > 0) else 'false' }};
+
+    // === WebSocket ===
+    let ws = null;
+    function connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/ws/wheel?guild_id=0`);
+      ws.onopen = () => {
+        const el = document.getElementById('ws-status');
+        if (el) {
+          el.textContent = '● live';
+          el.className = 'ws-status online';
+        }
+      };
+      ws.onclose = () => {
+        const el = document.getElementById('ws-status');
+        if (el) {
+          el.textContent = '● offline';
+          el.className = 'ws-status offline';
+        }
+        // Переподключение через 3 сек
+        setTimeout(connectWS, 3000);
+      };
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleWSMessage(msg);
+      };
+    }
+
+    function handleWSMessage(msg) {
+      if (!hasCollection) return;
+      switch (msg.type) {
+        case 'collection_started':
+          // Сбор начат (кем-то другим) — перезагружаем
+          location.reload();
+          break;
+        case 'collection_participant_joined':
+          refreshParticipants();
+          break;
+        case 'collection_participant_ready':
+          updateParticipantReady(msg.payload.participant.user_discord_id, msg.payload.participant.is_ready);
+          break;
+        case 'collection_picks_updated':
+          // Обновляем счётчик picks у конкретного юзера
+          refreshParticipants();
+          break;
+        case 'collection_participant_kicked':
+          // Если кикнули нас — перезагружаем
+          if (msg.payload.user_discord_id === {{ user.discord_id or 0 }}) {
+            alert('Вас кикнули из сбора.');
+            location.reload();
+          } else {
+            refreshParticipants();
+          }
+          break;
+        case 'collection_completed':
+          // Сбор завершён — крутка пошла. Если организатор — редирект на /wheel.
+          if (isOrganizer) {
+            window.location.href = '/wheel';
+          } else {
+            // Обычный юзер видит сообщение
+            alert('🎉 Сбор завершён! Фильмы загружены в колесо.');
+            location.reload();
+          }
+          break;
+        case 'collection_cancelled':
+          alert('❌ Сбор отменён организатором.');
+          location.reload();
+          break;
+      }
+    }
+
+    async function refreshParticipants() {
+      try {
+        const r = await fetch('/api/collection/status');
+        const data = await r.json();
+        if (!data.active) {
+          location.reload();
+          return;
+        }
+        // Обновляем sidebar
+        const list = document.getElementById('participants-list');
+        if (!list) return;
+        let html = '';
+        let readyCount = 0;
+        let totalPicks = 0;
+        for (const p of data.participants) {
+          const isReady = p.is_ready && !p.kicked_at;
+          const isKicked = !!p.kicked_at;
+          if (isReady) readyCount++;
+          totalPicks += p.picks_count || 0;
+          const displayName = p.display_name || `User#${p.user_discord_id}`;
+          const avatarHtml = p.avatar_url
+            ? `<img src="${p.avatar_url}" alt="">`
+            : '👤';
+          const meta = isKicked ? 'кикнут' : (isReady ? '✓ готов' : '⏳ выбирает...');
+          const statusClass = isReady ? 'ready' : (isKicked ? 'kicked' : 'waiting');
+          const kickBtn = (isOrganizer && !isKicked && p.user_discord_id !== {{ (collection.started_by if collection else 0) }})
+            ? `<button type="button" class="participant-kick" onclick="kickParticipant(${p.user_discord_id})">✕</button>`
+            : '';
+          html += `
+            <div class="participant-row ${isKicked ? 'kicked' : ''}" data-user-id="${p.user_discord_id}">
+              <div class="participant-avatar">${avatarHtml}</div>
+              <div class="participant-info">
+                <div class="participant-name">${displayName}</div>
+                <div class="participant-meta">${meta} · ${p.picks_count || 0} фильмов</div>
+              </div>
+              <div class="participant-status ${statusClass}"></div>
+              ${kickBtn}
+            </div>`;
+        }
+        list.innerHTML = html;
+        // Обновляем stats
+        const statParticipants = document.getElementById('stat-participants');
+        const statReady = document.getElementById('stat-ready');
+        const statPicks = document.getElementById('stat-picks');
+        if (statParticipants) statParticipants.textContent = data.participants.length;
+        if (statReady) statReady.textContent = readyCount;
+        if (statPicks) statPicks.textContent = totalPicks;
+        // Кнопка start-spin: активна только если все готовы
+        const startSpinBtn = document.getElementById('start-spin-btn');
+        if (startSpinBtn) {
+          const allReady = readyCount === data.participants.filter(p => !p.kicked_at).length;
+          startSpinBtn.disabled = !allReady;
+          if (allReady) {
+            startSpinBtn.textContent = '🎡 Начать крутку колеса';
+          } else {
+            startSpinBtn.textContent = `Ожидают готовности: ${data.participants.filter(p => !p.kicked_at).length - readyCount}`;
+          }
+        }
+      } catch (e) {
+        console.error('refreshParticipants failed:', e);
+      }
+    }
+
+    function updateParticipantReady(userId, isReady) {
+      const row = document.querySelector(`.participant-row[data-user-id="${userId}"]`);
+      if (!row) return;
+      row.dataset.isReady = isReady;
+      const status = row.querySelector('.participant-status');
+      const meta = row.querySelector('.participant-meta');
+      if (isReady) {
+        status.className = 'participant-status ready';
+        meta.textContent = '✓ готов';
+      } else {
+        status.className = 'participant-status waiting';
+        meta.textContent = '⏳ выбирает...';
+      }
+      refreshParticipants(); // пересчитать счётчики
+    }
+
+    // === Чекбоксы выбора ===
+    function togglePick(watchlistId) {
+      if (selectedIds.has(watchlistId)) {
+        selectedIds.delete(watchlistId);
+      } else {
+        if (selectedIds.size >= maxPerUser) {
+          alert(`Можно выбрать только ${maxPerUser} фильм(ов). Снимите один из выбранных чтобы выбрать другой.`);
+          return;
+        }
+        selectedIds.add(watchlistId);
+      }
+      // Обновляем UI
+      document.querySelectorAll('.pick-item').forEach(el => {
+        const id = parseInt(el.dataset.watchlistId);
+        el.classList.toggle('checked', selectedIds.has(id));
+      });
+      updateProgressUI();
+    }
+
+    function updateProgressUI() {
+      const count = selectedIds.size;
+      const countEl = document.getElementById('picks-count');
+      if (countEl) countEl.textContent = count;
+      const progressEl = document.getElementById('picks-progress');
+      if (progressEl) {
+        progressEl.className = 'progress-value ' + (count === maxPerUser ? 'complete' : (count > maxPerUser ? 'over' : ''));
+      }
+      const readyBtn = document.getElementById('ready-btn');
+      if (readyBtn) {
+        if (count === maxPerUser) {
+          readyBtn.className = 'ready-btn ready';
+          readyBtn.textContent = '✓ Готов! (нажмите чтобы сохранить и ждать других)';
+        } else {
+          readyBtn.className = 'ready-btn';
+          readyBtn.textContent = `Выберите ещё ${maxPerUser - count} фильм(ов)`;
+        }
+      }
+    }
+
+    async function toggleReady() {
+      if (selectedIds.size !== maxPerUser) {
+        alert(`Нужно выбрать ровно ${maxPerUser} фильм(ов). Сейчас: ${selectedIds.size}.`);
+        return;
+      }
+      // Сохраняем picks
+      const idsStr = Array.from(selectedIds).join(',');
+      const formData = new FormData();
+      formData.append('watchlist_ids', idsStr);
+      try {
+        const r = await fetch('/api/collection/save_picks', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          userIsReady = true;
+          updateProgressUI();
+          // Опционально: alert что готов
+        } else {
+          alert(data.error || 'Ошибка сохранения');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    // === Organizer actions ===
+    async function startCollection() {
+      const maxInput = document.getElementById('max_per_user');
+      const max = Math.max(1, Math.min(10, parseInt(maxInput.value) || 5));
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '⏳ Запускаю...';
+      const formData = new FormData();
+      formData.append('max_per_user', max);
+      try {
+        const r = await fetch('/api/collection/start', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          location.reload();
+        } else {
+          alert(data.error || 'Ошибка');
+          btn.disabled = false;
+          btn.textContent = '🎬 Начать сбор';
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = '🎬 Начать сбор';
+      }
+    }
+
+    async function startSpin(force) {
+      const btn = event.target;
+      const confirmMsg = force
+        ? 'Запустить крутку принудительно? Не все участники готовы.'
+        : 'Запустить крутку колеса? Все выбранные фильмы попадут в колесо (в случайном порядке).';
+      if (!confirm(confirmMsg)) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ Загружаю в колесо...';
+      const formData = new FormData();
+      formData.append('force', force);
+      try {
+        const r = await fetch('/api/collection/start_spin', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          window.location.href = '/wheel';
+        } else {
+          alert(data.error || 'Ошибка');
+          btn.disabled = false;
+          btn.textContent = force ? '⚡ Начать принудительно' : '🎡 Начать крутку колеса';
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = force ? '⚡ Начать принудительно' : '🎡 Начать крутку колеса';
+      }
+    }
+
+    async function cancelCollection() {
+      if (!confirm('Отменить сбор? Все выборы будут утеряны, фильмы останутся в вишлистах.')) return;
+      try {
+        const r = await fetch('/api/collection/cancel', { method: 'POST' });
+        if (r.ok) {
+          location.reload();
+        }
+      } catch (e) {
+        alert('Ошибка: ' + e.message);
+      }
+    }
+
+    async function kickParticipant(userId) {
+      if (!confirm('Кикнуть участника? Его выборы будут удалены, фильмы останутся в вишлисте.')) return;
+      const formData = new FormData();
+      formData.append('target_user_id', userId);
+      try {
+        const r = await fetch('/api/collection/kick', { method: 'POST', body: formData });
+        if (r.ok) {
+          refreshParticipants();
+        } else {
+          const data = await r.json();
+          alert(data.error || 'Ошибка');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    function copyLink() {
+      const linkEl = document.getElementById('collect-link');
+      if (!linkEl) return;
+      const text = linkEl.textContent.trim();
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Ссылка скопирована: ' + text);
+      }).catch(() => {
+        prompt('Скопируйте вручную:', text);
+      });
+    }
+
+    // === Init ===
+    if (hasCollection) {
+      connectWS();
+      // Polling каждые 10 сек как backup (если WS упал)
+      setInterval(refreshParticipants, 10000);
+      // Обновить ссылку на collect
+      fetch('/api/collection/status').then(r => r.json()).then(data => {
+        if (data.active) {
+          const linkEl = document.getElementById('collect-link');
+          // Мы не знаем panel_base_url на клиенте, но можем взять location.origin
+          if (linkEl) {
+            linkEl.textContent = `${location.origin}/collect/${data.collection.token}`;
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
