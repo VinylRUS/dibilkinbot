@@ -88,6 +88,36 @@
       {% endif %}
     </article>
 
+    <h2>📱 Уведомления в Telegram</h2>
+    <article class="card">
+      {% if not is_tg_linked %}
+        <div class="empty">
+          Сначала привяжите Telegram выше. После привязки здесь появятся тумблеры для персональных уведомлений.
+        </div>
+      {% else %}
+        <p class="hint" style="margin-bottom: 14px;">
+          Персональные уведомления приходят вам в личку в Telegram когда вы — <strong>организатор</strong> сбора
+          (или админ с привязанным TG). По умолчанию все выключены — включите нужные.
+        </p>
+        {% for key, label, description in tg_notify_settings %}
+          <div class="activity-row" style="padding: 12px 0; border-bottom: 1px solid var(--border);">
+            <div>
+              <div style="font-weight: 600; color: var(--text); font-size: 0.92rem;">{{ label }}</div>
+              <div class="hint" style="margin-top: 2px;">{{ description }}</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" name="{{ key }}"
+                     {% if tg_settings.get(key) %}checked{% endif %}
+                     value="true"
+                     onchange="toggleTgSetting('{{ key }}', this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+        {% endfor %}
+        <div id="tg-setting-result" style="margin-top: 10px; font-size: 0.82rem; display: none;"></div>
+      {% endif %}
+    </article>
+
     <h2>📋 Список желаемого</h2>
     <article class="card">
       <!-- Форма добавления -->
@@ -224,6 +254,36 @@
       const editBtn = document.getElementById(`wl-edit-${id}`);
       editBtn.textContent = '✏️';
       editBtn.onclick = () => editWatchlistTitle(id);
+    }
+
+    // === TG Notification settings ===
+    async function toggleTgSetting(settingKey, value) {
+      const result = document.getElementById('tg-setting-result');
+      const formData = new FormData();
+      formData.append('setting_key', settingKey);
+      formData.append('value', value);
+      try {
+        const r = await fetch('/api/profile/tg_settings', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          result.style.color = 'var(--badge-confirmed-text)';
+          result.textContent = (value ? '✓ Включено: ' : '✕ Выключено: ') + settingKey;
+          result.style.display = 'block';
+          setTimeout(() => { result.style.display = 'none'; }, 2500);
+        } else {
+          // Откатить чекбокс
+          result.style.color = 'var(--red)';
+          result.textContent = '❌ ' + (data.error || 'Ошибка');
+          result.style.display = 'block';
+          // Снимаем чекбокс обратно
+          event.target.checked = !value;
+        }
+      } catch (e) {
+        result.style.color = 'var(--red)';
+        result.textContent = '❌ Сетевая ошибка: ' + e.message;
+        result.style.display = 'block';
+        event.target.checked = !value;
+      }
     }
   </script>
 </body>

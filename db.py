@@ -176,6 +176,10 @@ async def init_db() -> None:
                 "roles": "TEXT",
                 "top_role": "TEXT",
                 "guild_name": "TEXT",
+                # v1.7.4: персональные TG-уведомления (по умолчанию OFF)
+                "tg_notify_winner": "INTEGER DEFAULT 0",
+                "tg_notify_collection_started": "INTEGER DEFAULT 0",
+                "tg_notify_collection_ready": "INTEGER DEFAULT 0",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in existing_cols:
@@ -587,6 +591,128 @@ async def verify_tg_link(code: str, tg_user_id: int, tg_username: str | None) ->
             )
             await db.commit()
             return discord_id
+
+
+# === TG Notifications settings (v1.7.4) ===
+
+# Список доступных тумблеров: (key, label, description)
+TG_NOTIFY_SETTINGS = [
+    ("tg_notify_winner", "🎡 Победитель колеса", "Когда крутанули колесо и определился победитель"),
+    ("tg_notify_collection_started", "🎬 Сбор начат", "Когда кто-то запустил сбор фильмов (вы в числе организаторов)"),
+    ("tg_notify_collection_ready", "✅ Все готовы", "Когда все участники сбора нажали «Готов»"),
+]
+
+
+async def get_user_tg_settings(discord_id: int) -> dict:
+    """Получить настройки TG-уведомлений юзера. Возвращает dict {key: bool}."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT tg_notify_winner, tg_notify_collection_started, tg_notify_collection_ready "
+            "FROM users WHERE discord_id = ?",
+            (discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return {key: False for key, _, _ in TG_NOTIFY_SETTINGS}
+    return {
+        "tg_notify_winner": bool(row[0]),
+        "tg_notify_collection_started": bool(row[1]),
+        "tg_notify_collection_ready": bool(row[2]),
+    }
+
+
+async def set_user_tg_setting(discord_id: int, key: str, value: bool) -> bool:
+    """Установить одну настройку TG-уведомлений. key должен быть из TG_NOTIFY_SETTINGS."""
+    valid_keys = {k for k, _, _ in TG_NOTIFY_SETTINGS}
+    if key not in valid_keys:
+        raise ValueError(f"Invalid tg_notify key: {key}")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE users SET {key} = ? WHERE discord_id = ?",
+            (1 if value else 0, discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def get_notification_recipients(setting_key: str, organizer_discord_id: int | None = None) -> list[dict]:
+    """Получить список юзеров для уведомления.
+    Возвращает list of dicts: {discord_id, tg_user_id, tg_username}.
+
+    Логика:
+    - organizer_discord_id (если задан) — добавляется в список если у него включён тумблер setting_key
+    - Все админы с привязкой TG и включённым тумблером setting_key
+    """
+    valid_keys = {k for k, _, _ in TG_NOTIFY_SETTINGS}
+    if setting_key not in valid_keys:
+        raise ValueError(f"Invalid setting_key: {setting_key}")
+
+    recipients: list[dict] = []
+    seen_discord_ids: set[int] = set()
+
+    async with _connect() as db:
+        # 1. Организатор (если задан)
+        if organizer_discord_id is not None:
+            async with db.execute(
+                f"SELECT u.discord_id, t.tg_user_id, t.tg_username "
+                f"FROM users u JOIN tg_links t ON u.discord_id = t.discord_id "
+                f"WHERE u.discord_id = ? AND u.{setting_key} = 1 AND t.tg_user_id IS NOT NULL",
+                (organizer_discord_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row:
+                recipients.append({
+                    "discord_id": row[0],
+                    "tg_user_id": row[1],
+                    "tg_username": row[2],
+                })
+                seen_discord_ids.add(row[0])
+
+        # 2. Админы с привязкой TG и включённым тумблером
+        # Админ = env ADMIN_DISCORD_ID (через settings) или is_admin=1 в БД
+        async with db.execute(
+            f"SELECT u.discord_id, t.tg_user_id, t.tg_username "
+            f"FROM users u JOIN tg_links t ON u.discord_id = t.discord_id "
+            f"WHERE u.is_admin = 1 AND u.{setting_key} = 1 AND t.tg_user_id IS NOT NULL"
+        ) as cur:
+            for row in await cur.fetchall():
+                if row[0] not in seen_discord_ids:
+                    recipients.append({
+                        "discord_id": row[0],
+                        "tg_user_id": row[1],
+                        "tg_username": row[2],
+                    })
+                    seen_discord_ids.add(row[0])
+
+        # 3. env ADMIN_DISCORD_ID — может быть не в БД (если ни разу не логинился в панель)
+        env_admin_id = settings.admin_discord_id
+        if env_admin_id is not None and env_admin_id not in seen_discord_ids:
+            async with db.execute(
+                f"SELECT u.discord_id, t.tg_user_id, t.tg_username "
+                f"FROM users u JOIN tg_links t ON u.discord_id = t.discord_id "
+                f"WHERE u.discord_id = ? AND u.{setting_key} = 1 AND t.tg_user_id IS NOT NULL",
+                (env_admin_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row:
+                recipients.append({
+                    "discord_id": row[0],
+                    "tg_user_id": row[1],
+                    "tg_username": row[2],
+                })
+
+    return recipients
+
+
+async def is_tg_linked(discord_id: int) -> bool:
+    """Проверить, привязал ли юзер свой TG-аккаунт."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT tg_user_id FROM tg_links WHERE discord_id = ? AND tg_user_id IS NOT NULL",
+            (discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return bool(row and row[0])
 
 
 # === Movie Meta (TMDB cache) ===

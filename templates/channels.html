@@ -5,6 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Каналы · DeeBeelkin</title>
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .field-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin: 4px 0 14px;
+      line-height: 1.5;
+    }
+    .field-hint code {
+      background: var(--card-alt);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.76rem;
+    }
+    .field-warning {
+      color: var(--red);
+      font-size: 0.78rem;
+      margin: 4px 0 14px;
+      display: none;
+    }
+    .field-warning.show { display: block; }
+    input.invalid {
+      border-color: var(--red) !important;
+    }
+    .section-divider {
+      border-top: 1px dashed var(--border);
+      margin: 24px 0 16px;
+      padding-top: 14px;
+    }
+    .section-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
@@ -17,26 +53,144 @@
     {% endif %}
 
     <article class="card">
-      <form method="post" action="/channels">
+      <form method="post" action="/channels" id="channels-form">
+        <div class="section-title">🌐 Веб-панель</div>
         {% for key, label in channels %}
-          <label>{{ label }}</label>
-          <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="ID (число)">
-          <p class="hint">
-            {% if key == 'panel_base_url' %}URL вашей веб-панели (например https://your-bot.bothost.tech). Используется для inline-кнопок в Telegram. Без него кнопка "Оценить" не появится.{% endif %}
-            {% if key == 'channel_quotes_id' %}ПКМ по каналу в Discord (режим разработчика) → Копировать ID{% endif %}
-            {% if key == 'channel_announce_id' %}Канал, куда бот постит embed'ы анонсов.{% endif %}
-            {% if key == 'channel_winners_id' %}Куда бот постит победителей колеса с постером.{% endif %}
-            {% if key == 'channel_updates_id' %}Канал куда бот постит анонсы обновлений при новой версии. Создай закрытый канал для этого.{% endif %}
-            {% if key == 'role_movie_ping_id' %}ПКМ по роли → Копировать ID.{% endif %}
-            {% if key == 'telegram_chat_id' %}Числовой ID чата (например, -1001234567890). Узнать: @userinfobot.{% endif %}
-            {% if key == 'telegram_thread_id' %}ID темы в форуме TG. Создайте тему в группе, перешлите любое сообщение из неё боту — он сохранит thread_id. Оставьте пустым для General topic.{% endif %}
-            {% if key == 'tg_winners_chat_id' %}Отдельный TG-чат для победителей колеса с постером (опционально).{% endif %}
-            {% if key == 'tg_winners_thread_id' %}ID темы форума для победителей (опционально).{% endif %}
-          </p>
+          {% if key == 'panel_base_url' %}
+            <label>{{ label }}</label>
+            <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="https://your-bot.bothost.tech">
+            <p class="field-hint">
+              URL вашей веб-панели. Используется для inline-кнопок в Telegram-постах победителей и ссылок в уведомлениях сбора.
+              Без него кнопка «Оценить» не появится, а ссылка на /collect в Discord-анонсе будет короткой.
+            </p>
+          {% endif %}
         {% endfor %}
+
+        <div class="section-divider"></div>
+        <div class="section-title">📺 Discord каналы и роли</div>
+        {% for key, label in channels %}
+          {% if key in ['channel_quotes_id', 'channel_announce_id', 'channel_winners_id', 'channel_updates_id', 'role_movie_ping_id'] %}
+            <label>{{ label }}</label>
+            <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="ID (число)">
+            <p class="field-hint">
+              {% if key == 'channel_quotes_id' %}ПКМ по каналу в Discord (режим разработчика) → Копировать ID. Сюда бот постит embed'ы цитат.{% endif %}
+              {% if key == 'channel_announce_id' %}Канал, куда бот постит embed'ы анонсов киновечера и начала сбора фильмов.{% endif %}
+              {% if key == 'channel_winners_id' %}Куда бот постит победителей колеса с постером.{% endif %}
+              {% if key == 'channel_updates_id' %}Канал куда бот постит анонсы обновлений при новой версии. Создай закрытый канал для этого.{% endif %}
+              {% if key == 'role_movie_ping_id' %}ПКМ по роли → Копировать ID. Используется для пинга в анонсах.{% endif %}
+            </p>
+          {% endif %}
+        {% endfor %}
+
+        <div class="section-divider"></div>
+        <div class="section-title">💬 Telegram чаты (для кросс-постинга)</div>
+        <p class="field-hint" style="margin-bottom: 18px;">
+          <strong>Для чего:</strong> бот дублирует цитаты, анонсы и победителей в эти чаты.
+          <br><strong>Не для персональных уведомлений</strong> — они идут в личку каждому юзеру отдельно (настраивается в /profile).
+          <br>Если не нужны чаты — оставьте поля пустыми.
+        </p>
+
+        {% for key, label in channels %}
+          {% if key in ['telegram_chat_id', 'tg_winners_chat_id'] %}
+            <label>{{ label }}</label>
+            <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}"
+                   placeholder="-1004484643620"
+                   data-field-type="chat_id"
+                   oninput="validateChatId(this)">
+            <p class="field-hint" id="hint-{{ key }}">
+              {% if key == 'telegram_chat_id' %}
+                Числовой ID чата/канала/супергруппы. <strong>Должен начинаться с <code>-100</code></strong> для каналов и супергрупп (например, <code>-1004484643620</code>).
+                Личный чат с ботом — просто положительное число (например, <code>123456789</code>).
+                <br>Узнать: перешлите любое сообщение из чата боту <code>@userinfobot</code> — он ответит с chat_id.
+                <br><strong>Важно:</strong> число из ссылки <code>t.me/c/4484643620/3</code> — это ID канала без префикса. Нужно вводить как <code>-1004484643620</code>.
+              {% else %}
+                Отдельный чат для победителей колеса (опционально). Если пусто — используется основной telegram_chat_id.
+              {% endif %}
+            </p>
+            <p class="field-warning" id="warning-{{ key }}"></p>
+          {% elif key in ['telegram_thread_id', 'tg_winners_thread_id'] %}
+            <label>{{ label }}</label>
+            <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}"
+                   placeholder="3 (число темы форума)"
+                   data-field-type="thread_id"
+                   oninput="validateThreadId(this)">
+            <p class="field-hint" id="hint-{{ key }}">
+              {% if key == 'telegram_thread_id' %}
+                ID темы форума (message_thread_id). Для обычного чата — оставьте пустым.
+                <br>Например, в форуме <code>t.me/c/4484643620/3</code> — цифра <code>3</code> в конце это ID темы, а не чата! Её и нужно вводить здесь.
+                <br>General topic (основная тема форума) обычно имеет ID <code>1</code>.
+              {% else %}
+                ID темы форума для победителей колеса (опционально).
+              {% endif %}
+            </p>
+            <p class="field-warning" id="warning-{{ key }}"></p>
+          {% endif %}
+        {% endfor %}
+
         <button type="submit">Сохранить</button>
       </form>
     </article>
   </main>
+
+  <script>
+    function validateChatId(input) {
+      const value = input.value.trim();
+      const warning = document.getElementById('warning-' + input.name);
+      if (!value) {
+        // Пустое значение — норм (опциональное поле)
+        input.classList.remove('invalid');
+        warning.classList.remove('show');
+        warning.textContent = '';
+        return;
+      }
+      // Валидные форматы:
+      // -100XXXXXXXXXX (канал/супергруппа, минимум 13 символов с -100)
+      // положительное число (личка)
+      const isChannel = /^-100\d{10,}$/.test(value);
+      const isPersonal = /^\d{5,}$/.test(value);
+      if (isChannel || isPersonal) {
+        input.classList.remove('invalid');
+        warning.classList.remove('show');
+        warning.textContent = '';
+      } else {
+        input.classList.add('invalid');
+        warning.classList.add('show');
+        if (value.startsWith('-100')) {
+          warning.textContent = '⚠️ ID канала должен быть в формате -100XXXXXXXXXX (минимум 13 символов). Проверьте длину.';
+        } else if (value.startsWith('-')) {
+          warning.textContent = '⚠️ Неизвестный формат. Каналы/супергруппы начинаются с -100, личные чаты — положительное число.';
+        } else if (/^\d+$/.test(value) && value.length < 5) {
+          warning.textContent = '⚠️ Слишком короткое число для chat_id. Личные чаты имеют 8+ значные ID. Проверьте — возможно вы ввели thread_id вместо chat_id.';
+        } else {
+          warning.textContent = '⚠️ Неверный формат. Должно быть число: -100XXXXXXXXXX для каналов или XXXXXXXXX для личного чата.';
+        }
+      }
+    }
+
+    function validateThreadId(input) {
+      const value = input.value.trim();
+      const warning = document.getElementById('warning-' + input.name);
+      if (!value) {
+        input.classList.remove('invalid');
+        warning.classList.remove('show');
+        return;
+      }
+      // thread_id должен быть положительным числом
+      if (/^\d+$/.test(value)) {
+        input.classList.remove('invalid');
+        warning.classList.remove('show');
+      } else {
+        input.classList.add('invalid');
+        warning.classList.add('show');
+        warning.textContent = '⚠️ ID темы должен быть положительным числом (например, 3 или 109).';
+      }
+    }
+
+    // Запустить валидацию для всех полей при загрузке
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('input[data-field-type="chat_id"]').forEach(validateChatId);
+      document.querySelectorAll('input[data-field-type="thread_id"]').forEach(validateThreadId);
+    });
+  </script>
 </body>
 </html>
