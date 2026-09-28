@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Тайный Санта · DeeBeelkin</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .santa-hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      text-align: center;
+      margin-bottom: 18px;
+    }
+    .santa-hero h2 { display: block; margin: 0 0 8px; }
+    .santa-hero h2::before { display: none; }
+    .santa-hero .santa-icon { font-size: 3rem; }
+    .santa-hero p { color: var(--text-muted); font-size: 0.9rem; margin: 8px 0 0; }
+
+    .santa-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .santa-card h3 {
+      margin: 0 0 14px;
+      font-size: 1.05rem;
+      color: var(--text);
+    }
+    .santa-stats {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .santa-stat {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .santa-stat strong { color: var(--accent); font-size: 1.1rem; }
+
+    .santa-label {
+      display: block;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin: 14px 0 4px;
+    }
+    .santa-input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.9rem;
+      box-sizing: border-box;
+    }
+    .santa-input:focus { outline: none; border-color: var(--accent); }
+    .santa-input.invalid { border-color: var(--red); }
+    .santa-hint { font-size: 0.78rem; color: var(--text-muted); margin: 4px 0 14px; }
+    .santa-hint code {
+      background: var(--card-alt);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.76rem;
+    }
+    .santa-textarea {
+      width: 100%;
+      min-height: 80px;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-family: inherit;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .santa-btn {
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 12px 28px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-top: 16px;
+      transition: all 0.15s;
+    }
+    .santa-btn:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
+    .santa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .santa-btn.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .santa-btn.secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .santa-btn.danger {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+    .santa-btn.danger:hover:not(:disabled) { background: var(--red); color: #fff; }
+
+    .participant-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .participant-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .participant-card.ready { border-color: var(--green); }
+    .participant-avatar {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: var(--card-alt);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; overflow: hidden;
+    }
+    .participant-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .participant-info { flex: 1; min-width: 0; }
+    .participant-name { font-weight: 600; font-size: 0.88rem; color: var(--text); }
+    .participant-status { font-size: 0.76rem; color: var(--text-muted); }
+    .participant-status.ready { color: var(--green); }
+    .participant-status.pending { color: var(--accent); }
+
+    .recipient-card {
+      background: var(--card);
+      border: 2px solid var(--accent);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .recipient-avatar {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      margin: 0 auto 12px;
+      background: var(--card-alt);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .recipient-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .recipient-name { font-size: 1.3rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .recipient-steam {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--bg); padding: 6px 12px;
+      border-radius: 6px; font-size: 0.82rem; color: var(--accent);
+      text-decoration: none; margin-top: 8px;
+    }
+    .recipient-steam:hover { background: var(--accent-soft); }
+    .recipient-prefs {
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: var(--bg);
+      border-radius: 8px;
+      font-size: 0.88rem;
+      color: var(--text);
+      text-align: left;
+      line-height: 1.5;
+    }
+    .gift-sent-badge {
+      display: inline-block;
+      background: var(--badge-confirmed-bg);
+      color: var(--badge-confirmed-text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-top: 12px;
+    }
+    .flash {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-size: 0.9rem;
+    }
+    .flash.error { background: var(--badge-unconfirmed-bg); color: var(--red); border: 1px solid var(--red); }
+    .flash.info { background: var(--badge-confirmed-bg); color: var(--badge-confirmed-text); }
+    .organizer-controls {
+      background: var(--card-alt);
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+    .organizer-controls h4 {
+      margin: 0 0 10px;
+      font-size: 0.85rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <h2>🎅 Тайный Санта</h2>
+
+    {% if request.query_params.get('error') == 'disabled' %}
+      <div class="flash error">Модуль Тайный Санта выключен администратором.</div>
+    {% endif %}
+
+    {% if not event %}
+      {# === Нет активного события === #}
+      <div class="santa-hero">
+        <div class="santa-icon">🎅</div>
+        <p>Сейчас нет активного события Тайного Санты.</p>
+      </div>
+
+      <div class="santa-card">
+        <h3>🚀 Создать событие</h3>
+        <p class="santa-hint">
+          Любой участник может запустить Тайного Санту. После старта все смогут присоединиться,
+          указать свой Steam-профиль и пожелания. Когда все будут готовы — бот распределит сант.
+        </p>
+        <label class="santa-label">Название события (опционально)</label>
+        <input type="text" id="santa-title" class="santa-input" placeholder="Тайный Санта 2026" value="">
+        <label class="santa-label">Дедлайн (до конца суток)</label>
+        <input type="date" id="santa-deadline" class="santa-input" min="{{ today if today is defined else '' }}">
+        <label class="santa-label">Бюджет (опционально, свободный)</label>
+        <input type="text" id="santa-budget" class="santa-input" placeholder="например: до 1000₽, или свободный">
+        <button type="button" class="santa-btn" onclick="createEvent()">🎅 Создать событие</button>
+        <div id="create-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+      </div>
+
+      {% if all_events %}
+        <div class="santa-card">
+          <h3>📜 История событий</h3>
+          {% for ev in all_events %}
+            <div class="activity-row">
+              <span>
+                <strong>{{ ev.title }}</strong>
+                {% if ev.status == 'collecting' %}<span class="badge unconfirmed">сбор</span>{% endif %}
+                {% if ev.status == 'assigned' %}<span class="badge confirmed">идёт</span>{% endif %}
+                {% if ev.status == 'revealed' %}<span class="badge confirmed">раскрыт</span>
+                  · <a href="/santa/{{ ev.id }}/reveal">смотреть</a>
+                {% endif %}
+                {% if ev.status == 'closed' %}<span class="badge user">закрыт</span>{% endif %}
+              </span>
+              <span class="mono">{{ format_msk_short(ev.deadline) }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+    {% elif event.status == 'collecting' %}
+      {# === Сбор участников === #}
+      <div class="santa-hero">
+        <div class="santa-icon">🎅</div>
+        <p><strong>{{ event.title }}</strong> — сбор участников</p>
+        <div class="santa-stats">
+          <div class="santa-stat">Участников: <strong>{{ total_count }}</strong></div>
+          <div class="santa-stat">Готовы: <strong>{{ ready_count }}</strong></div>
+          <div class="santa-stat">Дедлайн: <strong>{{ format_msk_short(event.deadline) }}</strong></div>
+        </div>
+        {% if event.budget_note %}
+          <p style="margin-top: 12px;">💰 Бюджет: {{ event.budget_note }}</p>
+        {% endif %}
+      </div>
+
+      {% if not my_participant %}
+        {# Юзер ещё не присоединился === #}
+        <div class="santa-card">
+          <h3>🎮 Присоединиться</h3>
+          <p class="santa-hint">
+            Укажите ссылку на ваш Steam-профиль. Бот проверит что профиль публичный
+            и получит ваш вишлист чтобы санта мог выбрать подарок.
+          </p>
+          <label class="santa-label">Ссылка на Steam-профиль</label>
+          <input type="text" id="steam-url" class="santa-input"
+                 placeholder="https://steamcommunity.com/profiles/765611... или /id/username"
+                 oninput="validateSteamUrl(this)">
+          <div id="steam-validation" style="font-size: 0.82rem; margin: 6px 0 14px;"></div>
+          <label class="santa-label">Пожелания (опционально)</label>
+          <textarea id="santa-prefs" class="santa-textarea"
+                    placeholder="Например: люблю стратегии и инди, не дарите хорроры..."></textarea>
+          <button type="button" class="santa-btn" onclick="joinEvent()">🎁 Присоединиться</button>
+          <div id="join-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+        </div>
+
+      {% else %}
+        {# Юзер уже участник === #}
+        <div class="santa-card">
+          <h3>✓ Вы участник</h3>
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+            {% if my_participant.steam_avatar_url %}
+              <img src="{{ my_participant.steam_avatar_url }}" alt="" style="width: 48px; height: 48px; border-radius: 50%;">
+            {% endif %}
+            <div>
+              <div style="font-weight: 600; color: var(--text);">{{ my_participant.steam_persona or my_participant.display_name }}</div>
+              <a href="{{ my_participant.steam_profile_url }}" target="_blank" class="santa-hint" style="color: var(--accent);">
+                Steam-профиль ↗
+              </a>
+            </div>
+            <div style="margin-left: auto;">
+              {% if my_participant.is_ready %}
+                <span class="badge confirmed">✓ Готов</span>
+              {% else %}
+                <span class="badge unconfirmed">⏳ Не готов</span>
+              {% endif %}
+            </div>
+          </div>
+          {% if my_participant.preferences %}
+            <div class="recipient-prefs">
+              <strong>Ваши пожелания:</strong><br>
+              {{ my_participant.preferences }}
+            </div>
+          {% endif %}
+
+          {% if not my_participant.is_ready %}
+            <button type="button" class="santa-btn" onclick="setReady(true)">✓ Я готов</button>
+          {% else %}
+            <button type="button" class="santa-btn secondary" onclick="setReady(false)">↩ Отменить готовность</button>
+          {% endif %}
+          <div id="ready-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+        </div>
+
+        {# Организатор controls #}
+        {% if is_organizer %}
+          <div class="organizer-controls">
+            <h4>🎛 Управление (организатор)</h4>
+            <p class="santa-hint">
+              Для распределения нужно минимум {{ min_participants }} готовых участников.
+              Сейчас готовых: <strong>{{ ready_count }}</strong>.
+            </p>
+            <button type="button" class="santa-btn" onclick="assignSantas()"
+                    {% if ready_count < min_participants %}disabled{% endif %}>
+              🎲 Распределить сант
+            </button>
+            {% if ready_count < min_participants %}
+              <p class="santa-hint" style="margin-top: 8px;">Нужно ещё {{ min_participants - ready_count }} участника(ов).</p>
+            {% endif %}
+            <div id="assign-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+          </div>
+        {% endif %}
+
+        {# Список участников #}
+        <div class="santa-card">
+          <h3>👥 Участники ({{ total_count }})</h3>
+          <div class="participant-grid">
+            {% for p in participants %}
+              <div class="participant-card {{ 'ready' if p.is_ready else '' }}">
+                <div class="participant-avatar">
+                  {% if p.avatar_url %}
+                    <img src="{{ p.avatar_url }}" alt="">
+                  {% else %}
+                    👤
+                  {% endif %}
+                </div>
+                <div class="participant-info">
+                  <div class="participant-name">{{ p.display_name or p.username or 'User#' ~ p.user_discord_id }}</div>
+                  <div class="participant-status {{ 'ready' if p.is_ready else 'pending' }}">
+                    {% if p.is_ready %}✓ готов{% else %}⏳ ожидание{% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% elif event.status == 'assigned' %}
+      {# === Санты распределены === #}
+      <div class="santa-hero">
+        <div class="santa-icon">🎁</div>
+        <p><strong>{{ event.title }}</strong> — санты распределены!</p>
+        {% if event.budget_note %}
+          <p>💰 Бюджет: {{ event.budget_note }}</p>
+        {% endif %}
+      </div>
+
+      {% if my_assignment %}
+        <div class="recipient-card">
+          <h3 style="margin: 0 0 16px;">🎅 Вы — Тайный Санта для:</h3>
+          <div class="recipient-avatar">
+            {% if my_assignment.recipient_avatar_url %}
+              <img src="{{ my_assignment.recipient_avatar_url }}" alt="">
+            {% else %}
+              👤
+            {% endif %}
+          </div>
+          <div class="recipient-name">{{ my_assignment.recipient_display_name or my_assignment.recipient_username }}</div>
+          {% if my_assignment.recipient_steam_persona %}
+            <p class="santa-hint" style="margin: 8px 0;">
+              Steam: <strong>{{ my_assignment.recipient_steam_persona }}</strong>
+            </p>
+          {% endif %}
+          {% if my_assignment.recipient_steam_profile_url %}
+            <a href="{{ my_assignment.recipient_steam_profile_url }}/wishlist" target="_blank" class="recipient-steam">
+              🎮 Вишлист на Steam ↗
+            </a>
+          {% endif %}
+          {% if my_assignment.recipient_preferences %}
+            <div class="recipient-prefs">
+              <strong>💬 Пожелания получателя:</strong><br>
+              {{ my_assignment.recipient_preferences }}
+            </div>
+          {% endif %}
+          {% if my_assignment.gift_sent_at %}
+            <div class="gift-sent-badge">✓ Подарок отправлен {{ format_msk_short(my_assignment.gift_sent_at) }}</div>
+          {% else %}
+            <div style="margin-top: 20px;">
+              <label class="santa-label">Послание получателю (опционально)</label>
+              <textarea id="gift-note" class="santa-textarea" placeholder="С Новым годом! 🎄..." style="min-height: 60px;"></textarea>
+              <button type="button" class="santa-btn" onclick="markGiftSent()">📦 Подарок отправлен!</button>
+              <div id="gift-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+            </div>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="flash error">Вы не участвуете в этом событии.</div>
+      {% endif %}
+
+      {% if is_admin %}
+        <div class="organizer-controls">
+          <h4>🎛 Админ: раскрытие</h4>
+          <p class="santa-hint">
+            Раскрытие сант — показать всем кто кому дарил. Используйте на стриме в день дедлайна.
+          </p>
+          <button type="button" class="santa-btn" onclick="revealEvent({{ event.id }})">🎉 Раскрыть сант</button>
+          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})" style="margin-left: 8px;">✕ Закрыть событие</button>
+          <div id="reveal-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+        </div>
+      {% endif %}
+
+    {% elif event.status == 'revealed' %}
+      {# === Раскрытие === #}
+      <div class="santa-hero">
+        <div class="santa-icon">🎉</div>
+        <p><strong>{{ event.title }}</strong> — раскрыто!</p>
+        <a href="/santa/{{ event.id }}/reveal" class="santa-btn" style="text-decoration: none; display: inline-block; margin-top: 16px;">
+          🎬 Открыть страницу раскрытия
+        </a>
+      </div>
+
+      {% if is_admin %}
+        <div class="organizer-controls">
+          <h4>🎛 Админ</h4>
+          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})">✕ Закрыть событие (скрыть данные)</button>
+        </div>
+      {% endif %}
+
+    {% endif %}
+
+  </main>
+
+  <script>
+    // === Создание события ===
+    async function createEvent() {
+      const title = document.getElementById('santa-title').value.trim();
+      const deadline = document.getElementById('santa-deadline').value;
+      const budget = document.getElementById('santa-budget').value.trim();
+      const result = document.getElementById('create-result');
+      if (!deadline) {
+        result.className = 'flash error';
+        result.textContent = '❌ Укажите дату дедлайна.';
+        result.style.display = 'block';
+        return;
+      }
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('deadline', deadline);
+      formData.append('budget_note', budget);
+      try {
+        const r = await fetch('/api/santa/create', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          location.reload();
+        } else {
+          result.className = 'flash error';
+          result.textContent = '❌ ' + (data.error || 'Ошибка');
+          result.style.display = 'block';
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    // === Валидация Steam URL ===
+    function validateSteamUrl(input) {
+      const val = input.value.trim();
+      const hint = document.getElementById('steam-validation');
+      if (!val) {
+        input.classList.remove('invalid');
+        hint.innerHTML = '';
+        return;
+      }
+      // Простая проверка — содержит steamcommunity.com или 17-значное число
+      if (val.includes('steamcommunity.com') || /^765611\d{11}$/.test(val)) {
+        input.classList.remove('invalid');
+        hint.innerHTML = '<span style="color: var(--green);">✓ Ссылка распознана</span>';
+      } else {
+        input.classList.add('invalid');
+        hint.innerHTML = '<span style="color: var(--red);">⚠️ Формат: steamcommunity.com/profiles/7656... или /id/username</span>';
+      }
+    }
+
+    // === Присоединиться ===
+    async function joinEvent() {
+      const steamUrl = document.getElementById('steam-url').value.trim();
+      const prefs = document.getElementById('santa-prefs').value.trim();
+      const result = document.getElementById('join-result');
+      if (!steamUrl) {
+        result.className = 'flash error';
+        result.textContent = '❌ Укажите ссылку на Steam-профиль.';
+        result.style.display = 'block';
+        return;
+      }
+      result.className = 'flash info';
+      result.textContent = '⏳ Проверяю Steam-профиль...';
+      result.style.display = 'block';
+      const formData = new FormData();
+      formData.append('steam_profile_url', steamUrl);
+      formData.append('preferences', prefs);
+      try {
+        const r = await fetch('/api/santa/join', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          result.className = 'flash info';
+          result.textContent = '✓ Профиль проверен: ' + (data.steam_persona || 'OK') + '. Перезагрузка...';
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          result.className = 'flash error';
+          result.textContent = '❌ ' + (data.error || 'Ошибка');
+          result.style.display = 'block';
+        }
+      } catch (e) {
+        result.className = 'flash error';
+        result.textContent = '❌ Сетевая ошибка: ' + e.message;
+        result.style.display = 'block';
+      }
+    }
+
+    // === Готовность ===
+    async function setReady(ready) {
+      const formData = new FormData();
+      formData.append('is_ready', ready);
+      try {
+        const r = await fetch('/api/santa/set_ready', { method: 'POST', body: formData });
+        if (r.ok) {
+          location.reload();
+        } else {
+          const data = await r.json();
+          alert(data.error || 'Ошибка');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    // === Распределение ===
+    async function assignSantas() {
+      if (!confirm('Распределить сант? Это действие нельзя отменить.')) return;
+      try {
+        const r = await fetch('/api/santa/assign', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          alert('✓ Распределено! Перезагрузка...');
+          location.reload();
+        } else {
+          alert(data.error || 'Ошибка');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    // === Отметить подарок ===
+    async function markGiftSent() {
+      const note = document.getElementById('gift-note').value.trim();
+      if (!confirm('Отметить подарок как отправленный? Получатель получит уведомление в Telegram.')) return;
+      const formData = new FormData();
+      formData.append('gift_note', note);
+      try {
+        const r = await fetch('/api/santa/mark_gift_sent', { method: 'POST', body: formData });
+        if (r.ok) {
+          location.reload();
+        } else {
+          const data = await r.json();
+          alert(data.error || 'Ошибка');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    // === Раскрытие (админ) ===
+    async function revealEvent(eventId) {
+      if (!confirm('Раскрыть сант? Все увидят кто кому дарил.')) return;
+      const formData = new FormData();
+      formData.append('event_id', eventId);
+      try {
+        const r = await fetch('/api/santa/reveal', { method: 'POST', body: formData });
+        if (r.ok) {
+          location.reload();
+        } else {
+          const data = await r.json();
+          alert(data.error || 'Ошибка');
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+
+    // === Закрыть событие (админ) ===
+    async function closeEvent(eventId) {
+      if (!confirm('Закрыть событие? Все данные будут скрыты.')) return;
+      const formData = new FormData();
+      formData.append('event_id', eventId);
+      try {
+        const r = await fetch('/api/santa/close', { method: 'POST', body: formData });
+        if (r.ok) {
+          location.reload();
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+  </script>
+</body>
+</html>

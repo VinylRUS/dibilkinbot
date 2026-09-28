@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -203,6 +203,58 @@ GUILD_SCHEMA_TEMPLATES = {
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_collection ON {table}(collection_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(collection_id, user_discord_id);
+    """,
+    # === v1.8.0: Тайный Санта ===
+    "santa_events": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL DEFAULT 'Тайный Санта',
+            status TEXT NOT NULL DEFAULT 'collecting',
+            deadline TEXT NOT NULL,
+            budget_note TEXT,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            assigned_at TEXT,
+            revealed_at TEXT,
+            revealed_by INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
+    """,
+    "santa_participants": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            username TEXT,
+            display_name TEXT,
+            avatar_url TEXT,
+            steam_profile_url TEXT,
+            steam_id64 TEXT,
+            steam_persona TEXT,
+            steam_avatar_url TEXT,
+            preferences TEXT,
+            is_ready INTEGER DEFAULT 0,
+            ready_at TEXT,
+            joined_at TEXT NOT NULL,
+            gift_sent_at TEXT,
+            UNIQUE(event_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_event ON {table}(event_id);
+    """,
+    "santa_assignments": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            santa_discord_id INTEGER NOT NULL,
+            recipient_discord_id INTEGER NOT NULL,
+            assigned_at TEXT NOT NULL,
+            gift_sent_at TEXT,
+            gift_note TEXT,
+            UNIQUE(event_id, santa_discord_id),
+            UNIQUE(event_id, recipient_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_event ON {table}(event_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_santa ON {table}(santa_discord_id);
     """,
 }
 

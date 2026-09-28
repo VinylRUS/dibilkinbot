@@ -15,6 +15,7 @@ import asyncio
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import discord
 from discord import app_commands
@@ -287,6 +288,9 @@ class KinovecherBot(commands.Bot):
                 log.info("Version %s already announced — skipping", current_version)
         except Exception as e:
             log.warning("Changelog post failed: %s", e, exc_info=True)
+
+        # === Запуск cron-задачи: еженедельный бэкап БД в Telegram ===
+        asyncio.create_task(_db_backup_loop())
 
     async def on_message(self, message: discord.Message) -> None:
         """Авто-захват цитат: если сообщение в канале #цитатник от человека —
@@ -1330,6 +1334,127 @@ class LinkCog(commands.Cog):
             "После привязки вы будете получать персональные уведомления в TG.",
             ephemeral=True,
         )
+
+
+# === Еженедельный бэкап БД в Telegram (v1.8.0) ===
+
+async def _db_backup_loop() -> None:
+    """Cron-задача: раз в неделю (воскресенье 04:00 МСК) создаёт дамп БД
+    и отправляет файлом админу в Telegram (если привязан).
+
+    Логика:
+    - Если db_backup_enabled == "0" — пропускаем
+    - Если админ не привязал TG — создаём локальный бэкап, логируем warning
+    - Файл: bot_YYYY-MM-DD.db в /app/data/backups/ (или рядом с БД)
+    """
+    import shutil
+    import os
+    from pathlib import Path
+    from timezone_utils import MSK, now_msk
+    from datetime import timezone as tz
+
+    BACKUP_HOUR_MSK = 4  # 04:00 МСК = 01:00 UTC
+
+    while True:
+        try:
+            # Ждём до следующего воскресенья 04:00 МСК
+            now = now_msk()
+            days_until_sunday = (6 - now.weekday()) % 7  # 6 = Sunday
+            target = now.replace(hour=BACKUP_HOUR_MSK, minute=0, second=0, microsecond=0)
+            if days_until_sunday == 0 and now.hour >= BACKUP_HOUR_MSK:
+                # Сегодня воскресенье, но уже после 04:00 — ждём следующую неделю
+                target = target + timedelta(days=7)
+            else:
+                target = target + timedelta(days=days_until_sunday)
+
+            wait_seconds = (target - now).total_seconds()
+            if wait_seconds > 0:
+                log.info("DB backup scheduled for %s MSK (in %.0f seconds)", target.strftime("%Y-%m-%d %H:%M"), wait_seconds)
+                await asyncio.sleep(wait_seconds)
+
+            # Проверяем включён ли бэкап
+            backup_enabled = await db.get_setting("db_backup_enabled")
+            if backup_enabled != "1":
+                log.info("DB backup disabled (db_backup_enabled != '1'), skipping")
+                continue
+
+            # Создаём дамп
+            db_path = settings.database_path
+            if not db_path.exists():
+                log.warning("DB backup: database file not found at %s", db_path)
+                continue
+
+            # Папка для бэкапов
+            backup_dir = db_path.parent / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_filename = f"bot_{now_msk().strftime('%Y-%m-%d')}.db"
+            backup_path = backup_dir / backup_filename
+
+            # Копируем файл
+            shutil.copy2(db_path, backup_path)
+            backup_size = backup_path.stat().st_size
+            log.info("DB backup created: %s (%.1f KB)", backup_path, backup_size / 1024)
+
+            # Проверяем лимит TG (50 МБ для sendDocument)
+            if backup_size > 50 * 1024 * 1024:
+                log.warning("DB backup too large for TG (%.1f MB), keeping local only", backup_size / 1024 / 1024)
+                continue
+
+            # Отправляем в TG админу
+            await _send_backup_to_telegram(backup_path, backup_filename)
+
+        except asyncio.CancelledError:
+            log.info("DB backup loop cancelled")
+            return
+        except Exception as e:
+            log.error("DB backup loop error: %s", e, exc_info=True)
+            await asyncio.sleep(60)
+
+
+async def _send_backup_to_telegram(backup_path: Path, filename: str) -> None:
+    """Отправить файл бэкапа в личку админу (через TG Bot API sendDocument)."""
+    import httpx
+    import html
+    from pathlib import Path
+
+    # Получаем TG-токен
+    raw_token = await db.get_setting("telegram_token")
+    if not raw_token:
+        log.warning("DB backup: no TG token, backup stays local only")
+        return
+    tg_token = crypto.decrypt(raw_token)
+
+    # Находим админа с привязкой TG
+    admin_id = settings.admin_discord_id
+    if not admin_id:
+        log.warning("DB backup: no admin_discord_id configured")
+        return
+
+    tg_link = await db.get_tg_link(admin_id)
+    if not tg_link or not tg_link[1]:  # tg_user_id
+        log.warning("DB backup: admin has no TG linked. Backup stays local at %s", backup_path)
+        return
+
+    tg_user_id = str(tg_link[1])
+
+    # Отправляем файл
+    url = f"https://api.telegram.org/bot{tg_token}/sendDocument"
+    try:
+        with open(backup_path, "rb") as f:
+            files = {"document": (filename, f, "application/octet-stream")}
+            data = {
+                "chat_id": tg_user_id,
+                "caption": f"🗄 <b>Еженедельный бэкап БД</b>\n\nФайл: <code>{html.escape(filename)}</code>\nДата: {now_msk().strftime('%d.%m.%Y %H:%M МСК')}",
+                "parse_mode": "HTML",
+            }
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(url, files=files, data=data)
+        if resp.status_code >= 400:
+            log.warning("DB backup: TG sendDocument error %s: %s", resp.status_code, resp.text[:300])
+        else:
+            log.info("DB backup sent to TG admin %s", tg_user_id)
+    except Exception as e:
+        log.warning("DB backup: TG send failed: %s", e)
 
 
 # === Обработка входящих сообщений в TG (для /linktg кода) ===

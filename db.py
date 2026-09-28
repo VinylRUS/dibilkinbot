@@ -1846,6 +1846,387 @@ async def g_complete_collection_spin(
         return picks
 
 
+# --- g_santa (Тайный Санта, v1.8.0) ---
+
+SANTA_STATUS_COLLECTING = "collecting"
+SANTA_STATUS_ASSIGNED = "assigned"
+SANTA_STATUS_REVEALED = "revealed"
+SANTA_STATUS_CLOSED = "closed"
+SANTA_MIN_PARTICIPANTS = 4
+
+
+async def g_create_santa_event(
+    guild_id: int, title: str, deadline: str, budget_note: str | None, created_by: int,
+) -> dict:
+    """Создать событие Тайного Санты. Возвращает dict события."""
+    table = _guild.guild_table(guild_id, "santa_events")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (title, status, deadline, budget_note, created_by, created_at) "
+            f"VALUES (?, 'collecting', ?, ?, ?, ?)",
+            (title, deadline, budget_note, created_by, now),
+        )
+        await db.commit()
+        event_id = cur.lastrowid
+    return {
+        "id": event_id, "title": title, "status": "collecting",
+        "deadline": deadline, "budget_note": budget_note,
+        "created_by": created_by, "created_at": now,
+    }
+
+
+async def g_get_active_santa_event(guild_id: int) -> dict | None:
+    """Получить активное событие санты (collecting или assigned). Возвращает None если нет."""
+    table = _guild.guild_table(guild_id, "santa_events")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, status, deadline, budget_note, created_by, created_at, assigned_at, revealed_at, revealed_by "
+            f"FROM {table} WHERE status IN ('collecting', 'assigned') ORDER BY id DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "title": row[1], "status": row[2], "deadline": row[3],
+            "budget_note": row[4], "created_by": row[5], "created_at": row[6],
+            "assigned_at": row[7], "revealed_at": row[8], "revealed_by": row[9],
+        }
+
+
+async def g_get_santa_event(guild_id: int, event_id: int) -> dict | None:
+    """Получить событие санты по id."""
+    table = _guild.guild_table(guild_id, "santa_events")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, status, deadline, budget_note, created_by, created_at, assigned_at, revealed_at, revealed_by "
+            f"FROM {table} WHERE id = ?",
+            (event_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "title": row[1], "status": row[2], "deadline": row[3],
+            "budget_note": row[4], "created_by": row[5], "created_at": row[6],
+            "assigned_at": row[7], "revealed_at": row[8], "revealed_by": row[9],
+        }
+
+
+async def g_list_santa_events(guild_id: int) -> list[dict]:
+    """Список всех событий санты (для истории)."""
+    table = _guild.guild_table(guild_id, "santa_events")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, status, deadline, budget_note, created_by, created_at, assigned_at, revealed_at "
+            f"FROM {table} ORDER BY id DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "id": r[0], "title": r[1], "status": r[2], "deadline": r[3],
+                "budget_note": r[4], "created_by": r[5], "created_at": r[6],
+                "assigned_at": r[7], "revealed_at": r[8],
+            }
+            for r in rows
+        ]
+
+
+async def g_add_santa_participant(
+    guild_id: int, event_id: int, user_discord_id: int,
+    username: str | None = None, display_name: str | None = None, avatar_url: str | None = None,
+    steam_profile_url: str | None = None, steam_id64: str | None = None,
+    steam_persona: str | None = None, steam_avatar_url: str | None = None,
+    preferences: str | None = None,
+) -> bool:
+    """Добавить участника в событие санты. Если уже есть — обновить данные Steam.
+    Возвращает True если создан новый, False если обновлён существующий.
+    """
+    table = _guild.guild_table(guild_id, "santa_participants")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id FROM {table} WHERE event_id = ? AND user_discord_id = ?",
+            (event_id, user_discord_id)
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            # Обновляем Steam данные
+            await db.execute(
+                f"UPDATE {table} SET username = COALESCE(?, username), "
+                f"display_name = COALESCE(?, display_name), "
+                f"avatar_url = COALESCE(?, avatar_url), "
+                f"steam_profile_url = COALESCE(?, steam_profile_url), "
+                f"steam_id64 = COALESCE(?, steam_id64), "
+                f"steam_persona = COALESCE(?, steam_persona), "
+                f"steam_avatar_url = COALESCE(?, steam_avatar_url), "
+                f"preferences = COALESCE(?, preferences) "
+                f"WHERE event_id = ? AND user_discord_id = ?",
+                (username, display_name, avatar_url, steam_profile_url, steam_id64,
+                 steam_persona, steam_avatar_url, preferences, event_id, user_discord_id)
+            )
+            await db.commit()
+            return False
+        await db.execute(
+            f"INSERT INTO {table} (event_id, user_discord_id, username, display_name, avatar_url, "
+            f"steam_profile_url, steam_id64, steam_persona, steam_avatar_url, preferences, joined_at) "
+            f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (event_id, user_discord_id, username, display_name, avatar_url,
+             steam_profile_url, steam_id64, steam_persona, steam_avatar_url, preferences, now),
+        )
+        await db.commit()
+        return True
+
+
+async def g_list_santa_participants(guild_id: int, event_id: int) -> list[dict]:
+    """Список участников события санты."""
+    table = _guild.guild_table(guild_id, "santa_participants")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, user_discord_id, username, display_name, avatar_url, "
+            f"steam_profile_url, steam_id64, steam_persona, steam_avatar_url, preferences, "
+            f"is_ready, ready_at, joined_at, gift_sent_at "
+            f"FROM {table} WHERE event_id = ? ORDER BY joined_at ASC",
+            (event_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "id": r[0], "user_discord_id": r[1], "username": r[2],
+                "display_name": r[3], "avatar_url": r[4],
+                "steam_profile_url": r[5], "steam_id64": r[6],
+                "steam_persona": r[7], "steam_avatar_url": r[8],
+                "preferences": r[9], "is_ready": bool(r[10]),
+                "ready_at": r[11], "joined_at": r[12], "gift_sent_at": r[13],
+            }
+            for r in rows
+        ]
+
+
+async def g_get_santa_participant(guild_id: int, event_id: int, user_discord_id: int) -> dict | None:
+    """Получить участника события санты."""
+    table = _guild.guild_table(guild_id, "santa_participants")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, user_discord_id, username, display_name, avatar_url, "
+            f"steam_profile_url, steam_id64, steam_persona, steam_avatar_url, preferences, "
+            f"is_ready, ready_at, joined_at, gift_sent_at "
+            f"FROM {table} WHERE event_id = ? AND user_discord_id = ?",
+            (event_id, user_discord_id)
+        ) as cur:
+            r = await cur.fetchone()
+        if not r:
+            return None
+        return {
+            "id": r[0], "user_discord_id": r[1], "username": r[2],
+            "display_name": r[3], "avatar_url": r[4],
+            "steam_profile_url": r[5], "steam_id64": r[6],
+            "steam_persona": r[7], "steam_avatar_url": r[8],
+            "preferences": r[9], "is_ready": bool(r[10]),
+            "ready_at": r[11], "joined_at": r[12], "gift_sent_at": r[13],
+        }
+
+
+async def g_set_santa_participant_ready(
+    guild_id: int, event_id: int, user_discord_id: int, is_ready: bool,
+) -> bool:
+    """Отметить участника готовым/не готовым."""
+    table = _guild.guild_table(guild_id, "santa_participants")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET is_ready = ?, ready_at = ? "
+            f"WHERE event_id = ? AND user_discord_id = ?",
+            (1 if is_ready else 0, now if is_ready else None, event_id, user_discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_count_santa_participants(guild_id: int, event_id: int, ready_only: bool = False) -> int:
+    """Посчитать участников (опционально только готовых)."""
+    table = _guild.guild_table(guild_id, "santa_participants")
+    async with _connect() as db:
+        if ready_only:
+            sql = f"SELECT COUNT(*) FROM {table} WHERE event_id = ? AND is_ready = 1"
+        else:
+            sql = f"SELECT COUNT(*) FROM {table} WHERE event_id = ?"
+        async with db.execute(sql, (event_id,)) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+
+async def g_assign_santas(guild_id: int, event_id: int) -> list[dict] | None:
+    """Назначить сант (алгоритм: случайная перестановка без фиксированных точек).
+    Минимум 4 участника. Каждый дарит одному, получает от другого.
+    Возвращает list of {santa_discord_id, recipient_discord_id} или None если мало участников.
+    """
+    import random
+    participants = await g_list_santa_participants(guild_id, event_id)
+    if len(participants) < SANTA_MIN_PARTICIPANTS:
+        return None
+
+    # Берём только готовых
+    ready = [p for p in participants if p["is_ready"]]
+    if len(ready) < SANTA_MIN_PARTICIPANTS:
+        return None
+
+    discord_ids = [p["user_discord_id"] for p in ready]
+    n = len(discord_ids)
+
+    # Алгоритм: циклический сдвиг на случайную величину (1..n-1)
+    # Это гарантирует: никто не дарит себе, нет коротких циклов (кроме n=2)
+    shift = random.randint(1, n - 1)
+    assignments = []
+    for i in range(n):
+        santa_id = discord_ids[i]
+        recipient_id = discord_ids[(i + shift) % n]
+        assignments.append({"santa_discord_id": santa_id, "recipient_discord_id": recipient_id})
+
+    # Сохраняем в БД
+    table_a = _guild.guild_table(guild_id, "santa_assignments")
+    table_e = _guild.guild_table(guild_id, "santa_events")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        # Очищаем старые назначения (если были)
+        await db.execute(f"DELETE FROM {table_a} WHERE event_id = ?", (event_id,))
+        for a in assignments:
+            await db.execute(
+                f"INSERT INTO {table_a} (event_id, santa_discord_id, recipient_discord_id, assigned_at) "
+                f"VALUES (?, ?, ?, ?)",
+                (event_id, a["santa_discord_id"], a["recipient_discord_id"], now),
+            )
+        # Меняем статус события
+        await db.execute(
+            f"UPDATE {table_e} SET status = 'assigned', assigned_at = ? WHERE id = ?",
+            (now, event_id),
+        )
+        await db.commit()
+
+    return assignments
+
+
+async def g_get_santa_assignment(guild_id: int, event_id: int, santa_discord_id: int) -> dict | None:
+    """Получить назначение санты — кого он одаривает. Возвращает dict с recipient info."""
+    table_a = _guild.guild_table(guild_id, "santa_assignments")
+    table_p = _guild.guild_table(guild_id, "santa_participants")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT a.santa_discord_id, a.recipient_discord_id, a.assigned_at, a.gift_sent_at, a.gift_note, "
+            f"p.username, p.display_name, p.avatar_url, p.steam_profile_url, p.steam_id64, "
+            f"p.steam_persona, p.steam_avatar_url, p.preferences "
+            f"FROM {table_a} a "
+            f"JOIN {table_p} p ON p.user_discord_id = a.recipient_discord_id AND p.event_id = a.event_id "
+            f"WHERE a.event_id = ? AND a.santa_discord_id = ?",
+            (event_id, santa_discord_id)
+        ) as cur:
+            r = await cur.fetchone()
+        if not r:
+            return None
+        return {
+            "santa_discord_id": r[0], "recipient_discord_id": r[1],
+            "assigned_at": r[2], "gift_sent_at": r[3], "gift_note": r[4],
+            "recipient_username": r[5], "recipient_display_name": r[6],
+            "recipient_avatar_url": r[7], "recipient_steam_profile_url": r[8],
+            "recipient_steam_id64": r[9], "recipient_steam_persona": r[10],
+            "recipient_steam_avatar_url": r[11], "recipient_preferences": r[12],
+        }
+
+
+async def g_mark_santa_gift_sent(
+    guild_id: int, event_id: int, santa_discord_id: int, gift_note: str | None = None,
+) -> bool:
+    """Отметить что подарок отправлен. Возвращает True если обновлено."""
+    table_a = _guild.guild_table(guild_id, "santa_assignments")
+    table_p = _guild.guild_table(guild_id, "santa_participants")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table_a} SET gift_sent_at = ?, gift_note = ? "
+            f"WHERE event_id = ? AND santa_discord_id = ? AND gift_sent_at IS NULL",
+            (now, gift_note, event_id, santa_discord_id),
+        )
+        # Также отмечаем gift_sent_at в participants
+        await db.execute(
+            f"UPDATE {table_p} SET gift_sent_at = ? "
+            f"WHERE event_id = ? AND user_discord_id = ?",
+            (now, event_id, santa_discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_get_all_santa_assignments(guild_id: int, event_id: int) -> list[dict]:
+    """Все назначения события (для страницы раскрытия). Только после reveal."""
+    table_a = _guild.guild_table(guild_id, "santa_assignments")
+    table_p = _guild.guild_table(guild_id, "santa_participants")
+    async with _connect() as db:
+        # Сначала santas
+        async with db.execute(
+            f"SELECT a.santa_discord_id, a.recipient_discord_id, a.gift_sent_at, a.gift_note, "
+            f"ps.username, ps.display_name, ps.avatar_url "
+            f"FROM {table_a} a "
+            f"JOIN {table_p} ps ON ps.user_discord_id = a.santa_discord_id AND ps.event_id = a.event_id "
+            f"WHERE a.event_id = ? ORDER BY a.id",
+            (event_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        result = []
+        for r in rows:
+            santa_id = r[0]
+            recipient_id = r[1]
+            # Получаем recipient info
+            async with db.execute(
+                f"SELECT username, display_name, avatar_url, steam_persona, steam_avatar_url, preferences "
+                f"FROM {table_p} WHERE event_id = ? AND user_discord_id = ?",
+                (event_id, recipient_id)
+            ) as cur2:
+                rp = await cur2.fetchone()
+            result.append({
+                "santa_discord_id": santa_id,
+                "santa_username": r[4],
+                "santa_display_name": r[5],
+                "santa_avatar_url": r[6],
+                "recipient_discord_id": recipient_id,
+                "recipient_username": rp[0] if rp else None,
+                "recipient_display_name": rp[1] if rp else None,
+                "recipient_avatar_url": rp[2] if rp else None,
+                "recipient_steam_persona": rp[3] if rp else None,
+                "recipient_steam_avatar_url": rp[4] if rp else None,
+                "recipient_preferences": rp[5] if rp else None,
+                "gift_sent_at": r[2],
+                "gift_note": r[3],
+            })
+        return result
+
+
+async def g_reveal_santa_event(guild_id: int, event_id: int, revealed_by: int) -> bool:
+    """Раскрыть сант (статус → revealed). Только админ."""
+    table = _guild.guild_table(guild_id, "santa_events")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET status = 'revealed', revealed_at = ?, revealed_by = ? "
+            f"WHERE id = ? AND status = 'assigned'",
+            (now, revealed_by, event_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_close_santa_event(guild_id: int, event_id: int) -> bool:
+    """Закрыть событие санты (статус → closed). Только админ. Скрывает данные."""
+    table = _guild.guild_table(guild_id, "santa_events")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET status = 'closed' WHERE id = ?",
+            (event_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
 # --- g_watchlist (список желаемого) ---
 
 async def g_add_to_watchlist(guild_id: int, user_discord_id: int, title: str, tmdb_id: int | None = None) -> tuple[int | None, str | None]:

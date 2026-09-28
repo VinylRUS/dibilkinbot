@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>🎁 Раскрытие Тайного Санты · {{ event.title }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: #fff;
+      min-height: 100vh;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow-x: hidden;
+    }
+
+    .reveal-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 24px;
+      text-align: center;
+    }
+
+    .reveal-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: #FFB703;
+      text-shadow: 0 0 30px rgba(255, 183, 3, 0.5);
+      margin-bottom: 8px;
+    }
+
+    .reveal-subtitle {
+      font-size: 1.1rem;
+      color: #B0B0B0;
+      margin-bottom: 40px;
+    }
+
+    .reveal-controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+
+    .reveal-btn {
+      background: #FFB703;
+      color: #1A1A1A;
+      border: none;
+      padding: 14px 36px;
+      border-radius: 50px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 20px rgba(255, 183, 3, 0.4);
+    }
+    .reveal-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 28px rgba(255, 183, 3, 0.6);
+    }
+    .reveal-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .reveal-btn.secondary {
+      background: transparent;
+      color: #FFB703;
+      border: 2px solid #FFB703;
+      box-shadow: none;
+    }
+    .reveal-btn.secondary:hover:not(:disabled) {
+      background: #FFB703;
+      color: #1A1A1A;
+    }
+
+    .pair-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(255, 183, 3, 0.3);
+      border-radius: 20px;
+      padding: 40px;
+      margin-bottom: 24px;
+      opacity: 0;
+      transform: translateY(30px) scale(0.95);
+      transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      display: none;
+    }
+    .pair-card.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      display: block;
+    }
+
+    .pair-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 40px;
+      flex-wrap: wrap;
+    }
+
+    .person-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .person-avatar {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border: 3px solid;
+      transition: all 0.4s;
+    }
+    .person-avatar.santa { border-color: #FFB703; box-shadow: 0 0 20px rgba(255, 183, 3, 0.4); }
+    .person-avatar.recipient { border-color: #6FAE5A; box-shadow: 0 0 20px rgba(111, 174, 90, 0.4); }
+    .person-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .person-avatar .placeholder { font-size: 2.5rem; }
+
+    .person-name {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .person-role {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 600;
+    }
+    .person-role.santa { color: #FFB703; }
+    .person-role.recipient { color: #6FAE5A; }
+
+    .arrow {
+      font-size: 2rem;
+      color: #FFB703;
+      animation: pulse-arrow 1.5s infinite;
+    }
+    @keyframes pulse-arrow {
+      0%, 100% { opacity: 0.5; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+
+    .gift-info {
+      margin-top: 20px;
+      padding: 12px 20px;
+      background: rgba(255, 183, 3, 0.1);
+      border-radius: 10px;
+      font-size: 0.9rem;
+      color: #FFB703;
+    }
+    .gift-info.sent { color: #6FAE5A; background: rgba(111, 174, 90, 0.1); }
+
+    .preferences {
+      margin-top: 16px;
+      padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      font-size: 0.88rem;
+      color: #B0B0B0;
+      text-align: left;
+      line-height: 1.5;
+    }
+    .preferences strong { color: #fff; }
+
+    .progress-bar {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin-bottom: 30px;
+    }
+    .progress-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      transition: all 0.3s;
+    }
+    .progress-dot.active {
+      background: #FFB703;
+      box-shadow: 0 0 8px #FFB703;
+    }
+    .progress-dot.done { background: #6FAE5A; }
+
+    .reveal-complete {
+      display: none;
+      margin-top: 40px;
+    }
+    .reveal-complete.show { display: block; animation: fadeIn 0.8s; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.8); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .reveal-complete h2 {
+      font-size: 3rem;
+      color: #FFB703;
+      text-shadow: 0 0 40px rgba(255, 183, 3, 0.6);
+      margin-bottom: 16px;
+    }
+
+    /* Снежинки */
+    .snowflake {
+      position: fixed;
+      top: -20px;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 1.2rem;
+      pointer-events: none;
+      z-index: 1;
+      animation: fall linear infinite;
+    }
+    @keyframes fall {
+      to { transform: translateY(100vh); }
+    }
+  </style>
+</head>
+<body>
+  <!-- Снежинки -->
+  <div id="snowflakes"></div>
+
+  <div class="reveal-container">
+    <div class="reveal-title">🎁 {{ event.title }}</div>
+    <div class="reveal-subtitle">Раскрытие Тайного Санты</div>
+
+    {# Прогресс-бар #}
+    <div class="progress-bar" id="progress-bar">
+      {% for a in assignments %}
+        <div class="progress-dot" data-index="{{ loop.index0 }}"></div>
+      {% endfor %}
+    </div>
+
+    {# Карточки пар #}
+    <div id="pairs-container">
+      {% for a in assignments %}
+        <div class="pair-card" data-index="{{ loop.index0 }}">
+          <div class="pair-row">
+            {# Санта #}
+            <div class="person-block">
+              <div class="person-avatar santa">
+                {% if a.santa_avatar_url %}
+                  <img src="{{ a.santa_avatar_url }}" alt="">
+                {% else %}
+                  <span class="placeholder">🎅</span>
+                {% endif %}
+              </div>
+              <div class="person-role santa">Санта</div>
+              <div class="person-name">{{ a.santa_display_name or a.santa_username or 'Unknown' }}</div>
+            </div>
+
+            {# Стрелка #}
+            <div class="arrow">→</div>
+
+            {# Получатель #}
+            <div class="person-block">
+              <div class="person-avatar recipient">
+                {% if a.recipient_avatar_url %}
+                  <img src="{{ a.recipient_avatar_url }}" alt="">
+                {% else %}
+                  <span class="placeholder">🎁</span>
+                {% endif %}
+              </div>
+              <div class="person-role recipient">Получатель</div>
+              <div class="person-name">{{ a.recipient_display_name or a.recipient_username or 'Unknown' }}</div>
+            </div>
+          </div>
+
+          {# Информация о подарке #}
+          {% if a.gift_sent_at %}
+            <div class="gift-info sent">✓ Подарок отправлен</div>
+          {% else %}
+            <div class="gift-info">⏳ Подарок ещё не отправлен</div>
+          {% endif %}
+
+          {# Пожелания получателя #}
+          {% if a.recipient_preferences %}
+            <div class="preferences">
+              <strong>💬 Пожелания получателя:</strong><br>
+              {{ a.recipient_preferences }}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    {# Финал #}
+    <div class="reveal-complete" id="reveal-complete">
+      <h2>🎉 С НОВЫМ ГОДОМ! 🎄</h2>
+      <p style="font-size: 1.2rem; color: #B0B0B0;">
+        Все пары раскрыты. Спасибо всем участникам!
+      </p>
+    </div>
+
+    {# Кнопки управления #}
+    <div class="reveal-controls" id="controls">
+      <button class="reveal-btn" id="next-btn" onclick="nextPair()">🎁 Следующая пара →</button>
+      <button class="reveal-btn secondary" onclick="revealAll()">⚡ Показать все</button>
+      <button class="reveal-btn secondary" onclick="resetReveal()">↻ Заново</button>
+    </div>
+  </div>
+
+  <script>
+    const totalPairs = {{ assignments | length }};
+    let currentPair = 0;
+    let allShown = false;
+
+    function updateProgress() {
+      document.querySelectorAll('.progress-dot').forEach((dot, i) => {
+        dot.classList.remove('active', 'done');
+        if (i < currentPair) dot.classList.add('done');
+        else if (i === currentPair) dot.classList.add('active');
+      });
+    }
+
+    function showPair(index) {
+      const card = document.querySelector(`.pair-card[data-index="${index}"]`);
+      if (card) {
+        card.classList.add('visible');
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function nextPair() {
+      if (currentPair >= totalPairs) {
+        completeReveal();
+        return;
+      }
+      showPair(currentPair);
+      currentPair++;
+      updateProgress();
+      if (currentPair >= totalPairs) {
+        document.getElementById('next-btn').textContent = '🎉 Финал';
+      }
+    }
+
+    function revealAll() {
+      document.querySelectorAll('.pair-card').forEach(card => card.classList.add('visible'));
+      currentPair = totalPairs;
+      allShown = true;
+      document.querySelectorAll('.progress-dot').forEach(dot => {
+        dot.classList.remove('active');
+        dot.classList.add('done');
+      });
+      document.getElementById('next-btn').textContent = '🎉 Финал';
+    }
+
+    function completeReveal() {
+      document.getElementById('reveal-complete').classList.add('show');
+      document.getElementById('controls').style.display = 'none';
+      document.querySelectorAll('.progress-dot').forEach(dot => {
+        dot.classList.remove('active');
+        dot.classList.add('done');
+      });
+    }
+
+    function resetReveal() {
+      document.querySelectorAll('.pair-card').forEach(card => card.classList.remove('visible'));
+      document.getElementById('reveal-complete').classList.remove('show');
+      document.getElementById('controls').style.display = 'flex';
+      currentPair = 0;
+      document.getElementById('next-btn').textContent = '🎁 Следующая пара →';
+      updateProgress();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Снежинки
+    function createSnowflakes() {
+      const container = document.getElementById('snowflakes');
+      const flakes = ['❄', '❅', '❆', '✦', '✧'];
+      for (let i = 0; i < 30; i++) {
+        const flake = document.createElement('div');
+        flake.className = 'snowflake';
+        flake.textContent = flakes[Math.floor(Math.random() * flakes.length)];
+        flake.style.left = Math.random() * 100 + '%';
+        flake.style.animationDuration = (5 + Math.random() * 10) + 's';
+        flake.style.animationDelay = (Math.random() * 5) + 's';
+        flake.style.opacity = 0.3 + Math.random() * 0.4;
+        flake.style.fontSize = (0.8 + Math.random() * 0.8) + 'rem';
+        container.appendChild(flake);
+      }
+    }
+
+    createSnowflakes();
+    updateProgress();
+  </script>
+</body>
+</html>
