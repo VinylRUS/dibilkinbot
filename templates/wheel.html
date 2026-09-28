@@ -23,6 +23,57 @@
       transition: all 0.15s;
     }
     .back-link:hover { background: var(--accent); color: #1A1A1A; }
+
+    /* === Баннеры инфо о сборе === */
+    .wheel-banner {
+      background: rgba(255, 183, 3, 0.15);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px 18px;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    [data-theme="light"] .wheel-banner { color: var(--text); }
+    .wheel-banner.success {
+      background: rgba(79, 121, 66, 0.15);
+      border-color: var(--green);
+    }
+    .wheel-banner.warning {
+      background: rgba(228, 88, 62, 0.15);
+      border-color: var(--red);
+    }
+    .wheel-banner-icon {
+      font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+    .wheel-banner-text {
+      flex: 1;
+    }
+    .wheel-banner-text strong {
+      color: var(--accent);
+      font-size: 1rem;
+    }
+    .wheel-banner.success .wheel-banner-text strong { color: var(--green); }
+    .wheel-banner.warning .wheel-banner-text strong { color: var(--red); }
+    .wheel-banner-text a {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .wheel-banner-action {
+      background: var(--accent);
+      color: #1A1A1A;
+      padding: 6px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .wheel-banner-action:hover { background: var(--accent-hover); }
     .wheel-page {
       max-width: 1400px;
       margin: 0 auto;
@@ -285,6 +336,70 @@
 </head>
 <body>
   <a href="/" class="back-link">← В панель</a>
+
+  {# === Баннеры о статусе сбора === #}
+  <div style="max-width: 1400px; margin: 60px auto 0; padding: 0 24px;">
+
+  {% if recent_winner %}
+    {# Победитель уже определён — крутить нельзя #}
+    <div class="wheel-banner warning">
+      <div class="wheel-banner-icon">🏆</div>
+      <div class="wheel-banner-text">
+        <strong>Победитель уже определён: «{{ recent_winner.lot_name }}»</strong><br>
+        Повторная крутка невозможна. Чтобы начать новый киновечер — запустите новый сбор на странице <a href="/movienight">/movienight</a>.
+      </div>
+      <a href="/movienight" class="wheel-banner-action">🎬 Новый сбор</a>
+    </div>
+
+  {% elif active_collection %}
+    {# Активный сбор — предупреждаем что надо завершить его, а потом крутить #}
+    <div class="wheel-banner warning">
+      <div class="wheel-banner-icon">⏳</div>
+      <div class="wheel-banner-text">
+        <strong>Идёт активный сбор фильмов</strong><br>
+        Сначала завершите сбор на странице <a href="/movienight">/movienight</a> чтобы загрузить выбранные фильмы в колесо.
+      </div>
+      <a href="/movienight" class="wheel-banner-action">← К сбору</a>
+    </div>
+
+  {% elif last_collection and wheel_count > 0 %}
+    {# Колесо загружено из завершённого сбора — можно крутить #}
+    <div class="wheel-banner success">
+      <div class="wheel-banner-icon">✓</div>
+      <div class="wheel-banner-text">
+        <strong>Колесо загружено из сбора ({{ wheel_count }} фильмов)</strong><br>
+        Крутите! Победитель будет определён после первой крутки.
+      </div>
+    </div>
+
+  {% elif wheel_count > 0 %}
+    {# Фильмы в колесе есть, но не из сбора #}
+    <div class="wheel-banner">
+      <div class="wheel-banner-icon">🎡</div>
+      <div class="wheel-banner-text">
+        <strong>Колесо готово ({{ wheel_count }} фильмов)</strong><br>
+        Фильмы загружены вручную. Крутите! Хотите собрать фильмы через сбор — <a href="/movienight">/movienight</a>.
+      </div>
+    </div>
+
+  {% else %}
+    {# Колесо пустое #}
+    <div class="wheel-banner">
+      <div class="wheel-banner-icon">📭</div>
+      <div class="wheel-banner-text">
+        <strong>Колесо пустое</strong><br>
+        {% if last_collection %}
+          Последний сбор уже завершён. Запустите новый сбор на <a href="/movienight">/movienight</a> или загрузите фильмы вручную кнопкой ниже.
+        {% else %}
+          Начните сбор фильмов на странице <a href="/movienight">/movienight</a> или загрузите фильмы вручную кнопкой ниже.
+        {% endif %}
+      </div>
+      <a href="/movienight" class="wheel-banner-action">🎬 К киновечеру</a>
+    </div>
+  {% endif %}
+
+  </div>
+
   <main class="wheel-page">
     <!-- Колесо -->
     <section class="wheel-area">
@@ -309,10 +424,12 @@
 
     <!-- Список лотов -->
     <aside class="sidebar">
-      <!-- Кнопка загрузки из списков желаемого -->
+      <!-- Кнопка загрузки из списков желаемого (скрыта если активный сбор или уже есть победитель) -->
+      {% if not active_collection and not recent_winner %}
       <button id="load-watchlist-btn" style="width: 100%; background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; margin: 0 0 14px 0; font-weight: 600;" onclick="loadFromWatchlist()">
         📋 Загрузить из списков желаемого
       </button>
+      {% endif %}
 
       <h2>Лоты в колесе <span id="count" class="count-badge">0</span></h2>
 
@@ -548,6 +665,12 @@
       const r = await fetch('/api/wheel/spin', { method: 'POST' });
       const data = await r.json();
       if (!r.ok) {
+        // Если победитель уже определён или активный сбор — предложим /movienight
+        if (data.error_code === 'winner_already_determined' || data.error_code === 'active_collection_exists') {
+          alert(data.error + '\n\nНажмите OK чтобы перейти к /movienight.');
+          window.location.href = '/movienight';
+          return;
+        }
         alert(data.error || 'Ошибка спина');
         spinning = false;
         document.getElementById('spin-btn').disabled = false;
@@ -592,6 +715,7 @@
     // === Load from watchlist ===
     async function loadFromWatchlist() {
       const btn = document.getElementById('load-watchlist-btn');
+      if (!btn) return;
       btn.disabled = true; btn.textContent = '⏳ Загрузка...';
       try {
         const r = await fetch('/api/wheel/load-from-watchlist', { method: 'POST' });
@@ -712,6 +836,12 @@
       const r = await fetch('/api/wheel/spin_elimination', { method: 'POST' });
       const data = await r.json();
       if (!r.ok) {
+        // Если победитель уже определён или активный сбор — предложим /movienight
+        if (data.error_code === 'winner_already_determined' || data.error_code === 'active_collection_exists') {
+          alert(data.error + '\n\nНажмите OK чтобы перейти к /movienight.');
+          window.location.href = '/movienight';
+          return;
+        }
         alert(data.error || 'Ошибка спина');
         spinning = false;
         document.getElementById('spin-btn').disabled = items.length < 2;
