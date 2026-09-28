@@ -975,11 +975,12 @@ async def g_is_watched(guild_id: int, title: str) -> bool:
             return await cur.fetchone() is not None
 
 
-async def g_list_watched(guild_id: int, limit: int = 50) -> list[tuple]:
+async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0) -> list[tuple]:
     table = _guild.guild_table(guild_id, "watched")
     async with _connect() as db:
         async with db.execute(
-            f"SELECT id, title, watched_at, rating FROM {table} ORDER BY watched_at DESC LIMIT ?", (limit,)
+            f"SELECT id, title, watched_at, rating FROM {table} ORDER BY watched_at DESC LIMIT ? OFFSET ?",
+            (limit, offset)
         ) as cur:
             return await cur.fetchall()
 
@@ -1538,3 +1539,85 @@ async def complete_filmnight(completed_by: int = 0) -> bool:
 
 async def count_user_wheel_items(user_discord_id: int) -> int:
     return await g_count_user_wheel_items(0, user_discord_id)
+
+
+# --- g_watchlist (список желаемого) ---
+
+async def g_add_to_watchlist(guild_id: int, user_discord_id: int, title: str, tmdb_id: int | None = None) -> int:
+    """Добавить фильм в личный список желаемого юзера."""
+    table = _guild.guild_table(guild_id, "watchlist")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (user_discord_id, title, tmdb_id, added_at) VALUES (?, ?, ?, ?)",
+            (user_discord_id, title, tmdb_id, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_remove_from_watchlist(guild_id: int, watchlist_id: int, user_discord_id: int) -> bool:
+    """Удалить фильм из списка желаемого (только владелец может)."""
+    table = _guild.guild_table(guild_id, "watchlist")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"DELETE FROM {table} WHERE id = ? AND user_discord_id = ?",
+            (watchlist_id, user_discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_update_watchlist_title(guild_id: int, watchlist_id: int, user_discord_id: int, new_title: str) -> bool:
+    """Изменить название фильма в списке желаемого (только владелец)."""
+    table = _guild.guild_table(guild_id, "watchlist")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET title = ? WHERE id = ? AND user_discord_id = ?",
+            (new_title.strip(), watchlist_id, user_discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_list_watchlist(guild_id: int, user_discord_id: int, include_watched: bool = False) -> list[tuple]:
+    """Список желаемого конкретного юзера.
+    Возвращает [(id, title, tmdb_id, added_at, is_watched), ...]
+    По умолчанию только непросмотренные.
+    """
+    table = _guild.guild_table(guild_id, "watchlist")
+    async with _connect() as db:
+        if include_watched:
+            sql = f"SELECT id, title, tmdb_id, added_at, is_watched FROM {table} WHERE user_discord_id = ? ORDER BY added_at DESC"
+            params = (user_discord_id,)
+        else:
+            sql = f"SELECT id, title, tmdb_id, added_at, is_watched FROM {table} WHERE user_discord_id = ? AND is_watched = 0 ORDER BY added_at DESC"
+            params = (user_discord_id,)
+        async with db.execute(sql, params) as cur:
+            return await cur.fetchall()
+
+
+async def g_get_all_unwatched_watchlist(guild_id: int) -> list[dict]:
+    """Все непросмотренные фильмы из списков желаемого ВСЕХ юзеров.
+    Используется для заполнения колеса.
+    """
+    table = _guild.guild_table(guild_id, "watchlist")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, user_discord_id, title, tmdb_id FROM {table} WHERE is_watched = 0 ORDER BY added_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [{"id": r[0], "user_discord_id": r[1], "title": r[2], "tmdb_id": r[3]} for r in rows]
+
+
+async def g_mark_watchlist_watched(guild_id: int, title: str) -> int:
+    """Пометить все записи с таким названием как просмотренные.
+    Возвращает количество обновлённых записей.
+    """
+    table = _guild.guild_table(guild_id, "watchlist")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET is_watched = 1, watched_at = ? WHERE lower(title) = lower(?) AND is_watched = 0",
+            (datetime.utcnow().isoformat(), title),
+        )
+        await db.commit()
+        return cur.rowcount

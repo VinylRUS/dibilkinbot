@@ -61,7 +61,7 @@
               <span>· ⭐{{ item.rating }}/10</span>
             {% endif %}
           </span>
-          <span class="mono">{{ item.ts[:16].replace('T', ' ') }}</span>
+          <span class="mono">{{ format_msk(item.ts) }}</span>
         </div>
       {% else %}
         <div class="empty">Пока нет событий.</div>
@@ -74,7 +74,7 @@
       {% for w_id, lot_name, tmdb_id, confidence, detected_at, confirmed_at in recent_winners %}
         <tr>
           <td>{{ lot_name }}</td>
-          <td class="mono">{{ detected_at[:10] }}</td>
+          <td class="mono">{{ format_msk_short(detected_at) }}</td>
           <td><span class="badge {{ confidence }}">{{ confidence }}</span></td>
         </tr>
       {% else %}
@@ -88,7 +88,7 @@
       {% for w_id, title, watched_at, rating in recent_watched %}
         <tr>
           <td>{{ title }}</td>
-          <td class="mono">{{ watched_at[:10] }}</td>
+          <td class="mono">{{ format_msk_short(watched_at) }}</td>
           <td>{{ '⭐' * rating if rating else '—' }}</td>
         </tr>
       {% else %}

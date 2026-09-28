@@ -171,7 +171,7 @@
           <div class="watched-card" id="watched-{{ w_id }}">
             <div class="watched-info">
               <div class="watched-title" id="title-{{ w_id }}">{{ title }}</div>
-              <div class="watched-date mono">{{ watched_at[:16].replace('T', ' ') }}</div>
+              <div class="watched-date mono">{{ format_msk(watched_at) }}</div>
             </div>
             <div class="watched-actions">
               <!-- Звёзды оценки -->
@@ -194,6 +194,18 @@
         {% endfor %}
       {% endif %}
     </article>
+
+    {% if has_more %}
+      <div style="text-align: center; margin-top: 16px;">
+        <a href="/watched?page={{ page + 1 }}" style="display: inline-block; padding: 8px 24px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); text-decoration: none; font-size: 0.85rem;">
+          Показать ещё ({{ total }})
+        </a>
+      </div>
+    {% endif %}
+
+    <p style="text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 14px;">
+      Всего: {{ total }} · Страница {{ page }}
+    </p>
   </main>
 
   <script>

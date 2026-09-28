@@ -233,7 +233,7 @@
                 {% endif %}
                 <div>
                   <div class="quote-author">{{ author }}</div>
-                  <div class="quote-date mono">{{ recorded_at[:16].replace('T', ' ') }}</div>
+                  <div class="quote-date mono">{{ format_msk(recorded_at) }}</div>
                 </div>
               </div>
               <p class="quote-text">{{ text }}</p>

@@ -141,6 +141,8 @@ def _theme(request: Request) -> str:
 
 # Регистрируем глобально для всех шаблонов, чтобы не передавать явно
 templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "light")
+templates.env.globals["format_msk"] = lambda dt_str: __import__("timezone_utils").format_msk(dt_str)
+templates.env.globals["format_msk_short"] = lambda dt_str: __import__("timezone_utils").format_msk_short(dt_str)
 
 
 def get_current_guild_id(user_payload: dict) -> int:
@@ -624,13 +626,31 @@ async def api_get_ratings(
 # === Watched page (для всех залогиненных) ===
 
 @app.get("/watched", response_class=HTMLResponse)
-async def watched_page(request: Request, _user: dict = Depends(require_user)):
+async def watched_page(
+    request: Request,
+    _user: dict = Depends(require_user),
+    page: int = 1,
+):
     guild_id = get_current_guild_id(_user)
-    watched = await db.g_list_watched(guild_id, limit=100)
+    page = max(1, page)
+    per_page = 20
+    offset = (page - 1) * per_page
+    watched = await db.g_list_watched(guild_id, limit=per_page, offset=offset)
+    # Считаем всего через отдельный запрос
+    from guild import guild_table
+    table = guild_table(guild_id, "watched")
+    async with db._connect() as conn:
+        async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+            row = await cur.fetchone()
+    total_count = row[0] if row else 0
+    has_more = offset + per_page < total_count
     return templates.TemplateResponse(request, "watched.html", {
         "user": _user,
         "watched": watched,
         "is_admin": _user.get("is_admin", False),
+        "page": page,
+        "has_more": has_more,
+        "total": total_count,
     })
 
 
@@ -1026,37 +1046,91 @@ async def delete_quote_endpoint(
 @app.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request, _user: dict = Depends(require_user)):
     discord_id = _user.get("discord_id")
+    guild_id = get_current_guild_id(_user)
     tg_link = await db.get_tg_link(discord_id) if discord_id else None
+    # Список желаемого (только свой)
+    watchlist = []
+    if discord_id:
+        import guild as guild_module
+        await guild_module.init_guild_tables(guild_id)
+        watchlist = await db.g_list_watchlist(guild_id, discord_id, include_watched=True)
     return templates.TemplateResponse(request, "profile.html", {
         "user": _user,
         "tg_link": tg_link,
+        "watchlist": watchlist,
     })
+
+
+# === Watchlist API ===
+
+@app.post("/api/watchlist/add")
+async def api_watchlist_add(
+    _user: dict = Depends(require_user),
+    title: str = Form(...),
+):
+    """Добавить фильм в личный список желаемого."""
+    title = title.strip()
+    if not title:
+        return JSONResponse({"error": "title required"}, status_code=400)
+    guild_id = get_current_guild_id(_user)
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+    import guild as guild_module
+    await guild_module.init_guild_tables(guild_id)
+    # Ищем метаданные
+    import kinopoisk as kp
+    meta = await kp.lookup_movie(title)
+    name = meta["title"] if meta else title
+    tmdb_id = meta["tmdb_id"] if meta else None
+    watchlist_id = await db.g_add_to_watchlist(guild_id, user_discord_id, name, tmdb_id)
+    return JSONResponse({"ok": True, "id": watchlist_id, "title": name})
+
+
+@app.delete("/api/watchlist/{watchlist_id}")
+async def api_watchlist_delete(
+    watchlist_id: int,
+    _user: dict = Depends(require_user),
+):
+    """Удалить фильм из списка желаемого (только владелец)."""
+    guild_id = get_current_guild_id(_user)
+    user_discord_id = _user.get("discord_id", 0)
+    deleted = await db.g_remove_from_watchlist(guild_id, watchlist_id, user_discord_id)
+    if not deleted:
+        return JSONResponse({"error": "not found or not yours"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/watchlist/{watchlist_id}/edit")
+async def api_watchlist_edit(
+    watchlist_id: int,
+    _user: dict = Depends(require_user),
+    title: str = Form(...),
+):
+    """Изменить название фильма в списке желаемого (только владелец)."""
+    guild_id = get_current_guild_id(_user)
+    user_discord_id = _user.get("discord_id", 0)
+    updated = await db.g_update_watchlist_title(guild_id, watchlist_id, user_discord_id, title)
+    if not updated:
+        return JSONResponse({"error": "not found or not yours"}, status_code=404)
+    return JSONResponse({"ok": True})
 
 
 # === Wheel (собственное колесо в панели) ===
 
 @app.get("/wheel", response_class=HTMLResponse)
 async def wheel_page(request: Request, _user: dict = Depends(require_user)):
-    """Страница с Canvas-анимацией колеса. Анонимная — added_by не передаётся в шаблон."""
+    """Страница с Canvas-анимацией колеса."""
     guild_id = get_current_guild_id(_user)
     raw_items = await db.g_list_wheel_items(guild_id, active_only=True)
 
-    # Анонимизируем: убираем added_by и added_at (раскрывается только при победе)
-    items = [
-        {"id": item["id"], "name": item["name"], "tmdb_id": item["tmdb_id"], "color": item["color"]}
-        for item in raw_items
-    ]
-
-    # Статус filmnight
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
-    filmnight = await db.g_get_active_filmnight(guild_id)
+    # Анонимизируем: убираем added_by и added_at
+    items = _anonymize_items(raw_items)
 
     return templates.TemplateResponse(request, "wheel.html", {
         "user": _user,
         "items": items,
         "current_guild_id": guild_id,
-        "filmnight": filmnight,
     })
 
 
@@ -1222,19 +1296,49 @@ async def api_clear_wheel(_user: dict = Depends(require_admin)):
     return JSONResponse({"cleared": count, "items": items})
 
 
+@app.post("/api/wheel/load-from-watchlist")
+async def api_load_from_watchlist(_user: dict = Depends(require_user)):
+    """Загрузить в колесо все непросмотренные фильмы из списков желаемого всех юзеров.
+    Пропускает фильмы, уже просмотренные (в watched) и уже в колесе.
+    """
+    guild_id = get_current_guild_id(_user)
+    import guild as guild_module
+    await guild_module.init_guild_tables(guild_id)
+
+    # Все непросмотренные фильмы из списков желаемого
+    all_films = await db.g_get_all_unwatched_watchlist(guild_id)
+
+    # Текущие лоты колеса (чтобы не дублировать)
+    current_items = await db.g_list_wheel_items(guild_id, active_only=True)
+    existing_titles = {item["name"].lower() for item in current_items}
+
+    added = 0
+    for film in all_films:
+        title = film["title"]
+        # Пропускаем дубликаты
+        if title.lower() in existing_titles:
+            continue
+        # Пропускаем просмотренные
+        if await db.g_is_watched(guild_id, title):
+            continue
+        # Добавляем в колесо
+        await db.g_add_wheel_item(guild_id, title, film.get("tmdb_id"), film["user_discord_id"])
+        existing_titles.add(title.lower())
+        added += 1
+
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
+    await ws_manager.broadcast_wheel_updated(_anonymize_items(items))
+    return JSONResponse({"loaded": added, "total": len(items)})
+
+
 @app.post("/api/wheel/spin")
 async def api_spin_wheel(_user: dict = Depends(require_user)):
-    """Запустить спин. Сервер выбирает победителя и рассылает результат через WS.
-    Также завершает активный filmnight (если есть).
-    """
+    """Запустить спин."""
     import random
     guild_id = get_current_guild_id(_user)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
-
-    # Завершаем активный сбор фильмов (если есть)
-    await db.g_complete_filmnight(guild_id, _user.get("discord_id", 0))
 
     # Случайный победитель
     winner = random.choice(items)
@@ -1245,6 +1349,8 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
 
     # Записываем в БД как confirmed (мы точно знаем победителя)
     await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
+    # Помечаем как просмотренный в списках желаемого
+    await db.g_mark_watchlist_watched(guild_id, winner["name"])
 
     # Удаляем победителя из колеса
     await db.g_remove_wheel_item(guild_id, winner["id"])
@@ -1292,8 +1398,6 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
     if len(items) < 2:
         return JSONResponse({"error": "need at least 2 items"}, status_code=400)
 
-    # Завершаем активный сбор фильмов при первом elimination-спине
-    await db.g_complete_filmnight(guild_id, _user.get("discord_id", 0))
 
     spin_id = str(uuid.uuid4())[:8]
 
@@ -1309,6 +1413,8 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
 
         # Записываем победителя в winners
         await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
+        # Помечаем как просмотренный в списках желаемого
+        await db.g_mark_watchlist_watched(guild_id, winner["name"])
 
         # Рассылаем события
         await ws_manager.broadcast_spin_started(items, spin_id)

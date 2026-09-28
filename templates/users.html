@@ -115,7 +115,7 @@
                 <span class="badge user">viewer</span>
               {% endif %}
             </td>
-            <td class="mono">{{ last_login_at[:16].replace('T', ' ') if last_login_at else '—' }}</td>
+            <td class="mono">{{ format_msk(last_login_at) if last_login_at else "—" }}</td>
             <td>
               <form method="post" action="/users/{{ discord_id }}/admin" style="margin:0;">
                 <label class="switch">
