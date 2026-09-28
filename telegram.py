@@ -33,14 +33,17 @@ async def send_message(
     text: str,
     parse_mode: Optional[str] = "HTML",
     thread_id: int | None = None,
+    reply_markup: dict | None = None,
 ) -> bool:
-    """Отправить текстовое сообщение. Опционально в конкретную тему форума."""
+    """Отправить текстовое сообщение. Опционально в конкретную тему форума или с inline-кнопками."""
     url = TG_API.format(token=token, method="sendMessage")
     payload: dict = {"chat_id": chat_id, "text": text}
     if parse_mode:
         payload["parse_mode"] = parse_mode
     if thread_id:
         payload["message_thread_id"] = thread_id
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(url, json=payload)

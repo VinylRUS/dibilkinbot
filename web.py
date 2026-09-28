@@ -1072,6 +1072,8 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
     discord_id = _user.get("discord_id")
     guild_id = get_current_guild_id(_user)
     tg_link = await db.get_tg_link(discord_id) if discord_id else None
+    tg_settings = await db.get_user_tg_settings(discord_id) if discord_id else {}
+    is_tg_linked = await db.is_tg_linked(discord_id) if discord_id else False
     # Список желаемого (только свой)
     watchlist = []
     if discord_id:
@@ -1081,6 +1083,9 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
     return templates.TemplateResponse(request, "profile.html", {
         "user": _user,
         "tg_link": tg_link,
+        "tg_settings": tg_settings,
+        "is_tg_linked": is_tg_linked,
+        "tg_notify_settings": db.TG_NOTIFY_SETTINGS,
         "watchlist": watchlist,
     })
 
@@ -1150,6 +1155,35 @@ async def api_watchlist_edit(
     if not updated:
         return JSONResponse({"error": "not found or not yours"}, status_code=404)
     return JSONResponse({"ok": True})
+
+
+# === TG Notification settings API (v1.7.4) ===
+
+@app.post("/api/profile/tg_settings")
+async def api_set_tg_settings(
+    _user: dict = Depends(require_user),
+    setting_key: str = Form(...),
+    value: bool = Form(False),
+):
+    """Установить одну настройку TG-уведомлений.
+    Требует привязки TG (иначе зачем).
+    """
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+
+    if not await db.is_tg_linked(user_discord_id):
+        return JSONResponse({
+            "error": "Telegram не привязан. Используйте /linktg в Discord чтобы привязать аккаунт.",
+            "error_code": "not_linked",
+        }, status_code=400)
+
+    try:
+        updated = await db.set_user_tg_setting(user_discord_id, setting_key, value)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    return JSONResponse({"ok": updated, "setting_key": setting_key, "value": value})
 
 
 # === Wheel (собственное колесо в панели) ===
@@ -1579,6 +1613,27 @@ async def api_collection_start(
     # WebSocket событие
     await ws_manager.broadcast_collection_started(collection)
 
+    # Персональное TG-уведомление организатору «Ты начал сбор фильмов, жди участников»
+    # Если организатор не привязал TG — пингнем его в Discord ephemeral
+    try:
+        import bot as bot_module
+        bot_instance = bot_module.get_bot_instance()
+        if bot_instance:
+            # Проверяем привязку
+            is_linked = await db.is_tg_linked(user_discord_id)
+            if is_linked:
+                # Проверяем что у организатора включён тумблер — если да, шлём
+                settings_dict = await db.get_user_tg_settings(user_discord_id)
+                if settings_dict.get("tg_notify_collection_started"):
+                    await bot_instance.notify_collection_started(user_discord_id, max_per_user)
+                # Иначе не беспокоим — юзер выключил уведомления осознанно
+            else:
+                # Не привязан — пингнем в Discord
+                await bot_instance.ping_unlinked_organizer(user_discord_id)
+    except Exception as e:
+        import logging
+        logging.getLogger("web").warning("TG notify collection_started failed: %s", e)
+
     return JSONResponse({"ok": True, "collection": collection})
 
 
@@ -1630,7 +1685,29 @@ async def api_collection_save_picks(
     # WebSocket (без раскрытия какие именно фильмы)
     await ws_manager.broadcast_collection_picks_updated(user_discord_id, count)
 
-    return JSONResponse({"ok": True, "picks_count": count, "is_ready": True})
+    # Проверяем все ли теперь готовы — если да, уведомляем организатора
+    all_ready = False
+    ready_count = 0
+    participants = await db.g_list_collection_participants(guild_id, collection["id"])
+    active_participants = [p for p in participants if not p["kicked_at"]]
+    ready_count = sum(1 for p in active_participants if p["is_ready"])
+    if active_participants and ready_count == len(active_participants):
+        all_ready = True
+        try:
+            import asyncio
+            import bot as bot_module
+            bot_instance = bot_module.get_bot_instance()
+            if bot_instance:
+                asyncio.create_task(
+                    bot_instance.notify_collection_all_ready(
+                        collection["started_by"], ready_count
+                    )
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger("web").warning("notify_collection_all_ready failed: %s", e)
+
+    return JSONResponse({"ok": True, "picks_count": count, "is_ready": True, "all_ready": all_ready, "ready_count": ready_count})
 
 
 @app.post("/api/collection/set_ready")
@@ -1664,7 +1741,37 @@ async def api_collection_set_ready(
     }
     await ws_manager.broadcast_collection_participant_ready(participant)
 
-    return JSONResponse({"ok": updated, "is_ready": is_ready})
+    # Если юзер стал готовым — проверяем все ли теперь готовы
+    # Если да — отправляем уведомление «Все готовы, можно начинать крутить!» организатору
+    all_ready = False
+    ready_count = 0
+    if is_ready and updated:
+        participants = await db.g_list_collection_participants(guild_id, collection["id"])
+        active_participants = [p for p in participants if not p["kicked_at"]]
+        ready_count = sum(1 for p in active_participants if p["is_ready"])
+        if active_participants and ready_count == len(active_participants):
+            all_ready = True
+            # Отправляем уведомление организатору (асинхронно, не блокируя ответ)
+            try:
+                import asyncio
+                import bot as bot_module
+                bot_instance = bot_module.get_bot_instance()
+                if bot_instance:
+                    asyncio.create_task(
+                        bot_instance.notify_collection_all_ready(
+                            collection["started_by"], ready_count
+                        )
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger("web").warning("notify_collection_all_ready failed: %s", e)
+
+    return JSONResponse({
+        "ok": updated,
+        "is_ready": is_ready,
+        "all_ready": all_ready,
+        "ready_count": ready_count,
+    })
 
 
 @app.post("/api/collection/kick")

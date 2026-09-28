@@ -520,8 +520,14 @@ class KinovecherBot(commands.Bot):
         else:
             log.info("No channel_winners_id set, skipping Discord post")
 
-        # 3. Telegram пост (с постером и метаданными если есть)
+        # 3. Telegram пост в чат (с постером и метаданными если есть)
         await self._post_winner_to_telegram(winner, meta)
+
+        # 4. Персональные уведомления в личку организаторам + админам
+        try:
+            await self.notify_wheel_winner(winner, meta)
+        except Exception as e:
+            log.error("notify_wheel_winner failed: %s", e)
 
     async def _resolve_winner_meta(self, winner: dict) -> dict | None:
         """Получить метаданные фильма из БД/Кинопоиска.
@@ -706,6 +712,220 @@ class KinovecherBot(commands.Bot):
                 tg_token, tg_chat, text,
                 thread_id=tg_thread_id,
             )
+
+    async def _notify_organizers(
+        self,
+        setting_key: str,
+        text: str,
+        photo_url: str | None = None,
+        caption: str | None = None,
+        reply_markup: dict | None = None,
+        organizer_discord_id: int | None = None,
+    ) -> int:
+        """Отправить персональное уведомление в личку организаторам + админам.
+
+        :param setting_key: ключ из TG_NOTIFY_SETTINGS ('tg_notify_winner', etc.)
+        :param text: текст для sendMessage (если photo_url не задан)
+        :param photo_url: URL фото (если нужно sendPhoto)
+        :param caption: caption для фото (если есть photo_url)
+        :param reply_markup: inline-кнопки
+        :param organizer_discord_id: ID организатора сбора (если применимо)
+        :return: количество успешно отправленных уведомлений
+
+        Если у организатора/админа не привязан TG — пропускаем молча.
+        Тумблер должен быть включён в /profile.
+        """
+        try:
+            recipients = await db.get_notification_recipients(setting_key, organizer_discord_id)
+        except Exception as e:
+            log.error("get_notification_recipients failed: %s", e)
+            return 0
+
+        if not recipients:
+            log.info("No recipients for setting_key=%s (organizer=%s)", setting_key, organizer_discord_id)
+            return 0
+
+        # Получаем TG-токен один раз
+        raw_token = await db.get_setting("telegram_token")
+        if raw_token:
+            tg_token = crypto.decrypt(raw_token)
+        else:
+            tg_token = settings.telegram_token
+        if not tg_token:
+            log.warning("No TG token, cannot send notifications")
+            return 0
+
+        sent_count = 0
+        for recipient in recipients:
+            tg_user_id = str(recipient["tg_user_id"])
+            try:
+                if photo_url and caption:
+                    success = await send_photo(
+                        tg_token, tg_user_id, photo_url, caption,
+                        reply_markup=reply_markup,
+                    )
+                else:
+                    success = await send_message(
+                        tg_token, tg_user_id, text,
+                        reply_markup=reply_markup,
+                    )
+                if success:
+                    sent_count += 1
+                    log.info("TG notify sent to user %s (%s)", recipient["discord_id"], recipient.get("tg_username") or "no_username")
+                else:
+                    log.warning("TG notify failed for user %s", recipient["discord_id"])
+            except Exception as e:
+                log.error("TG notify exception for user %s: %s", recipient["discord_id"], e)
+
+        return sent_count
+
+    async def notify_wheel_winner(self, winner: dict, meta: dict | None) -> None:
+        """Уведомление о победителе колеса в личку организаторам + админам.
+        Текстовое сообщение с постером если есть метаданные.
+        """
+        # Находим started_by последнего завершённого сбора
+        guild_id = 0  # TODO: когда будет multi-guild — брать из контекста
+        last_collection = await db.g_get_last_completed_collection(guild_id)
+        organizer_id = last_collection["started_by"] if last_collection else None
+
+        panel_url = await db.get_setting("panel_base_url")
+        rate_button = None
+        if panel_url:
+            rate_button = {
+                "inline_keyboard": [[
+                    {"text": "📊 Оценить в панели", "url": f"{panel_url.rstrip('/')}/winners"},
+                ]]
+            }
+
+        if meta and meta.get("poster_url"):
+            # Rich post: фото + caption
+            title = meta.get("title", winner["name"])
+            year = meta.get("year", "")
+            rating = meta.get("vote_average", 0)
+            votes = meta.get("vote_count", 0)
+            genres = meta.get("genres", [])
+            runtime = meta.get("runtime")
+            plot = meta.get("plot", "")
+
+            caption_parts = [
+                "🎡 <b>Победитель колеса!</b>\n",
+                f"🎬 <b>{tg_escape(title)}</b>",
+            ]
+            if year:
+                caption_parts.append(f"({tg_escape(year)})")
+            caption_parts.append("\n")
+
+            if rating:
+                rating_str = f"⭐ <b>{rating}</b>/10"
+                if votes:
+                    rating_str += f" ({votes:,} голосов)"
+                caption_parts.append(rating_str + "\n")
+
+            if genres:
+                caption_parts.append(f"🎭 {tg_escape(', '.join(genres))}\n")
+            if runtime:
+                caption_parts.append(f"⏱ {runtime} мин\n")
+            if plot:
+                max_plot = 500
+                if len(plot) > max_plot:
+                    plot = plot[:max_plot].rstrip() + "…"
+                caption_parts.append(f"\n{tg_escape(plot)}\n")
+
+            tmdb_id = meta.get("tmdb_id")
+            imdb_id = meta.get("imdb_id")
+            caption_parts.append(f"\n📺 <a href=\"https://kinopoisk.ru/film/{tmdb_id or ''}/\">Кинопоиск</a>")
+            if imdb_id:
+                caption_parts.append(f" · <a href=\"https://www.imdb.com/title/tt{imdb_id}/\">IMDb</a>")
+
+            caption = "".join(caption_parts)
+
+            count = await self._notify_organizers(
+                setting_key="tg_notify_winner",
+                text=caption,  # fallback если photo упадёт
+                photo_url=meta["poster_url"],
+                caption=caption,
+                reply_markup=rate_button,
+                organizer_discord_id=organizer_id,
+            )
+            log.info("notify_wheel_winner: sent to %d recipients", count)
+        else:
+            # Текст без постера
+            text = (
+                f"🎡 <b>Победитель колеса!</b>\n\n"
+                f"🎬 <b>{tg_escape(winner['name'])}</b>"
+            )
+            count = await self._notify_organizers(
+                setting_key="tg_notify_winner",
+                text=text,
+                reply_markup=rate_button,
+                organizer_discord_id=organizer_id,
+            )
+            log.info("notify_wheel_winner (no poster): sent to %d recipients", count)
+
+    async def notify_collection_started(self, started_by: int, max_per_user: int) -> None:
+        """Уведомление «Ты начал сбор фильмов, жди участников» в личку организатору.
+        Также админам с включённым тумблером.
+        """
+        text = (
+            "🎬 <b>Сбор фильмов начат!</b>\n\n"
+            f"Лимит: <b>{max_per_user}</b> фильм(ов) на участника.\n"
+            "Ждите, пока участники выберут фильмы и нажмут «Готов».\n\n"
+            "Когда все будут готовы — придёт отдельное уведомление."
+        )
+        count = await self._notify_organizers(
+            setting_key="tg_notify_collection_started",
+            text=text,
+            organizer_discord_id=started_by,
+        )
+        log.info("notify_collection_started: sent to %d recipients", count)
+
+    async def notify_collection_all_ready(self, organizer_discord_id: int, ready_count: int) -> None:
+        """Уведомление «Все готовы, можно начинать крутить!» в личку организатору + админам."""
+        text = (
+            "✅ <b>Все готовы!</b>\n\n"
+            f"<b>{ready_count}</b> участник(ов) отметились готовыми.\n"
+            "Можно начинать крутить колесо на веб-панели."
+        )
+        count = await self._notify_organizers(
+            setting_key="tg_notify_collection_ready",
+            text=text,
+            organizer_discord_id=organizer_discord_id,
+        )
+        log.info("notify_collection_all_ready: sent to %d recipients", count)
+
+    async def ping_unlinked_organizer(self, discord_user_id: int) -> None:
+        """Тегнуть в Discord ephemeral что организатор не привязал TG.
+        Вызывается когда уведомление не удалось отправить (нет привязки TG).
+        """
+        # Проверяем что юзер не привязан
+        if await db.is_tg_linked(discord_user_id):
+            return  # уже привязан, не надо пинговать
+
+        # Ищем юзера в любом guild
+        member = None
+        for g in self.guilds:
+            member = g.get_member(discord_user_id)
+            if member is None:
+                try:
+                    member = await g.fetch_member(discord_user_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    member = None
+            if member is not None:
+                break
+
+        if member is None:
+            log.warning("Cannot ping unlinked organizer %s — member not found in any guild", discord_user_id)
+            return
+
+        try:
+            await member.send(
+                "ℹ️ Вы начали сбор фильмов, но ваш Telegram не привязан.\n"
+                "Используйте команду `/linktg` в Discord чтобы получать персональные уведомления "
+                "о готовности участников и других событиях киновечера."
+            )
+            log.info("Pinged unlinked organizer %s in DM", discord_user_id)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            log.warning("Cannot DM user %s: %s", discord_user_id, e)
 
 
 
@@ -1135,8 +1355,14 @@ async def handle_tg_link_message(text: str, tg_user_id: int, tg_username: str | 
 
     discord_id = await db.verify_tg_link(code, tg_user_id, tg_username)
     if discord_id is not None:
-        return (f"✅ Аккаунт привязан!\n"
-                f"Теперь вы будете получать персональные уведомления о киновечерах "
-                f"и победителях колеса.\n\nВаш Discord ID: {discord_id}")
+        return (f"✅ <b>Аккаунт привязан!</b>\n\n"
+                f"Теперь вы можете включить уведомления в личке на странице профиля:\n"
+                f"🌐 https://dibilkis.bothost.tech/profile\n\n"
+                f"Доступные уведомления (включаются в профиле):\n"
+                f"• 🎡 Победитель колеса\n"
+                f"• 🎬 Сбор фильмов начат\n"
+                f"• ✅ Все участники готовы\n\n"
+                f"<i>По умолчанию все уведомления выключены — зайдите в профиль и включите нужные.</i>\n\n"
+                f"Ваш Discord ID: <code>{discord_id}</code>")
     else:
         return "❌ Код недействителен или истёк. Сгенерируйте новый через /linktg в Discord."
