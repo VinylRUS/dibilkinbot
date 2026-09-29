@@ -285,15 +285,10 @@
         <div class="santa-card">
           <h3>🎮 Присоединиться</h3>
           <p class="santa-hint">
-            Укажите ссылку на ваш Steam-профиль. Бот проверит что профиль публичный
-            и получит ваш вишлист чтобы санта мог выбрать подарок.
+            Steam-профиль берётся из вашего <a href="/profile" style="color: var(--accent);">профиля</a>.
+            Убедитесь что он указан и публичный.
           </p>
-          <label class="santa-label">Ссылка на Steam-профиль</label>
-          <input type="text" id="steam-url" class="santa-input"
-                 placeholder="https://steamcommunity.com/profiles/765611... или /id/username"
-                 oninput="validateSteamUrl(this)">
-          <div id="steam-validation" style="font-size: 0.82rem; margin: 6px 0 14px;"></div>
-          <label class="santa-label">Пожелания (опционально)</label>
+          <label class="santa-label">Пожелания получателю (опционально)</label>
           <textarea id="santa-prefs" class="santa-textarea"
                     placeholder="Например: люблю стратегии и инди, не дарите хорроры..."></textarea>
           <button type="button" class="santa-btn" onclick="joinEvent()">🎁 Присоединиться</button>
@@ -498,48 +493,21 @@
       }
     }
 
-    // === Валидация Steam URL ===
-    function validateSteamUrl(input) {
-      const val = input.value.trim();
-      const hint = document.getElementById('steam-validation');
-      if (!val) {
-        input.classList.remove('invalid');
-        hint.innerHTML = '';
-        return;
-      }
-      // Простая проверка — содержит steamcommunity.com или 17-значное число
-      if (val.includes('steamcommunity.com') || /^765611\d{11}$/.test(val)) {
-        input.classList.remove('invalid');
-        hint.innerHTML = '<span style="color: var(--green);">✓ Ссылка распознана</span>';
-      } else {
-        input.classList.add('invalid');
-        hint.innerHTML = '<span style="color: var(--red);">⚠️ Формат: steamcommunity.com/profiles/7656... или /id/username</span>';
-      }
-    }
-
     // === Присоединиться ===
     async function joinEvent() {
-      const steamUrl = document.getElementById('steam-url').value.trim();
       const prefs = document.getElementById('santa-prefs').value.trim();
       const result = document.getElementById('join-result');
-      if (!steamUrl) {
-        result.className = 'flash error';
-        result.textContent = '❌ Укажите ссылку на Steam-профиль.';
-        result.style.display = 'block';
-        return;
-      }
       result.className = 'flash info';
-      result.textContent = '⏳ Проверяю Steam-профиль...';
+      result.textContent = '⏳ Присоединяюсь...';
       result.style.display = 'block';
       const formData = new FormData();
-      formData.append('steam_profile_url', steamUrl);
       formData.append('preferences', prefs);
       try {
         const r = await fetch('/api/santa/join', { method: 'POST', body: formData });
         const data = await r.json();
         if (r.ok) {
           result.className = 'flash info';
-          result.textContent = '✓ Профиль проверен: ' + (data.steam_persona || 'OK') + '. Перезагрузка...';
+          result.textContent = '✓ Присоединился: ' + (data.steam_persona || 'OK') + '. Перезагрузка...';
           setTimeout(() => location.reload(), 1500);
         } else {
           result.className = 'flash error';

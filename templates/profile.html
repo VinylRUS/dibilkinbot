@@ -118,6 +118,51 @@
       {% endif %}
     </article>
 
+    <h2>🎮 Steam-профиль</h2>
+    <article class="card">
+      {% if steam_profile %}
+        {# Профиль указан === #}
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px;">
+          {% if steam_profile.steam_avatar_url %}
+            <img src="{{ steam_profile.steam_avatar_url }}" alt="" style="width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--accent);">
+          {% endif %}
+          <div style="flex: 1;">
+            <div style="font-weight: 700; color: var(--text); font-size: 1.05rem;">{{ steam_profile.steam_persona }}</div>
+            <a href="{{ steam_profile.steam_profile_url }}" target="_blank" style="color: var(--accent); font-size: 0.85rem; text-decoration: none;">
+              Steam-профиль ↗
+            </a>
+          </div>
+          <button type="button" onclick="removeSteamProfile()"
+                  style="background: transparent; color: var(--red); border: 1px solid var(--red); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.82rem; margin: 0;">
+            ✕ Удалить
+          </button>
+        </div>
+        {% if is_santa_enabled %}
+          <p class="hint" style="margin: 0;">
+            ✓ Steam-профиль готов для участия в Тайном Санте.
+            Бот автоматически подтянет ваш вишлист при присоединении к событию.
+          </p>
+        {% endif %}
+      {% else %}
+        {# Профиль не указан === #}
+        <p class="hint" style="margin-bottom: 14px;">
+          Укажите ссылку на ваш Steam-профиль. Бот проверит что профиль публичный
+          и получит ваш вишлист. Это нужно для участия в Тайном Санте.
+        </p>
+        <label for="steam-url">Ссылка на Steam-профиль</label>
+        <input type="text" id="steam-url"
+               placeholder="https://steamcommunity.com/profiles/765611... или /id/username"
+               style="width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; box-sizing: border-box;"
+               oninput="validateSteamUrl(this)">
+        <div id="steam-validation" style="font-size: 0.82rem; margin: 6px 0 14px;"></div>
+        <button type="button" onclick="saveSteamProfile()"
+                style="background: var(--accent); color: var(--accent-text); border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: 600; margin: 0; font-size: 0.9rem;">
+          🎮 Проверить и сохранить
+        </button>
+        <div id="steam-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
+      {% endif %}
+    </article>
+
     <h2>📋 Список желаемого</h2>
     <article class="card">
       <!-- Форма добавления -->
@@ -283,6 +328,67 @@
         result.textContent = '❌ Сетевая ошибка: ' + e.message;
         result.style.display = 'block';
         event.target.checked = !value;
+      }
+    }
+
+    // === Steam profile ===
+    function validateSteamUrl(input) {
+      const val = input.value.trim();
+      const hint = document.getElementById('steam-validation');
+      if (!val) {
+        input.style.borderColor = '';
+        hint.innerHTML = '';
+        return;
+      }
+      if (val.includes('steamcommunity.com') || /^765611\d{11}$/.test(val)) {
+        input.style.borderColor = 'var(--green)';
+        hint.innerHTML = '<span style="color: var(--green);">✓ Ссылка распознана</span>';
+      } else {
+        input.style.borderColor = 'var(--red)';
+        hint.innerHTML = '<span style="color: var(--red);">⚠️ Формат: steamcommunity.com/profiles/7656... или /id/username</span>';
+      }
+    }
+
+    async function saveSteamProfile() {
+      const url = document.getElementById('steam-url').value.trim();
+      const result = document.getElementById('steam-result');
+      if (!url) {
+        result.className = 'flash error';
+        result.textContent = '❌ Укажите ссылку на Steam-профиль.';
+        result.style.display = 'block';
+        return;
+      }
+      result.className = 'flash info';
+      result.textContent = '⏳ Проверяю Steam-профиль...';
+      result.style.display = 'block';
+      const formData = new FormData();
+      formData.append('steam_profile_url', url);
+      try {
+        const r = await fetch('/api/profile/steam', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          result.className = 'flash info';
+          result.textContent = '✓ Профиль проверен: ' + (data.steam_persona || 'OK') + '. Перезагрузка...';
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          result.className = 'flash error';
+          result.textContent = '❌ ' + (data.error || 'Ошибка');
+        }
+      } catch (e) {
+        result.className = 'flash error';
+        result.textContent = '❌ Сетевая ошибка: ' + e.message;
+      }
+    }
+
+    async function removeSteamProfile() {
+      if (!confirm('Удалить Steam-профиль? Если вы участвуете в Тайном Санте — ваш получатель не сможет увидеть ваш вишлист.')) return;
+      try {
+        const r = await fetch('/api/profile/steam', { method: 'DELETE' });
+        if (r.ok) {
+          location.reload();
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
       }
     }
   </script>

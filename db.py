@@ -180,6 +180,11 @@ async def init_db() -> None:
                 "tg_notify_winner": "INTEGER DEFAULT 0",
                 "tg_notify_collection_started": "INTEGER DEFAULT 0",
                 "tg_notify_collection_ready": "INTEGER DEFAULT 0",
+                # v1.8.0: Steam-профиль (для Тайного Санты и будущих фич)
+                "steam_profile_url": "TEXT",
+                "steam_id64": "TEXT",
+                "steam_persona": "TEXT",
+                "steam_avatar_url": "TEXT",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in existing_cols:
@@ -713,6 +718,58 @@ async def is_tg_linked(discord_id: int) -> bool:
         ) as cur:
             row = await cur.fetchone()
     return bool(row and row[0])
+
+
+# === Steam Profile (v1.8.0) ===
+
+async def get_user_steam_profile(discord_id: int) -> dict | None:
+    """Получить Steam-профиль юзера из таблицы users.
+    Возвращает dict: {steam_profile_url, steam_id64, steam_persona, steam_avatar_url}
+    или None если профиль не указан.
+    """
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT steam_profile_url, steam_id64, steam_persona, steam_avatar_url "
+            "FROM users WHERE discord_id = ?",
+            (discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row or not row[1]:  # row[1] = steam_id64
+        return None
+    return {
+        "steam_profile_url": row[0],
+        "steam_id64": row[1],
+        "steam_persona": row[2],
+        "steam_avatar_url": row[3],
+    }
+
+
+async def set_user_steam_profile(
+    discord_id: int,
+    steam_profile_url: str | None,
+    steam_id64: str | None,
+    steam_persona: str | None,
+    steam_avatar_url: str | None,
+) -> bool:
+    """Сохранить/обновить Steam-профиль юзера.
+    Передайте None для всех параметров чтобы очистить профиль.
+    Возвращает True если обновлено.
+    """
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE users SET "
+            "steam_profile_url = ?, steam_id64 = ?, steam_persona = ?, steam_avatar_url = ? "
+            "WHERE discord_id = ?",
+            (steam_profile_url, steam_id64, steam_persona, steam_avatar_url, discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def is_steam_profile_set(discord_id: int) -> bool:
+    """Проверить, указан ли Steam-профиль у юзера."""
+    profile = await get_user_steam_profile(discord_id)
+    return profile is not None and bool(profile.get("steam_id64"))
 
 
 # === Movie Meta (TMDB cache) ===

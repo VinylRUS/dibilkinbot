@@ -1107,6 +1107,7 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
     tg_link = await db.get_tg_link(discord_id) if discord_id else None
     tg_settings = await db.get_user_tg_settings(discord_id) if discord_id else {}
     is_tg_linked = await db.is_tg_linked(discord_id) if discord_id else False
+    steam_profile = await db.get_user_steam_profile(discord_id) if discord_id else None
     # Список желаемого (только свой)
     watchlist = []
     if discord_id:
@@ -1119,6 +1120,8 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         "tg_settings": tg_settings,
         "is_tg_linked": is_tg_linked,
         "tg_notify_settings": db.TG_NOTIFY_SETTINGS,
+        "steam_profile": steam_profile,
+        "is_santa_enabled": await is_santa_enabled(),
         "watchlist": watchlist,
     })
 
@@ -1217,6 +1220,53 @@ async def api_set_tg_settings(
         return JSONResponse({"error": str(e)}, status_code=400)
 
     return JSONResponse({"ok": updated, "setting_key": setting_key, "value": value})
+
+
+@app.post("/api/profile/steam")
+async def api_set_steam_profile(
+    _user: dict = Depends(require_user),
+    steam_profile_url: str = Form(...),
+):
+    """Сохранить Steam-профиль юзера.
+    Валидирует через Steam API, сохраняет steam_id64, persona, avatar в users.
+    """
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+
+    import steam
+    validation = await steam.validate_steam_profile(steam_profile_url.strip())
+    if not validation["valid"]:
+        return JSONResponse({
+            "error": validation["error"] or "Steam-профиль невалиден.",
+            "error_code": "invalid_steam_profile",
+        }, status_code=400)
+
+    await db.set_user_steam_profile(
+        user_discord_id,
+        validation["steam_profile_url"],
+        validation["steam_id64"],
+        validation["steam_persona"],
+        validation["steam_avatar_url"],
+    )
+
+    return JSONResponse({
+        "ok": True,
+        "steam_persona": validation["steam_persona"],
+        "steam_avatar_url": validation["steam_avatar_url"],
+        "steam_profile_url": validation["steam_profile_url"],
+        "wishlist_public": validation["wishlist_public"],
+    })
+
+
+@app.delete("/api/profile/steam")
+async def api_delete_steam_profile(_user: dict = Depends(require_user)):
+    """Очистить Steam-профиль юзера."""
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+    await db.set_user_steam_profile(user_discord_id, None, None, None, None)
+    return JSONResponse({"ok": True})
 
 
 # === Wheel (собственное колесо в панели) ===
@@ -2042,11 +2092,11 @@ async def api_santa_create(
 @app.post("/api/santa/join")
 async def api_santa_join(
     _user: dict = Depends(require_user),
-    steam_profile_url: str = Form(...),
     preferences: str = Form(""),
 ):
-    """Присоединиться к событию санты с указанием Steam-профиля.
-    Валидирует Steam-профиль через Steam API.
+    """Присоединиться к событию санты.
+    Steam-профиль берётся из профиля пользователя (должен быть указан заранее).
+    Опционально принимает пожелания.
     """
     if not await is_santa_enabled():
         return JSONResponse({"error": "Santa module disabled"}, status_code=404)
@@ -2061,33 +2111,31 @@ async def api_santa_join(
     if event["status"] != "collecting":
         return JSONResponse({"error": "Событие уже закрыто для регистрации."}, status_code=400)
 
-    # Валидируем Steam-профиль
-    import steam
-    validation = await steam.validate_steam_profile(steam_profile_url.strip())
-    if not validation["valid"]:
+    # Берём Steam-профиль из users (указан заранее в /profile)
+    steam_profile = await db.get_user_steam_profile(user_discord_id)
+    if not steam_profile or not steam_profile.get("steam_id64"):
         return JSONResponse({
-            "error": validation["error"] or "Steam-профиль невалиден.",
-            "error_code": "invalid_steam_profile",
+            "error": "Сначала укажите ваш Steam-профиль на странице /profile.",
+            "error_code": "no_steam_profile",
         }, status_code=400)
 
-    # Добавляем/обновляем участника
+    # Добавляем/обновляем участника с Steam-данными из профиля
     await db.g_add_santa_participant(
         guild_id, event["id"], user_discord_id,
         username=_user.get("username"),
         display_name=_user.get("username"),
         avatar_url=_user.get("avatar_url"),
-        steam_profile_url=validation["steam_profile_url"],
-        steam_id64=validation["steam_id64"],
-        steam_persona=validation["steam_persona"],
-        steam_avatar_url=validation["steam_avatar_url"],
+        steam_profile_url=steam_profile["steam_profile_url"],
+        steam_id64=steam_profile["steam_id64"],
+        steam_persona=steam_profile["steam_persona"],
+        steam_avatar_url=steam_profile["steam_avatar_url"],
         preferences=preferences.strip() or None,
     )
 
     return JSONResponse({
         "ok": True,
-        "steam_persona": validation["steam_persona"],
-        "steam_avatar_url": validation["steam_avatar_url"],
-        "wishlist_public": validation["wishlist_public"],
+        "steam_persona": steam_profile["steam_persona"],
+        "steam_avatar_url": steam_profile["steam_avatar_url"],
     })
 
 
