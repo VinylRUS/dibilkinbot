@@ -1,5 +1,37 @@
 {# Общий навбар с dropdown-группами.
    Принимает: user (dict с is_admin), active (опционально) #}
+
+{# SVG иконки (Lucide-style, 16x16, stroke=currentColor) #}
+{%- macro nav_icon(name) -%}
+{%- if name == 'movie' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h4m10 0h4M3 16h4m10 0h4M7 4h10"/></svg>
+{%- elif name == 'wheel' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5L19 19M19 5l-2.5 2.5M7.5 16.5L5 19"/></svg>
+{%- elif name == 'trophy' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+{%- elif name == 'backlog' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+{%- elif name == 'quote' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+{%- elif name == 'santa' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H2V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3"/></svg>
+{%- elif name == 'key' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>
+{%- elif name == 'channels' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+{%- elif name == 'features' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+{%- elif name == 'users' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+{%- elif name == 'guilds' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M3 7v14M21 7v14M6 21V10M10 21V10M14 21V10M18 21V10M3 7l9-4 9 4M3 7h18"/></svg>
+{%- elif name == 'profile' -%}
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+{%- elif name == 'logout' -%}
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+{%- endif -%}
+{%- endmacro -%}
+
 <nav class="top">
   <a href="/" class="brand-link">
     <span class="brand">
@@ -14,13 +46,13 @@
       Комьюнити <span class="chevron">▼</span>
     </button>
     <div class="dropdown">
-      <a href="/movienight" {% if active == 'movienight' %}class="active"{% endif %}>Киновечер</a>
-      <a href="/wheel" {% if active == 'wheel' %}class="active"{% endif %}>Колесо</a>
-      <a href="/winners" {% if active == 'winners' %}class="active"{% endif %}>Победители</a>
-      <a href="/watched" {% if active == 'watched' %}class="active"{% endif %}>Бэклог</a>
-      <a href="/quotes" {% if active == 'quotes' %}class="active"{% endif %}>Цитаты</a>
+      <a href="/movienight" {% if active == 'movienight' %}class="active"{% endif %}>{{ nav_icon('movie') }} Киновечер</a>
+      <a href="/wheel" {% if active == 'wheel' %}class="active"{% endif %}>{{ nav_icon('wheel') }} Колесо</a>
+      <a href="/winners" {% if active == 'winners' %}class="active"{% endif %}>{{ nav_icon('trophy') }} Победители</a>
+      <a href="/watched" {% if active == 'watched' %}class="active"{% endif %}>{{ nav_icon('backlog') }} Бэклог</a>
+      <a href="/quotes" {% if active == 'quotes' %}class="active"{% endif %}>{{ nav_icon('quote') }} Цитаты</a>
       {% if santa_enabled() %}
-      <a href="/santa" {% if active == 'santa' %}class="active"{% endif %}>🎅 Тайный Санта</a>
+      <a href="/santa" {% if active == 'santa' %}class="active"{% endif %}>{{ nav_icon('santa') }} Тайный Санта</a>
       {% endif %}
     </div>
   </div>
@@ -32,16 +64,16 @@
       Бот <span class="chevron">▼</span>
     </button>
     <div class="dropdown">
-      <a href="/tokens" {% if active == 'tokens' %}class="active"{% endif %}>Токены</a>
-      <a href="/channels" {% if active == 'channels' %}class="active"{% endif %}>Каналы</a>
-      <a href="/features" {% if active == 'features' %}class="active"{% endif %}>Фичи</a>
-      <a href="/users" {% if active == 'users' %}class="active"{% endif %}>Юзеры</a>
-      <a href="/guilds" {% if active == 'guilds' %}class="active"{% endif %}>Серверы</a>
+      <a href="/tokens" {% if active == 'tokens' %}class="active"{% endif %}>{{ nav_icon('key') }} Токены</a>
+      <a href="/channels" {% if active == 'channels' %}class="active"{% endif %}>{{ nav_icon('channels') }} Каналы</a>
+      <a href="/features" {% if active == 'features' %}class="active"{% endif %}>{{ nav_icon('features') }} Фичи</a>
+      <a href="/users" {% if active == 'users' %}class="active"{% endif %}>{{ nav_icon('users') }} Юзеры</a>
+      <a href="/guilds" {% if active == 'guilds' %}class="active"{% endif %}>{{ nav_icon('guilds') }} Серверы</a>
     </div>
   </div>
   {% endif %}
 
-  <a href="/profile" class="nav-link {% if active == 'profile' %}active{% endif %}">Профиль</a>
+  <a href="/profile" class="nav-link {% if active == 'profile' %}active{% endif %}">{{ nav_icon('profile') }} Профиль</a>
 
   <form method="post" action="/theme" class="theme-form">
     <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="theme-toggle">
@@ -51,7 +83,7 @@
 
   <span class="right">
     👤 {{ user.username }}
-    <a href="/logout">Выйти</a>
+    <a href="/logout">{{ nav_icon('logout') }} Выйти</a>
   </span>
 </nav>
 

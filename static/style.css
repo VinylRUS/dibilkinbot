@@ -15,14 +15,14 @@
 :root,
 [data-theme="light"] {
   --bg-base: #F4EAD3;
-  --bg-gradient: linear-gradient(135deg, #F4EAD3 0%, #FDF6E3 50%, #F4EAD3 100%);
-  --blob-1: rgba(255, 183, 3, 0.35);
-  --blob-2: rgba(251, 133, 0, 0.25);
+  --bg-gradient: linear-gradient(135deg, #F4EAD3 0%, #FDF6E3 30%, #FAF0DC 60%, #F4EAD3 100%);
+  --blob-1: rgba(255, 183, 3, 0.4);
+  --blob-2: rgba(251, 133, 0, 0.3);
   --blob-3: rgba(79, 121, 66, 0.15);
 
-  --glass-bg: rgba(255, 255, 255, 0.35);
-  --glass-bg-hover: rgba(255, 255, 255, 0.5);
-  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-bg: rgba(255, 255, 255, 0.25);
+  --glass-bg-hover: rgba(255, 255, 255, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.45);
   --glass-border-strong: rgba(255, 183, 3, 0.3);
   --glass-shadow: 0 8px 32px rgba(139, 90, 28, 0.08);
   --glass-shadow-hover: 0 12px 40px rgba(139, 90, 28, 0.15);
@@ -71,7 +71,7 @@
   --blob-3: rgba(79, 121, 66, 0.08);
 
   --glass-bg: rgba(255, 255, 255, 0.06);
-  --glass-bg-hover: rgba(255, 255, 255, 0.1);
+  --glass-bg-hover: rgba(255, 255, 255, 0.12);
   --glass-border: rgba(255, 255, 255, 0.12);
   --glass-border-strong: rgba(255, 183, 3, 0.25);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
@@ -132,23 +132,23 @@ body::after {
   content: "";
   position: fixed;
   border-radius: 50%;
-  filter: blur(80px);
+  filter: blur(70px);
   z-index: 0;
   pointer-events: none;
   transition: opacity 0.5s;
 }
 body::before {
-  width: 600px;
-  height: 600px;
+  width: 700px;
+  height: 700px;
   background: var(--blob-1);
-  top: -200px;
-  right: -150px;
+  top: -250px;
+  right: -200px;
 }
 body::after {
-  width: 500px;
-  height: 500px;
+  width: 550px;
+  height: 550px;
   background: var(--blob-2);
-  bottom: -150px;
+  bottom: -200px;
   left: -150px;
 }
 
@@ -214,12 +214,23 @@ nav.top .nav-link {
   white-space: nowrap;
   display: flex;
   align-items: center;
+  gap: 6px;
   height: 36px;
   box-sizing: border-box;
 }
+nav.top .nav-link svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+nav.top .nav-link:hover svg,
+nav.top .nav-link.active svg {
+  opacity: 1;
+}
 nav.top .nav-link:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 4px 12px var(--accent-soft);
 }
 nav.top .nav-link.active {
   background: var(--accent);
@@ -240,17 +251,26 @@ nav.top .right {
 nav.top .right a {
   padding: 6px 10px;
   border-radius: 8px;
-  transition: background 0.2s;
+  transition: all 0.2s;
   color: var(--nav-text);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   height: 32px;
   box-sizing: border-box;
 }
+nav.top .right a svg {
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+nav.top .right a:hover svg {
+  opacity: 1;
+}
 nav.top .right a:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 4px 12px var(--accent-soft);
 }
 
 /* Кнопка переключения темы в навбаре */
@@ -599,8 +619,9 @@ input:checked + .slider:before {
   box-sizing: border-box;
 }
 .nav-group-btn:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 4px 12px var(--accent-soft);
 }
 .nav-group-btn .chevron {
   font-size: 0.7rem;
@@ -632,21 +653,33 @@ input:checked + .slider:before {
   pointer-events: auto;
 }
 .dropdown a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 14px;
   color: var(--text);
   text-decoration: none;
   border-radius: 10px;
   font-size: 0.85rem;
-  transition: all 0.15s;
+  transition: all 0.2s;
+}
+.dropdown a svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.dropdown a:hover svg,
+.dropdown a.active svg {
+  opacity: 1;
 }
 .dropdown a:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 4px 12px var(--accent-soft);
 }
 .dropdown a.active {
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 700;
   background: var(--accent-soft);
 }
 
