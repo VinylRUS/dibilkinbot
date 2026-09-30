@@ -824,6 +824,26 @@ async def get_movie_meta_by_tmdb_id(tmdb_id: int) -> tuple | None:
             return await cur.fetchone()
 
 
+async def get_posters_for_titles(titles: list[str]) -> dict[str, str]:
+    """Batch-выборка постеров для списка названий.
+    Ищет в movie_meta (без TTL-проверки — постеры не протухают).
+    Возвращает dict {lower_title: poster_url}.
+    """
+    if not titles:
+        return {}
+    result: dict[str, str] = {}
+    async with _connect() as db:
+        for title in titles:
+            async with db.execute(
+                "SELECT poster_url FROM movie_meta WHERE lower(query_title) = lower(?) AND poster_url IS NOT NULL AND poster_url != '' LIMIT 1",
+                (title,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row and row[0]:
+                result[title.lower()] = row[0]
+    return result
+
+
 # === Winners ===
 
 async def add_winner(lot_id: str | None, lot_name: str, tmdb_id: int | None,
