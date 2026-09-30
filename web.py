@@ -698,6 +698,11 @@ async def watched_page(
     watched = await db.g_list_watched(guild_id, limit=per_page, offset=offset, search=search)
     total_count = await db.g_count_watched(guild_id, search)
     total_pages = max(1, (total_count + per_page - 1) // per_page)
+
+    # Предзагрузка постеров из кеша movie_meta (0 запросов к API)
+    titles = [w[1] for w in watched]  # w = (id, title, watched_at, rating)
+    posters = await db.get_posters_for_titles(titles) if titles else {}
+
     return templates.TemplateResponse(request, "watched.html", {
         "user": _user,
         "watched": watched,
@@ -707,6 +712,7 @@ async def watched_page(
         "per_page": per_page,
         "total": total_count,
         "total_pages": total_pages,
+        "posters": posters,  # dict {lower_title: poster_url}
     })
 
 
@@ -790,6 +796,39 @@ async def api_rate_watched(
         return JSONResponse({"error": "not found"}, status_code=404)
     
     return JSONResponse({"ok": True, "rating": rating})
+
+
+@app.get("/api/movie/poster")
+async def api_movie_poster(
+    _user: dict = Depends(require_user),
+    title: str = "",
+):
+    """Получить постер фильма по названию.
+    Сначала проверяет кеш movie_meta (0 запросов к API).
+    Если не найден — делает 1 запрос к Кинопоиску, кеширует на 7 дней.
+    Возвращает {poster_url, title, year, rating} или {poster_url: null}.
+    """
+    title = title.strip()
+    if not title:
+        return JSONResponse({"poster_url": None})
+
+    # 1. Проверяем кеш (cache-first, без TTL — постеры не протухают)
+    posters = await db.get_posters_for_titles([title])
+    if title.lower() in posters:
+        return JSONResponse({"poster_url": posters[title.lower()]})
+
+    # 2. Нет в кеше — идём в Кинопоиск (1 запрос, сохранится в кеш)
+    import kinopoisk as kp
+    meta = await kp.lookup_movie(title)
+    if meta and meta.get("poster_url"):
+        return JSONResponse({
+            "poster_url": meta["poster_url"],
+            "title": meta.get("title"),
+            "year": meta.get("year"),
+            "rating": meta.get("vote_average"),
+        })
+
+    return JSONResponse({"poster_url": None})
 
 
 # === Users management (admin only) ===

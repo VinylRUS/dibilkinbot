@@ -141,6 +141,42 @@
       margin: 0;
     }
     .delete-btn:hover { background: var(--red); color: #fff; }
+
+    /* === Poster tooltip === */
+    .poster-tooltip {
+      position: fixed;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      max-width: 200px;
+    }
+    .poster-tooltip.visible { opacity: 1; }
+    .poster-tooltip img {
+      width: 200px;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--glass-border);
+    }
+    .poster-tooltip .poster-loading {
+      width: 200px;
+      padding: 40px 20px;
+      text-align: center;
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      border-radius: 12px;
+      border: 1px solid var(--glass-border);
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .watched-title {
+      cursor: help;
+      transition: color 0.15s;
+    }
+    .watched-title:hover {
+      color: var(--accent);
+    }
   </style>
 </head>
 <body>
@@ -183,7 +219,10 @@
         {% for w_id, title, watched_at, rating in watched %}
           <div class="watched-card" id="watched-{{ w_id }}">
             <div class="watched-info">
-              <div class="watched-title" id="title-{{ w_id }}">{{ title }}</div>
+              <div class="watched-title" id="title-{{ w_id }}"
+                   data-title="{{ title }}"
+                   {% if title.lower() in posters %}data-poster="{{ posters[title.lower()] }}"{% endif %}
+                   >{{ title }}</div>
               <div class="watched-date mono">{{ format_msk(watched_at) }}</div>
             </div>
             <div class="watched-actions">
@@ -362,6 +401,107 @@
       editBtn.textContent = '✏️';
       editBtn.onclick = () => editTitle(watchedId);
     }
+
+    // === Poster tooltip ===
+    const posterCache = {};  // JS-кеш: {title_lower: poster_url}
+    let tooltipEl = null;
+    let hoverTimeout = null;
+
+    function initPosterTooltip() {
+      // Создаём элемент tooltip один раз
+      tooltipEl = document.createElement('div');
+      tooltipEl.className = 'poster-tooltip';
+      document.body.appendChild(tooltipEl);
+
+      // Делегируем hover на все .watched-title
+      document.addEventListener('mouseover', (e) => {
+        const titleEl = e.target.closest('.watched-title');
+        if (!titleEl || titleEl.tagName === 'INPUT') return;
+        const title = titleEl.dataset.title;
+        if (!title) return;
+
+        clearTimeout(hoverTimeout);
+        hoverTimeout = setTimeout(() => showPoster(titleEl, title), 300);
+      });
+
+      document.addEventListener('mouseout', (e) => {
+        const titleEl = e.target.closest('.watched-title');
+        if (!titleEl) return;
+        clearTimeout(hoverTimeout);
+        hidePoster();
+      });
+
+      // Перемещение tooltip за курсором
+      document.addEventListener('mousemove', (e) => {
+        if (tooltipEl && tooltipEl.classList.contains('visible')) {
+          positionTooltip(e.clientX, e.clientY);
+        }
+      });
+    }
+
+    function positionTooltip(x, y) {
+      const tw = 220;
+      const th = tooltipEl.offsetHeight || 300;
+      let left = x + 16;
+      let top = y - th / 2;
+      if (left + tw > window.innerWidth) left = x - tw - 16;
+      if (top < 0) top = 8;
+      if (top + th > window.innerHeight) top = window.innerHeight - th - 8;
+      tooltipEl.style.left = left + 'px';
+      tooltipEl.style.top = top + 'px';
+    }
+
+    async function showPoster(titleEl, title) {
+      const key = title.toLowerCase();
+
+      // Если постер уже предзагружен в data-poster
+      if (titleEl.dataset.poster) {
+        posterCache[key] = titleEl.dataset.poster;
+      }
+
+      // Если в JS-кеше — показываем сразу
+      if (posterCache[key]) {
+        renderPoster(posterCache[key]);
+        return;
+      }
+
+      // Показываем loading
+      tooltipEl.innerHTML = '<div class="poster-loading">⏳ Загрузка...</div>';
+      tooltipEl.classList.add('visible');
+      const rect = titleEl.getBoundingClientRect();
+      positionTooltip(rect.left, rect.top + rect.height / 2);
+
+      // Запрос к API (cache-first на бэкенде)
+      try {
+        const r = await fetch(`/api/movie/poster?title=${encodeURIComponent(title)}`);
+        const data = await r.json();
+        if (data.poster_url) {
+          posterCache[key] = data.poster_url;
+          renderPoster(data.poster_url);
+        } else {
+          tooltipEl.innerHTML = '<div class="poster-loading">🎥 Постер не найден</div>';
+          setTimeout(() => hidePoster(), 1500);
+        }
+      } catch (e) {
+        hidePoster();
+      }
+    }
+
+    function renderPoster(url) {
+      tooltipEl.innerHTML = `<img src="${url}" alt="Постер" onload="tooltipEl.classList.add('visible')">`;
+      // Показываем сразу — изображение загрузится async
+      tooltipEl.classList.add('visible');
+    }
+
+    function hidePoster() {
+      if (tooltipEl) {
+        tooltipEl.classList.remove('visible');
+        tooltipEl.innerHTML = '';
+      }
+    }
+
+    // Init
+    initPosterTooltip();
   </script>
 </body>
 </html>
