@@ -117,12 +117,15 @@
             </td>
             <td class="mono">{{ format_msk(last_login_at) if last_login_at else "—" }}</td>
             <td>
-              <form method="post" action="/users/{{ discord_id }}/admin" style="margin:0;">
+              <form method="post" action="/users/{{ discord_id }}/admin" style="margin:0; display:inline;">
                 <label class="switch">
                   <input type="checkbox" name="make_admin" value="true" {% if is_admin_flag %}checked{% endif %} onchange="this.form.submit()">
                   <span class="slider"></span>
                 </label>
               </form>
+              <button type="button" onclick="resetPassword({{ discord_id }})"
+                      style="background: transparent; border: 1px solid var(--red); color: var(--red); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; margin: 0 0 0 6px;"
+                      title="Сбросить пароль">🔑</button>
             </td>
           </tr>
         {% else %}
@@ -131,5 +134,21 @@
       </table>
     </article>
   </main>
+  <script>
+    async function resetPassword(discordId) {
+      if (!confirm('Сбросить пароль пользователя? Юзер получит DM в Discord.')) return;
+      try {
+        const r = await fetch(`/api/users/${discordId}/reset-password`, { method: 'POST' });
+        if (r.ok) {
+          alert('✓ Пароль сброшен. Юзер получит уведомление в Discord.');
+        } else {
+          const data = await r.json();
+          alert('❌ ' + (data.error || 'Ошибка'));
+        }
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+  </script>
 </body>
 </html>
