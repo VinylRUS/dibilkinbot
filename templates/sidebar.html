@@ -137,14 +137,16 @@
         <div class="sb-user-action">Профиль →</div>
       </div>
     </a>
-    <form method="post" action="/theme" style="margin:0;">
-      <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="sb-theme-toggle" title="Сменить тему">
-        {{ '☀️' if theme_from_request(request) == 'dark' else '🌙' }}
-      </button>
-    </form>
-    <a href="/logout" class="sb-theme-toggle" title="Выйти" style="text-decoration:none; background: var(--red-soft); color: var(--red); border-color: var(--red);">
-      {{ sb_icon('logout') }}
-    </a>
+    <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+      <form method="post" action="/theme" style="margin:0;">
+        <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="sb-theme-toggle" title="Сменить тему">
+          {{ '☀️' if theme_from_request(request) == 'dark' else '🌙' }}
+        </button>
+      </form>
+      <a href="/logout" class="sb-theme-toggle" title="Выйти" style="text-decoration:none; background: var(--red-soft); color: var(--red); border-color: var(--red); border-style: solid; border-width: 1px;">
+        {{ sb_icon('logout') }}
+      </a>
+    </div>
   </div>
 </aside>
 
