@@ -398,36 +398,144 @@ async def select_guild_submit(
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, _user: dict = Depends(require_user)):
     guild_id = get_current_guild_id(_user)
-    recent_watched = await db.g_list_watched(guild_id, limit=10)
-    recent_winners = await db.g_list_winners(guild_id, limit=10)
-    activity = await db.g_recent_activity(guild_id, limit=15)
-    top_quotes = await db.g_top_quotes(guild_id, limit=5)
 
     # Статусы токенов (глобальные)
     saved_kp = bool(await db.get_setting("kinopoisk_token"))
     saved_tg = bool(await db.get_setting("telegram_token"))
 
-    # Текущий guild для отображения
-    import guild as guild_module
-    current_guild = await guild_module.get_guild(guild_id)
-    available_guilds = await get_user_guilds(_user)
-
     # Версия бота для footer
     from changelog_parser import get_latest_version
     bot_version = get_latest_version("CHANGELOG.md")
 
+    # Импортируем guild для init
+    import guild as guild_module
+    await guild_module.init_guild_tables(guild_id)
+
+    # === «Сейчас» — статус киновечера ===
+    active_collection = await db.g_get_active_collection(guild_id)
+    ready_count = 0
+    total_count = 0
+    my_collection_status = None
+    if active_collection:
+        participants = await db.g_list_collection_participants(guild_id, active_collection["id"])
+        total_count = len(participants)
+        ready_count = sum(1 for p in participants if p["is_ready"])
+        user_discord_id = _user.get("discord_id", 0)
+        my_p = await db.g_get_santa_participant(guild_id, active_collection["id"], user_discord_id) if False else None
+        # Проверяем статус юзера в сборе
+        for p in participants:
+            if p["user_discord_id"] == user_discord_id:
+                if p["kicked_at"]:
+                    my_collection_status = "кикнут"
+                elif p["is_ready"]:
+                    my_collection_status = "готов"
+                else:
+                    my_collection_status = "ещё не готов"
+                break
+        if not my_collection_status:
+            my_collection_status = "не присоединился"
+
+    # Колесо
+    wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+    wheel_count = len(wheel_items)
+
+    # Недавний победитель
+    recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
+
+    # === Чек-лист настроек ===
+    user_discord_id = _user.get("discord_id", 0)
+    is_tg_linked = await db.is_tg_linked(user_discord_id) if user_discord_id else False
+    is_steam_set = await db.is_steam_profile_set(user_discord_id) if user_discord_id else False
+    tg_link = await db.get_tg_link(user_discord_id) if user_discord_id else None
+    tg_username = tg_link[2] if tg_link and tg_link[2] else ""
+
+    # === Админ данные ===
+    admin_activity = []
+    unrated_winners = []
+    stats = {}
+    if _user.get("is_admin"):
+        # Активность за 7 дней
+        from datetime import datetime, timedelta
+        cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+
+        # Последние входы юзеров
+        async with db._connect() as conn:
+            async with conn.execute(
+                "SELECT username, display_name, last_login_at FROM users WHERE last_login_at > ? ORDER BY last_login_at DESC LIMIT 10",
+                (cutoff,)
+            ) as cur:
+                for r in await cur.fetchall():
+                    username = r[1] or r[0] or "Unknown"
+                    login_at = r[2]
+                    # Вычисляем "time ago"
+                    if login_at:
+                        try:
+                            dt = datetime.fromisoformat(login_at)
+                            diff = datetime.utcnow() - dt
+                            if diff.days > 0:
+                                time_ago = f"{diff.days} дн назад"
+                            elif diff.seconds > 3600:
+                                time_ago = f"{diff.seconds // 3600} ч назад"
+                            else:
+                                time_ago = f"{diff.seconds // 60} мин назад"
+                        except Exception:
+                            time_ago = "недавно"
+                    else:
+                        time_ago = "недавно"
+                    admin_activity.append({
+                        "username": username,
+                        "action": "заходил(а) в панель",
+                        "time_ago": time_ago,
+                    })
+
+        # Неоценённые победители
+        all_winners = await db.g_get_winners_with_ratings(guild_id, limit=20)
+        for w in all_winners:
+            if w["ratings_count"] < 3 and len(unrated_winners) < 5:
+                unrated_winners.append({
+                    "lot_name": w["lot_name"],
+                    "ratings_count": w["ratings_count"],
+                    "total_count": 4,  # примерный максимум участников
+                })
+
+        # Статистика сервера
+        all_users = await db.list_users()
+        all_watched = await db.g_list_watched(guild_id, limit=10000)
+        all_winners_count = len(all_winners)
+        all_quotes = await db.g_count_quotes(guild_id)
+        total_ratings = 0
+        for w in all_winners:
+            total_ratings += w["ratings_count"]
+        # Активные за неделю
+        active_week = len(admin_activity)
+
+        stats = {
+            "total_users": len(all_users),
+            "total_watched": len(all_watched),
+            "total_ratings": total_ratings,
+            "total_quotes": all_quotes,
+            "total_winners": all_winners_count,
+            "active_week": active_week,
+        }
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
         "current_guild_id": guild_id,
-        "current_guild": current_guild,
         "bot_version": bot_version,
-        "available_guilds": available_guilds,
-        "recent_watched": recent_watched,
-        "recent_winners": recent_winners,
-        "activity": activity,
-        "top_quotes": top_quotes,
         "saved_kp": saved_kp,
         "saved_tg": saved_tg,
+        "active_collection": active_collection,
+        "ready_count": ready_count,
+        "total_count": total_count,
+        "my_collection_status": my_collection_status,
+        "wheel_count": wheel_count,
+        "recent_winner": recent_winner,
+        "is_tg_linked": is_tg_linked,
+        "is_steam_set": is_steam_set,
+        "tg_username": tg_username,
+        "admin_activity": admin_activity,
+        "unrated_winners": unrated_winners,
+        "stats": stats,
     })
 
 
