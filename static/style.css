@@ -942,6 +942,13 @@ body.has-sidebar.sidebar-open {
   width: var(--sidebar-width);
   box-shadow: 8px 0 40px rgba(0, 0, 0, 0.12);
 }
+/* v1.8.2: sidebar НЕ раскрывается при hover. Только через .open (клик). */
+.sidebar:hover {
+  width: var(--sidebar-collapsed);
+}
+.sidebar.open:hover {
+  width: var(--sidebar-width);
+}
 
 .sidebar-header {
   padding: 14px;
@@ -1032,12 +1039,27 @@ body.has-sidebar.sidebar-open {
 .sidebar:hover .sb-section-label, .sidebar.open .sb-section-label { opacity: 1; }
 
 .sidebar-footer {
-  padding: 10px 8px; border-top: 1px solid var(--border); flex-shrink: 0;
-  display: flex; align-items: center; gap: 8px;
+  padding: 8px 8px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 .sb-user {
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  border-radius: 12px; cursor: pointer; transition: background 0.2s; flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+  width: 100%;
+  justify-content: center;
+}
+.sidebar.open .sb-user {
+  justify-content: flex-start;
 }
 .sb-user:hover { background: var(--accent-soft); }
 .sb-user-avatar {

@@ -340,9 +340,9 @@ async def login_submit(
         if not (settings.admin_discord_id is not None and discord_id == settings.admin_discord_id):
             user_has_password = await db.has_password(discord_id)
             if not user_has_password:
-                # Нет пароля → редирект на установку пароля
+                # Нет пароля → возвращаем на логин с попапом установки пароля
                 # Сохраняем discord_id в временной сессии (через куку)
-                resp = RedirectResponse(url=f"/set-password?discord_id={discord_id}", status_code=303)
+                resp = RedirectResponse(url=f"/login?need_password=1&did={discord_id}", status_code=303)
                 # Временная кука на 5 минут для установки пароля
                 temp_token = create_session({
                     "discord_id": discord_id,
