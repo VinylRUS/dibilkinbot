@@ -29,7 +29,9 @@ from config import settings
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 SESSION_TTL = 60 * 60 * 24 * 7  # 7 дней
 
-serializer = URLSafeTimedSerializer(settings.app_secret, salt="panel-session")
+# v1.8.2: сменили salt чтобы инвалидировать все старые сессии
+# Старые сессии (с salt="panel-session") станут невалидными → всех разлогинит
+serializer = URLSafeTimedSerializer(settings.app_secret, salt="panel-session-v2")
 
 app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_url=None)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))

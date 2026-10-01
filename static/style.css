@@ -914,24 +914,24 @@ article.card:hover {
 }
 
 body.has-sidebar {
-  margin-right: var(--sidebar-collapsed);
-  transition: margin-right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: var(--sidebar-collapsed);
+  transition: margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 body.has-sidebar.sidebar-open {
-  margin-right: var(--sidebar-width);
+  margin-left: var(--sidebar-width);
 }
 
 .sidebar {
   position: fixed;
   top: 0;
-  right: 0;
+  left: 0;
   width: var(--sidebar-collapsed);
   height: 100vh;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border-left: 1px solid var(--glass-border);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.06);
+  border-right: 1px solid var(--glass-border);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.06);
   z-index: 200;
   transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s;
   display: flex;
@@ -940,7 +940,7 @@ body.has-sidebar.sidebar-open {
 }
 .sidebar:hover, .sidebar.open {
   width: var(--sidebar-width);
-  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.12);
+  box-shadow: 8px 0 40px rgba(0, 0, 0, 0.12);
 }
 
 .sidebar-header {
@@ -1205,18 +1205,18 @@ body.has-sidebar.sidebar-open {
 .sidebar-overlay { display: none; }
 
 @media (max-width: 768px) {
-  body.has-sidebar { margin-right: 0; }
-  body.has-sidebar.sidebar-open { margin-right: 0; }
+  body.has-sidebar { margin-left: 0; }
+  body.has-sidebar.sidebar-open { margin-left: 0; }
   /* На мобильных sidebar скрыт по умолчанию, раскрывается только через .open */
   .sidebar {
-    width: 0; border-left: none;
+    width: 0; border-right: none;
   }
   /* ВАЖНО: на мобильных :hover НЕ должен раскрывать sidebar! */
   .sidebar:hover {
     width: 0;
   }
   .sidebar.open {
-    width: 280px; border-left: 1px solid var(--glass-border);
+    width: 280px; border-right: 1px solid var(--glass-border);
   }
   .sidebar.open:hover {
     width: 280px;
@@ -1226,9 +1226,9 @@ body.has-sidebar.sidebar-open {
   .sidebar .sidebar-title,
   .sidebar .sb-section-label,
   .sidebar .sb-user-info { opacity: 1; }
-  /* Бургер-кнопка — яркая и заметная */
+  /* Бургер-кнопка — яркая и заметная, слева */
   .mobile-menu-btn {
-    position: fixed; top: 12px; right: 12px; z-index: 300;
+    position: fixed; top: 12px; left: 12px; z-index: 300;
     width: 44px; height: 44px; border-radius: 14px;
     background: var(--accent); color: var(--accent-text);
     border: none;

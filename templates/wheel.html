@@ -229,22 +229,22 @@
       0% { transform: scale(0.5); opacity: 0; }
       100% { transform: scale(1); opacity: 1; }
     }
-    .sidebar {
+    .wheel-sidebar {
       background: var(--card);
       border-radius: 12px;
       padding: 20px;
       max-height: calc(100vh - 48px);
       overflow-y: auto;
     }
-    [data-theme="light"] .sidebar { color: var(--text); }
-    [data-theme="dark"] .sidebar { color: #fff; }
-    .sidebar h2 {
+    [data-theme="light"] .wheel-sidebar { color: var(--text); }
+    [data-theme="dark"] .wheel-sidebar { color: #fff; }
+    .wheel-sidebar h2 {
       font-size: 1.2rem;
       margin: 0 0 16px;
       color: var(--accent);
       font-weight: 700;
     }
-    .sidebar h2::before { display: none; }
+    .wheel-sidebar h2::before { display: none; }
     .add-form {
       display: flex;
       gap: 8px;
@@ -405,7 +405,7 @@
     </section>
 
     <!-- Список лотов -->
-    <aside class="sidebar">
+    <aside class="wheel-sidebar">
       <!-- Кнопка загрузки из списков желаемого (скрыта если активный сбор или уже есть победитель) -->
       {% if not active_collection and not recent_winner %}
       <button id="load-watchlist-btn" style="width: 100%; background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; margin: 0 0 14px 0; font-weight: 600;" onclick="loadFromWatchlist()">
