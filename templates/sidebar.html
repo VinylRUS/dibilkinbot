@@ -1,7 +1,8 @@
-{# Боковая панель навигации (выдвижная шторка справа, v1.8.2)
-   Заменяет старый _nav.html. Принимает: user, active.
+{# Боковая панель навигации (слева, v1.8.2)
+   Принимает: user, active.
    Используется через {% include "sidebar.html" %} в начале <body>.
-   ВАЖНО: шаблон должен установить body class "has-sidebar". #}
+   Раскрывается по клику на пустое место внутри sidebar.
+   Кнопки (профиль, тема, выход) кликабельны всегда. #}
 
 {# SVG иконки #}
 {%- macro sb_icon(name) -%}
@@ -51,7 +52,7 @@
   {{ sb_icon('menu') }}
 </button>
 
-<!-- Боковая панель -->
+<!-- Боковая панель (слева) -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo">
@@ -121,7 +122,8 @@
   </nav>
 
   <div class="sidebar-footer">
-    <a href="/profile" class="sb-user" style="text-decoration:none; color:inherit;">
+    <!-- Профиль (кнопка) -->
+    <a href="/profile" class="sb-user" style="text-decoration:none; color:inherit;" title="Профиль">
       <div class="sb-user-avatar">
         {% if user.avatar_url %}
           <img src="{{ user.avatar_url }}" alt="">
@@ -137,12 +139,14 @@
         <div class="sb-user-action">Профиль →</div>
       </div>
     </a>
+    <!-- Смена темы (кнопка) -->
     <form method="post" action="/theme" style="margin:0;">
       <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="sb-theme-toggle" title="Сменить тему">
         {{ '☀️' if theme_from_request(request) == 'dark' else '🌙' }}
       </button>
     </form>
-    <a href="/logout" class="sb-theme-toggle" title="Выйти" style="text-decoration:none; background: var(--red-soft); color: var(--red); border-color: var(--red);">
+    <!-- Выход (кнопка) -->
+    <a href="/logout" class="sb-theme-toggle" title="Выйти" style="text-decoration:none; background: var(--red-soft); color: var(--red); border: 1px solid var(--red);">
       {{ sb_icon('logout') }}
     </a>
   </div>
@@ -165,8 +169,21 @@ function closeSidebar() {
   document.body.classList.remove('sidebar-open');
   overlay.classList.remove('visible');
 }
-// На десктопе hover раскрывает панель — при уходе мыши сворачивается автоматически
-// (через CSS :hover). На мобильных — только через кнопку.
+// v1.8.2: sidebar раскрывается ТОЛЬКО по клику на пустое место внутри sidebar.
+// НЕ раскрывается при hover. Кнопки кликабельны всегда.
+document.addEventListener('DOMContentLoaded', () => {
+  const sidebar = document.getElementById('sidebar');
+  // Клик по пустому месту внутри sidebar (не по кнопкам/ссылкам)
+  sidebar.addEventListener('click', (e) => {
+    if (e.target.closest('a') || e.target.closest('button') || e.target.closest('.sb-user')) {
+      return; // Кликнули по кнопке — не toggлим
+    }
+    // Кликнули по пустому месту — toggлим
+    if (window.innerWidth > 768) {
+      toggleSidebar();
+    }
+  });
+});
 // Закрытие при клике вне sidebar на мобильных
 document.addEventListener('click', (e) => {
   if (window.innerWidth <= 768) {

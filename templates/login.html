@@ -71,19 +71,56 @@
       width: 100%;
       margin-top: 24px;
     }
-    /* Шаг 2 — пароль */
-    #step-2 { display: none; }
-    #step-2.visible { display: block; }
-    .back-link {
-      display: block;
-      text-align: center;
-      margin-top: 16px;
-      color: var(--text-muted);
-      font-size: 0.82rem;
-      text-decoration: none;
-      transition: color 0.15s;
+    /* Попап установки пароля */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
     }
-    .back-link:hover { color: var(--accent); }
+    .modal-overlay.visible { display: flex; }
+    .modal-card {
+      background: var(--bg-base, #F4EAD3);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 36px 32px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.3);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      background: var(--glass-bg);
+    }
+    .modal-card h2 {
+      margin: 0 0 8px 0;
+      font-size: 1.3rem;
+      color: var(--accent);
+      text-align: center;
+    }
+    .modal-card h2::before { display: none; }
+    .modal-card .modal-subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-bottom: 24px;
+    }
+    .modal-card .modal-error {
+      background: var(--red-soft);
+      color: var(--red);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      margin-bottom: 14px;
+      border: 1px solid var(--red);
+      display: none;
+    }
+    .modal-card button {
+      width: 100%;
+      margin-top: 16px;
+    }
   </style>
 </head>
 <body>
@@ -108,43 +145,85 @@
       <div class="success">✓ Пароль установлен! Теперь войдите с ним.</div>
     {% endif %}
 
-    <!-- Шаг 1: Discord ID -->
-    <div id="step-1">
-      <label for="login">Discord ID</label>
-      <input id="login" name="login" type="text" autocomplete="username" required autofocus
-             placeholder="123456789012345678"
-             value="{{ request.query_params.get('did', '') }}">
-      <p class="hint">
-        Включите режим разработчика в Discord: Настройки → Расширенные → Режим разработчика.<br>
-        ПКМ по своему имени → «Копировать ID пользователя».
-      </p>
-    </div>
+    <label for="login">Discord ID</label>
+    <input id="login" name="login" type="text" autocomplete="username" required autofocus
+           placeholder="123456789012345678"
+           value="{{ request.query_params.get('did', '') }}">
 
-    <!-- Шаг 2: Пароль (показывается если нужно) -->
-    <div id="step-2">
-      <label for="password">Пароль</label>
-      <input id="password" name="password" type="password" autocomplete="current-password"
-             placeholder="Ваш пароль">
-      <p class="hint">
-        <strong>Забыли пароль?</strong> Попросите админа сбросить его через панель управления.
-      </p>
-    </div>
+    <label for="password">Пароль</label>
+    <input id="password" name="password" type="password" autocomplete="current-password"
+           placeholder="Ваш пароль"
+           value="">
+
+    <p class="hint">
+      Включите режим разработчика в Discord: Настройки → Расширенные → Режим разработчика.<br>
+      ПКМ по своему имени → «Копировать ID пользователя».
+    </p>
 
     <button type="submit">Войти</button>
   </form>
 
-  <script>
-    // Если в URL есть ?did= или ?error=password_required — показываем шаг 2
-    const urlParams = new URLSearchParams(window.location.search);
-    const did = urlParams.get('did');
-    const error = urlParams.get('error');
+  <!-- Попап установки пароля (для первого входа) -->
+  <div class="modal-overlay" id="set-password-modal">
+    <div class="modal-card">
+      <h2>🔑 Установите пароль</h2>
+      <div class="modal-subtitle">Вы входите впервые. Придумайте пароль для входа в веб-панель.</div>
+      <div class="modal-error" id="modal-error"></div>
+      <label for="modal-password">Пароль (минимум 4 символа)</label>
+      <input id="modal-password" type="password" autocomplete="new-password" placeholder="Придумайте пароль" minlength="4">
+      <label for="modal-password-confirm">Повторите пароль</label>
+      <input id="modal-password-confirm" type="password" autocomplete="new-password" placeholder="Повторите пароль" minlength="4">
+      <button type="button" onclick="submitSetPassword()">Установить и войти</button>
+    </div>
+  </div>
 
-    if (did && (error === 'password_required' || error === 'wrong_password' || error === 'password_set')) {
-      // Показываем шаг 2 (пароль)
-      document.getElementById('step-2').classList.add('visible');
-      // Фокус на поле пароля
+  <script>
+    // Если URL содержит ?need_password=1 → показываем попап
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('need_password') === '1') {
+      document.getElementById('set-password-modal').classList.add('visible');
+      setTimeout(() => document.getElementById('modal-password').focus(), 200);
+    }
+
+    // Если password_required или wrong_password → фокус на пароль
+    const error = urlParams.get('error');
+    if (error === 'password_required' || error === 'wrong_password') {
       setTimeout(() => document.getElementById('password').focus(), 100);
     }
+
+    async function submitSetPassword() {
+      const pw = document.getElementById('modal-password').value.trim();
+      const pwConfirm = document.getElementById('modal-password-confirm').value.trim();
+      const errEl = document.getElementById('modal-error');
+
+      errEl.style.display = 'none';
+      if (!pw) { errEl.textContent = 'Пароль не может быть пустым'; errEl.style.display = 'block'; return; }
+      if (pw.length < 4) { errEl.textContent = 'Минимум 4 символа'; errEl.style.display = 'block'; return; }
+      if (pw !== pwConfirm) { errEl.textContent = 'Пароли не совпадают'; errEl.style.display = 'block'; return; }
+
+      // Отправляем POST на /set-password
+      const formData = new FormData();
+      formData.append('password', pw);
+      formData.append('password_confirm', pwConfirm);
+      try {
+        const r = await fetch('/set-password', { method: 'POST', body: formData });
+        if (r.ok) {
+          // Успех — редирект на логин с сообщением
+          window.location.href = '/login?error=password_set';
+        } else {
+          errEl.textContent = 'Ошибка установки пароля';
+          errEl.style.display = 'block';
+        }
+      } catch (e) {
+        errEl.textContent = 'Сетевая ошибка: ' + e.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    // Enter в поле подтверждения → submit
+    document.getElementById('modal-password-confirm').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitSetPassword();
+    });
   </script>
 </body>
 </html>
