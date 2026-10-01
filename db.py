@@ -185,6 +185,9 @@ async def init_db() -> None:
                 "steam_id64": "TEXT",
                 "steam_persona": "TEXT",
                 "steam_avatar_url": "TEXT",
+                # v1.8.2: пароль юзера (sha256 + salt)
+                "password_hash": "TEXT",
+                "password_salt": "TEXT",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in existing_cols:
@@ -770,6 +773,74 @@ async def is_steam_profile_set(discord_id: int) -> bool:
     """Проверить, указан ли Steam-профиль у юзера."""
     profile = await get_user_steam_profile(discord_id)
     return profile is not None and bool(profile.get("steam_id64"))
+
+
+# === Password (v1.8.2) ===
+
+import hashlib as _hashlib
+import secrets as _secrets
+
+
+def _hash_password(password: str, salt: str) -> str:
+    """Хешировать пароль с salt через sha256 (1000 итераций для усложнения брутфорса)."""
+    h = password + salt
+    for _ in range(1000):
+        h = _hashlib.sha256(h.encode()).hexdigest()
+    return h
+
+
+async def set_user_password(discord_id: int, password: str) -> bool:
+    """Установить пароль для юзера. Генерирует случайный salt.
+    Возвращает True если обновлено."""
+    if not password or len(password) < 4:
+        return False
+    salt = _secrets.token_hex(16)
+    password_hash = _hash_password(password, salt)
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE users SET password_hash = ?, password_salt = ? WHERE discord_id = ?",
+            (password_hash, salt, discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def verify_user_password(discord_id: int, password: str) -> bool:
+    """Проверить пароль юзера. Возвращает True если совпадает."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT password_hash, password_salt FROM users WHERE discord_id = ?",
+            (discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row or not row[0] or not row[1]:
+        return False
+    stored_hash = row[0]
+    salt = row[1]
+    test_hash = _hash_password(password, salt)
+    return _secrets.compare_digest(stored_hash, test_hash)
+
+
+async def has_password(discord_id: int) -> bool:
+    """Проверить, установлен ли пароль у юзера."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT password_hash FROM users WHERE discord_id = ? AND password_hash IS NOT NULL AND password_hash != ''",
+            (discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return bool(row)
+
+
+async def reset_user_password(discord_id: int) -> bool:
+    """Сбросить пароль юзера (админ). Возвращает True если обновлено."""
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE users SET password_hash = NULL, password_salt = NULL WHERE discord_id = ?",
+            (discord_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
 
 
 # === Movie Meta (TMDB cache) ===

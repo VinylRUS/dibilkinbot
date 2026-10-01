@@ -8,16 +8,18 @@
   <style>
     body { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
     .login-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      padding: 32px;
-      border-radius: 12px;
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
+      padding: 36px 32px;
+      border-radius: 20px;
       width: 100%;
-      max-width: 440px;
-      box-shadow: var(--shadow);
+      max-width: 420px;
+      box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255,255,255,0.1);
     }
     h1 {
-      margin: 0 0 24px 0;
+      margin: 0 0 28px 0;
       font-size: 1.6rem;
       color: var(--accent);
       text-align: center;
@@ -28,12 +30,22 @@
     }
     h1::before { content: "🐝"; font-size: 1.4rem; }
     .error {
-      background: var(--badge-unconfirmed-bg);
+      background: var(--red-soft);
       color: var(--red);
-      padding: 10px 14px;
-      border-radius: 6px;
+      padding: 12px 16px;
+      border-radius: 12px;
       font-size: 0.88rem;
       margin-bottom: 16px;
+      border: 1px solid var(--red);
+    }
+    .success {
+      background: var(--green-soft);
+      color: var(--green);
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 0.88rem;
+      margin-bottom: 16px;
+      border: 1px solid var(--green);
     }
     .hint {
       color: var(--text-muted);
@@ -45,20 +57,39 @@
     .hint code {
       background: var(--card-alt);
       padding: 2px 6px;
-      border-radius: 3px;
+      border-radius: 4px;
       font-family: ui-monospace, monospace;
       font-size: 0.78rem;
     }
-    .divider {
-      border-top: 1px dashed var(--border);
-      margin: 18px 0;
-      padding-top: 14px;
+    .login-card label {
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 600;
+      font-size: 0.88rem;
     }
+    .login-card button {
+      width: 100%;
+      margin-top: 24px;
+    }
+    /* Шаг 2 — пароль */
+    #step-2 { display: none; }
+    #step-2.visible { display: block; }
+    .back-link {
+      display: block;
+      text-align: center;
+      margin-top: 16px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .back-link:hover { color: var(--accent); }
   </style>
 </head>
 <body>
-  <form class="login-card" method="post" action="/login">
+  <form class="login-card" method="post" action="/login" id="login-form">
     <h1>DeeBeelkin</h1>
+
     {% if error == 'invalid' %}
       <div class="error">Неверный логин или пароль.</div>
     {% elif error == 'admin_password' %}
@@ -69,25 +100,51 @@
         Войдите в Discord-сервер, где стоит DeeBeelkin, и попробуйте снова.<br>
         <em>(Если бот офлайн — попросите админа перезапустить процесс.)</em>
       </div>
+    {% elif error == 'password_required' %}
+      <div class="error">Введите пароль для входа.</div>
+    {% elif error == 'wrong_password' %}
+      <div class="error">❌ Неверный пароль. Попробуйте ещё раз.</div>
+    {% elif error == 'password_set' %}
+      <div class="success">✓ Пароль установлен! Теперь войдите с ним.</div>
     {% endif %}
 
-    <label for="login">Discord ID</label>
-    <input id="login" name="login" type="text" autocomplete="username" required autofocus placeholder="123456789012345678">
-    <p class="hint">
-      Включите режим разработчика в Discord: Настройки → Расширенные → Режим разработчика.
-      ПКМ по своему имени → «Копировать ID пользователя».
-    </p>
-
-    <div class="divider">
-      <label for="password">Пароль (только для админа)</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" placeholder="оставьте пустым если вы обычный участник">
+    <!-- Шаг 1: Discord ID -->
+    <div id="step-1">
+      <label for="login">Discord ID</label>
+      <input id="login" name="login" type="text" autocomplete="username" required autofocus
+             placeholder="123456789012345678"
+             value="{{ request.query_params.get('did', '') }}">
       <p class="hint">
-        <strong>Обычные участники:</strong> оставьте пароль пустым — войдёте с правами viewer.<br>
-        <strong>Админ:</strong> введите пароль из переменной окружения <code>ADMIN_PASSWORD</code>.
+        Включите режим разработчика в Discord: Настройки → Расширенные → Режим разработчика.<br>
+        ПКМ по своему имени → «Копировать ID пользователя».
+      </p>
+    </div>
+
+    <!-- Шаг 2: Пароль (показывается если нужно) -->
+    <div id="step-2">
+      <label for="password">Пароль</label>
+      <input id="password" name="password" type="password" autocomplete="current-password"
+             placeholder="Ваш пароль">
+      <p class="hint">
+        <strong>Забыли пароль?</strong> Попросите админа сбросить его через панель управления.
       </p>
     </div>
 
     <button type="submit">Войти</button>
   </form>
+
+  <script>
+    // Если в URL есть ?did= или ?error=password_required — показываем шаг 2
+    const urlParams = new URLSearchParams(window.location.search);
+    const did = urlParams.get('did');
+    const error = urlParams.get('error');
+
+    if (did && (error === 'password_required' || error === 'wrong_password' || error === 'password_set')) {
+      // Показываем шаг 2 (пароль)
+      document.getElementById('step-2').classList.add('visible');
+      // Фокус на поле пароля
+      setTimeout(() => document.getElementById('password').focus(), 100);
+    }
+  </script>
 </body>
 </html>

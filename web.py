@@ -35,6 +35,7 @@ app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_u
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 _STATIC_DIR = Path(__file__).parent / "static"
+_cached_bot_version: str | None = None
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -231,23 +232,20 @@ async def login_submit(
     login: str = Form(...),
     password: str = Form("", alias="password"),
 ):
-    """Логин тремя способами:
-    1. Логин = ADMIN_LOGIN из env (текст, не число), пароль = ADMIN_PASSWORD — env-админ по логину/паролю
-    2. Логин = Discord ID админа (env ADMIN_DISCORD_ID), пароль = ADMIN_PASSWORD — env-админ по Discord ID
-    3. Логин = любой Discord ID (число), пароль пустой — авто-создание юзера с правами viewer
-
-    Для входа по Discord ID бот должен быть онлайн и проверить что юзер — участник сервера.
+    """Двухшаговый логин:
+    Шаг 1: юзер вводит Discord ID → бот проверяет участника сервера
+    Шаг 2: если у юзера нет пароля → редирект на /set-password
+           если есть пароль → проверка пароля → сессия
+    Админ может войти через env ADMIN_PASSWORD (если совпадает).
     """
     login = login.strip()
     password = password.strip()
 
-    is_env_admin_pass = secrets.compare_digest(password, settings.admin_password)
+    is_env_admin_pass = settings.admin_password and secrets.compare_digest(password, settings.admin_password)
 
     # Способ 1: классический env-админ по логину+паролю (login="admin", password="changeme")
-    # Только если login не числовой — иначе попадает в способ 2/3 ниже
     is_env_admin_login = secrets.compare_digest(login, settings.admin_login)
     if is_env_admin_login and is_env_admin_pass and not login.isdigit():
-        # Даже при текстовом логине — определяем guild_id через ADMIN_DISCORD_ID
         admin_guild_id = 0
         if settings.admin_discord_id:
             try:
@@ -255,7 +253,6 @@ async def login_submit(
                 is_member, member_info = await bot_module.is_guild_member(settings.admin_discord_id)
                 if is_member and member_info:
                     admin_guild_id = member_info.get("guild_id", 0)
-                    # Регистрируем guild
                     import guild as guild_module
                     await guild_module.init_guild_tables(admin_guild_id)
                     await guild_module.upsert_guild(
@@ -277,11 +274,11 @@ async def login_submit(
         resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
         return resp
 
-    # Способ 2 и 3: вход по Discord ID (число)
+    # Способ 2: вход по Discord ID (число)
     if login.isdigit():
         discord_id = int(login)
 
-        # Проверка участника сервера через бота (только если бот онлайн)
+        # Проверка участника сервера через бота
         import bot as bot_module
         is_member, member_info = await bot_module.is_guild_member(discord_id)
         if not is_member:
@@ -294,12 +291,12 @@ async def login_submit(
         roles = member_info.get("roles", [])
         top_role = member_info.get("top_role")
         guild_name = member_info.get("guild_name")
-        # Авто-определение guild_id из Discord (где бот нашёл этого юзера)
         member_guild_id = member_info.get("guild_id", 0)
 
         # Проверка прав
         is_admin = await db.is_admin(discord_id)
-        # Если это Discord ID админа (env ADMIN_DISCORD_ID) — требуем пароль
+
+        # Если это Discord ID админа (env ADMIN_DISCORD_ID) — проверяем env ADMIN_PASSWORD
         if settings.admin_discord_id is not None and discord_id == settings.admin_discord_id:
             if not is_env_admin_pass:
                 return RedirectResponse(url="/login?error=admin_password", status_code=303)
@@ -318,12 +315,11 @@ async def login_submit(
         if is_admin:
             await db.set_admin(discord_id, True)
 
-        # Если guild не зарегистрирован в реестре — регистрируем и создаём таблицы
+        # Регистрируем guild
         if member_guild_id:
             import guild as guild_module
             try:
                 await guild_module.init_guild_tables(member_guild_id)
-                # Если это первый вход админа — авто-апрув
                 if is_admin:
                     await guild_module.upsert_guild(
                         member_guild_id, guild_name or "Discord Server",
@@ -337,6 +333,35 @@ async def login_submit(
                 import logging
                 logging.getLogger("web").warning("Failed to init guild %s: %s", member_guild_id, e)
 
+        # === Двухшаговый логин: проверяем пароль ===
+        # Админ с env ADMIN_PASSWORD — пропускает проверку пароля БД
+        if not (settings.admin_discord_id is not None and discord_id == settings.admin_discord_id):
+            user_has_password = await db.has_password(discord_id)
+            if not user_has_password:
+                # Нет пароля → редирект на установку пароля
+                # Сохраняем discord_id в временной сессии (через куку)
+                resp = RedirectResponse(url=f"/set-password?discord_id={discord_id}", status_code=303)
+                # Временная кука на 5 минут для установки пароля
+                temp_token = create_session({
+                    "discord_id": discord_id,
+                    "username": display_name,
+                    "is_admin": is_admin,
+                    "avatar_url": avatar_url,
+                    "current_guild_id": member_guild_id,
+                    "temp": True,
+                })
+                resp.set_cookie("temp_session", temp_token, max_age=300, httponly=True, samesite="lax")
+                return resp
+
+            # Есть пароль → проверяем
+            if not password:
+                # Пароль не введён — возвращаем на логин с подсказкой
+                return RedirectResponse(url=f"/login?error=password_required&did={discord_id}", status_code=303)
+
+            if not await db.verify_user_password(discord_id, password):
+                return RedirectResponse(url=f"/login?error=wrong_password&did={discord_id}", status_code=303)
+
+        # Успешный вход
         user_payload = {
             "discord_id": discord_id,
             "username": display_name,
@@ -345,11 +370,12 @@ async def login_submit(
             "roles": roles,
             "top_role": top_role,
             "guild_name": guild_name,
-            "current_guild_id": member_guild_id,  # ← АВТО-ВЫБОР реального guild при логине
+            "current_guild_id": member_guild_id,
         }
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
         resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
+        resp.delete_cookie("temp_session")
         return resp
 
     return RedirectResponse(url="/login?error=invalid", status_code=303)
@@ -359,7 +385,108 @@ async def login_submit(
 async def logout():
     resp = RedirectResponse(url="/login", status_code=303)
     resp.delete_cookie("session")
+    resp.delete_cookie("temp_session")
     return resp
+
+
+# === Set Password (v1.8.2) ===
+
+@app.get("/set-password", response_class=HTMLResponse)
+async def set_password_page(request: Request, discord_id: Optional[int] = None):
+    """Страница установки пароля. Доступ через temp_session куку."""
+    # Читаем temp_session
+    temp_token = request.cookies.get("temp_session")
+    if not temp_token:
+        return RedirectResponse(url="/login", status_code=303)
+    temp_user = read_session(temp_token)
+    if not temp_user or not temp_user.get("temp"):
+        return RedirectResponse(url="/login", status_code=303)
+    return templates.TemplateResponse(request, "set_password.html", {
+        "discord_id": temp_user.get("discord_id", 0),
+        "username": temp_user.get("username", ""),
+    })
+
+
+@app.post("/set-password")
+async def set_password_submit(
+    request: Request,
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+):
+    """Установить пароль для юзера."""
+    temp_token = request.cookies.get("temp_session")
+    if not temp_token:
+        return RedirectResponse(url="/login", status_code=303)
+    temp_user = read_session(temp_token)
+    if not temp_user or not temp_user.get("temp"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    discord_id = temp_user.get("discord_id", 0)
+    if not discord_id:
+        return RedirectResponse(url="/login?error=invalid", status_code=303)
+
+    password = password.strip()
+    password_confirm = password_confirm.strip()
+
+    if not password:
+        return RedirectResponse(url="/set-password?error=empty", status_code=303)
+    if len(password) < 4:
+        return RedirectResponse(url="/set-password?error=short", status_code=303)
+    if password != password_confirm:
+        return RedirectResponse(url="/set-password?error=mismatch", status_code=303)
+
+    # Устанавливаем пароль
+    success = await db.set_user_password(discord_id, password)
+    if not success:
+        return RedirectResponse(url="/set-password?error=failed", status_code=303)
+
+    # Возвращаем на логин — юзер должен войти с новым паролем
+    resp = RedirectResponse(url=f"/login?error=password_set&did={discord_id}", status_code=303)
+    resp.delete_cookie("temp_session")
+    return resp
+
+
+@app.post("/api/users/{discord_id}/reset-password")
+async def api_reset_password(
+    discord_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Сбросить пароль юзера (только админ).
+    Юзер получит DM в Discord с уведомлением.
+    """
+    success = await db.reset_user_password(discord_id)
+    if not success:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    # Отправляем DM юзеру в Discord
+    try:
+        import bot as bot_module
+        bot_instance = bot_module.get_bot_instance()
+        if bot_instance:
+            member = None
+            for g in bot_instance.guilds:
+                member = g.get_member(discord_id)
+                if member is None:
+                    try:
+                        member = await g.fetch_member(discord_id)
+                    except Exception:
+                        member = None
+                if member:
+                    break
+            if member:
+                try:
+                    await member.send(
+                        "ℹ️ Ваш пароль от веб-панели был сброшен администратором.\n"
+                        "При следующем входе вам будет предложено установить новый пароль."
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger("web").warning("Failed to DM user %s: %s", discord_id, e)
+    except Exception as e:
+        import logging
+        logging.getLogger("web").warning("Reset password DM failed: %s", e)
+
+    return JSONResponse({"ok": True, "discord_id": discord_id})
 
 
 @app.get("/select_guild", response_class=HTMLResponse)
@@ -403,13 +530,15 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
     saved_kp = bool(await db.get_setting("kinopoisk_token"))
     saved_tg = bool(await db.get_setting("telegram_token"))
 
-    # Версия бота для footer
-    from changelog_parser import get_latest_version
-    bot_version = get_latest_version("CHANGELOG.md")
+    # Версия бота для footer (кешированная — не парсит CHANGELOG при каждом запросе)
+    global _cached_bot_version
+    if not _cached_bot_version:
+        from changelog_parser import get_latest_version
+        _cached_bot_version = get_latest_version("CHANGELOG.md")
+    bot_version = _cached_bot_version
 
-    # Импортируем guild для init
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
+    # init_guild_tables НЕ вызываем — таблицы уже созданы при on_ready бота.
+    # Дополнительный вызов при каждом запросе = спам в логах + лишний I/O.
 
     # === «Сейчас» — статус киновечера ===
     active_collection = await db.g_get_active_collection(guild_id)
@@ -1259,7 +1388,7 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
     watchlist = []
     if discord_id:
         import guild as guild_module
-        await guild_module.init_guild_tables(guild_id)
+        # init_guild_tables уже вызывается при on_ready бота
         watchlist = await db.g_list_watchlist(guild_id, discord_id, include_watched=True)
     return templates.TemplateResponse(request, "profile.html", {
         "user": _user,
@@ -1290,8 +1419,7 @@ async def api_watchlist_add(
     user_discord_id = _user.get("discord_id", 0)
     if not user_discord_id:
         return JSONResponse({"error": "user not identified"}, status_code=400)
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
+    # init_guild_tables уже вызывается при on_ready бота
     # Ищем метаданные
     import kinopoisk as kp
     meta = await kp.lookup_movie(title)
@@ -1517,8 +1645,7 @@ async def api_load_from_watchlist(_user: dict = Depends(require_user)):
     Пропускает фильмы, уже просмотренные (в watched) и уже в колесе.
     """
     guild_id = get_current_guild_id(_user)
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
+    # init_guild_tables уже вызывается при on_ready бота
 
     # Все непросмотренные фильмы из списков желаемого
     all_films = await db.g_get_all_unwatched_watchlist(guild_id)
@@ -1724,8 +1851,7 @@ async def movienight_page(request: Request, _user: dict = Depends(require_user))
       - Организатор/админ видит также панель участников (кто готов, кто нет)
     """
     guild_id = get_current_guild_id(_user)
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
+    # init_guild_tables уже вызывается при on_ready бота
 
     collection = await db.g_get_active_collection(guild_id)
     user_discord_id = _user.get("discord_id", 0)
@@ -1800,8 +1926,7 @@ async def api_collection_start(
     if not user_discord_id:
         return JSONResponse({"error": "user not identified"}, status_code=400)
 
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
+    # init_guild_tables уже вызывается при on_ready бота
 
     collection = await db.g_start_collection(guild_id, user_discord_id, max_per_user)
 
@@ -2153,8 +2278,7 @@ async def santa_main_page(request: Request, _user: dict = Depends(require_user))
         raise HTTPException(status_code=404, detail="Santa module disabled")
 
     guild_id = get_current_guild_id(_user)
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
+    # init_guild_tables уже вызывается при on_ready бота
 
     event = await db.g_get_active_santa_event(guild_id)
     user_discord_id = _user.get("discord_id", 0)
@@ -2217,8 +2341,7 @@ async def api_santa_create(
     if existing:
         return JSONResponse({"error": "Уже есть активное событие санты. Завершите его сначала."}, status_code=400)
 
-    import guild as guild_module
-    await guild_module.init_guild_tables(guild_id)
+    # init_guild_tables уже вызывается при on_ready бота
 
     # Парсим дату (формат YYYY-MM-DD от <input type="date">)
     from datetime import datetime as dt
