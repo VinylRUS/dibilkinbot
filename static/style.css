@@ -876,35 +876,11 @@ article.card:hover {
   margin-top: 12px;
 }
 
-/* ===== Мобильная адаптивность ===== */
+/* ===== Старая мобильная адаптивность nav.top (больше не используется) ===== */
+/* Стили для nav.top оставлены для обратной совместимости, но nav.top не рендерится */
 @media (max-width: 768px) {
-  nav.top {
-    height: auto;
-    min-height: 56px;
-    flex-wrap: wrap;
-    padding: 8px 12px;
-    gap: 4px;
-  }
-  nav.top .brand-link {
-    margin-right: auto;
-  }
-  nav.top .right {
-    margin-left: 0;
-    font-size: 0.78rem;
-  }
-  .container {
-    padding: 20px 16px;
-  }
-  h2 {
-    font-size: 1.15rem;
-  }
-  article.card {
-    padding: 16px 18px;
-    border-radius: 14px;
-  }
-  .grid {
-    grid-template-columns: 1fr;
-  }
+  h2 { font-size: 1.15rem; }
+  .grid { grid-template-columns: 1fr; }
 }
 
 /* ===== Скроллбар (для тёмной темы) ===== */
@@ -1231,30 +1207,52 @@ body.has-sidebar.sidebar-open {
 @media (max-width: 768px) {
   body.has-sidebar { margin-right: 0; }
   body.has-sidebar.sidebar-open { margin-right: 0; }
+  /* На мобильных sidebar скрыт по умолчанию, раскрывается только через .open */
   .sidebar {
     width: 0; border-left: none;
+  }
+  /* ВАЖНО: на мобильных :hover НЕ должен раскрывать sidebar! */
+  .sidebar:hover {
+    width: 0;
   }
   .sidebar.open {
     width: 280px; border-left: 1px solid var(--glass-border);
   }
+  .sidebar.open:hover {
+    width: 280px;
+  }
+  /* На мобильных всегда показываем лейблы */
   .sidebar .sb-item-label,
   .sidebar .sidebar-title,
   .sidebar .sb-section-label,
   .sidebar .sb-user-info { opacity: 1; }
+  /* Бургер-кнопка — яркая и заметная */
   .mobile-menu-btn {
     position: fixed; top: 12px; right: 12px; z-index: 300;
-    width: 40px; height: 40px; border-radius: 12px;
-    background: var(--glass-bg); backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border); color: var(--accent);
+    width: 44px; height: 44px; border-radius: 14px;
+    background: var(--accent); color: var(--accent-text);
+    border: none;
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer; box-shadow: var(--glass-shadow);
+    cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
   }
-  .mobile-menu-btn svg { width: 22px; height: 22px; }
+  .mobile-menu-btn svg { width: 24px; height: 24px; }
   .sidebar-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 150;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 150;
   }
   .sidebar-overlay.visible { display: block; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .quick-links { flex-direction: column; }
   .quick-link { min-width: auto; }
+  /* Контейнер уже на мобильных */
+  .container { padding: 16px 14px; padding-top: 64px; }
+  /* Карточки компактнее */
+  article.card { padding: 14px 16px; border-radius: 14px; }
+  .now-card { padding: 18px; }
+  .now-icon { width: 40px; height: 40px; font-size: 1.2rem; }
+  /* Таблицы скроллятся */
+  table { font-size: 0.82rem; }
+  th, td { padding: 6px 8px; }
+  /* Звёзды рейтинга компактнее */
+  .star-btn { padding: 2px 4px; font-size: 0.7rem; min-width: 18px; }
+  .rating-stars { gap: 1px; }
 }
