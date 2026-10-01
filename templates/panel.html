@@ -7,174 +7,238 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  {% include "_nav.html" %}
+  {% include "sidebar.html" %}
 
   <main class="container">
-    <h2>Статус</h2>
-    <div class="grid">
-      <article class="card">
-        <h3>Discord бот</h3>
-        <div class="stat green">🟢 запущен</div>
-      </article>
-      <article class="card">
-        <h3>Кинопоиск</h3>
-        <div class="stat {{ 'green' if saved_kp else 'red' }}">{{ '🟢 настроен' if saved_kp else '🔴 нет токена' }}</div>
-      </article>
-      <article class="card">
-        <h3>Telegram</h3>
-        <div class="stat {{ 'green' if saved_tg else 'red' }}">{{ '🟢 настроен' if saved_tg else '🔴 нет токена' }}</div>
-      </article>
-    </div>
-
-    <h2>Соединения</h2>
-    <div class="grid">
-      <div class="ping-card" id="ping-discord">
-        <div class="ping-dot checking"></div>
-        <div class="ping-info">
-          <div class="ping-label">Discord Gateway</div>
-          <div class="ping-value">проверка...</div>
-        </div>
-        <div class="ping-ms">—</div>
+    {% if user.is_admin %}
+    {# ===== Админ: компактный статус системы ===== #}
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="conn-indicator checking" id="conn-discord"></span>
+        Discord
+        <span class="conn-ms" id="ms-discord">…</span>
       </div>
-      <div class="ping-card" id="ping-telegram">
-        <div class="ping-dot checking"></div>
-        <div class="ping-info">
-          <div class="ping-label">Telegram Bot API</div>
-          <div class="ping-value">проверка...</div>
-        </div>
-        <div class="ping-ms">—</div>
+      <div class="status-item">
+        <span class="conn-indicator {{ 'online' if saved_kp else 'offline' }}"></span>
+        Кинопоиск
+      </div>
+      <div class="status-item">
+        <span class="conn-indicator checking" id="conn-telegram"></span>
+        Telegram
+        <span class="conn-ms" id="ms-telegram">…</span>
       </div>
     </div>
+    {% endif %}
 
-    <h2>Лента активности</h2>
-    <article class="card">
-      {% for item in activity %}
-        <div class="activity-row">
-          <span>
-            <span class="activity-type {{ item.type }}">{{ '🎡' if item.type == 'winner' else '🎬' }} {{ item.name }}</span>
-            {% if item.type == 'winner' %}
-              <span class="badge {{ item.confidence }}">{{ item.confidence }}</span>
-              {% if item.ratings_count and item.ratings_count > 0 %}
-                · ⭐ {{ item.avg_rating }}/10 ({{ item.ratings_count }})
-              {% endif %}
-            {% elif item.rating %}
-              <span>· ⭐{{ item.rating }}/10</span>
-            {% endif %}
-          </span>
-          <span class="mono">{{ format_msk(item.ts) }}</span>
+    {# ===== «Сейчас» — статус киновечера ===== #}
+    <h2>Сейчас</h2>
+    {% if active_collection %}
+      {# Идёт сбор #}
+      <div class="now-card">
+        <div class="now-status">
+          <div class="now-icon">🎬</div>
+          <div class="now-text">
+            <div class="now-title">Идёт сбор фильмов</div>
+            <div class="now-subtitle">{{ ready_count }} из {{ total_count }} участников готовы{% if my_collection_status %} · Вы: {{ my_collection_status }}{% endif %}</div>
+          </div>
         </div>
-      {% else %}
-        <div class="empty">Пока нет событий.</div>
-      {% endfor %}
-    </article>
+        <div class="now-actions">
+          <a href="/movienight" class="btn-primary">К сбору →</a>
+        </div>
+      </div>
+    {% elif wheel_count > 0 and not recent_winner %}
+      {# Колесо готово к крутке #}
+      <div class="now-card">
+        <div class="now-status">
+          <div class="now-icon">🎡</div>
+          <div class="now-text">
+            <div class="now-title">Колесо готово ({{ wheel_count }} фильмов)</div>
+            <div class="now-subtitle">Можно крутить!</div>
+          </div>
+        </div>
+        <div class="now-actions">
+          <a href="/wheel" class="btn-primary">Крутить →</a>
+        </div>
+      </div>
+    {% elif recent_winner %}
+      {# Победитель определён #}
+      <div class="now-card">
+        <div class="now-status">
+          <div class="now-icon">🏆</div>
+          <div class="now-text">
+            <div class="now-title">Последний победитель: {{ recent_winner.lot_name }}</div>
+            <div class="now-subtitle">{{ format_msk_short(recent_winner.detected_at) }}</div>
+          </div>
+        </div>
+        <div class="now-actions">
+          <a href="/winners" class="btn-primary">Оценить →</a>
+          <a href="/movienight" class="btn-primary" style="background: transparent; color: var(--accent); border: 1px solid var(--accent); box-shadow: none;">Новый сбор</a>
+        </div>
+      </div>
+    {% else %}
+      {# Ничего нет #}
+      <div class="now-card">
+        <div class="now-status">
+          <div class="now-icon">🎬</div>
+          <div class="now-text">
+            <div class="now-title">Нет активного киновечера</div>
+            <div class="now-subtitle">Начните сбор фильмов чтобы крутить колесо</div>
+          </div>
+        </div>
+        <div class="now-actions">
+          <a href="/movienight" class="btn-primary">Начать сбор →</a>
+        </div>
+      </div>
+    {% endif %}
 
-    <h2>Последние победители колеса</h2>
-    <table>
-      <tr><th>Фильм</th><th>Дата</th><th>Статус</th></tr>
-      {% for w_id, lot_name, tmdb_id, confidence, detected_at, confirmed_at in recent_winners %}
-        <tr>
-          <td>{{ lot_name }}</td>
-          <td class="mono">{{ format_msk_short(detected_at) }}</td>
-          <td><span class="badge {{ confidence }}">{{ confidence }}</span></td>
-        </tr>
-      {% else %}
-        <tr><td colspan="3" class="empty">Пока нет победителей. Крутаните колесо на <a href="/wheel">/wheel</a>.</td></tr>
-      {% endfor %}
-    </table>
-
-    <h2>Последние просмотренные</h2>
-    <table>
-      <tr><th>Фильм</th><th>Дата</th><th>Оценка</th></tr>
-      {% for w_id, title, watched_at, rating in recent_watched %}
-        <tr>
-          <td>{{ title }}</td>
-          <td class="mono">{{ format_msk_short(watched_at) }}</td>
-          <td>{{ '⭐' * rating if rating else '—' }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="3" class="empty">Бэклог пуст.</td></tr>
-      {% endfor %}
-    </table>
-
-    <h2>Топ авторов цитат</h2>
+    {# ===== Чек-лист настроек ===== #}
+    <h2>Ваш профиль</h2>
     <article class="card">
-      <table>
-        <tr><th>Автор</th><th>Цитат</th></tr>
-        {% for author, cnt in top_quotes %}
-          <tr><td>{{ author }}</td><td>{{ cnt }}</td></tr>
+      <div class="checklist-item">
+        <div class="checklist-icon done">✓</div>
+        <div class="checklist-text">Discord ID привязан</div>
+      </div>
+      <div class="checklist-item">
+        {% if is_tg_linked %}
+        <div class="checklist-icon done">✓</div>
+        <div class="checklist-text">Telegram привязан: @{{ tg_username }}</div>
         {% else %}
-          <tr><td colspan="2" class="empty">Цитат пока нет.</td></tr>
-        {% endfor %}
-      </table>
+        <div class="checklist-icon pending">!</div>
+        <div class="checklist-text pending">Telegram не привязан</div>
+        <a href="/profile" class="checklist-link">Привязать →</a>
+        {% endif %}
+      </div>
+      <div class="checklist-item">
+        {% if is_steam_set %}
+        <div class="checklist-icon done">✓</div>
+        <div class="checklist-text">Steam-профиль указан</div>
+        {% else %}
+        <div class="checklist-icon pending">!</div>
+        <div class="checklist-text pending">Steam-профиль не указан</div>
+        <a href="/profile" class="checklist-link">Указать →</a>
+        {% endif %}
+      </div>
     </article>
+
+    {# ===== Быстрые действия ===== #}
+    <h2>Быстрые действия</h2>
+    <div class="quick-links">
+      <a href="/wheel" class="quick-link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+        Колесо
+      </a>
+      <a href="/profile" class="quick-link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Вишлист
+      </a>
+      <a href="/quotes" class="quick-link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+        Цитаты
+      </a>
+    </div>
+
+    {% if user.is_admin %}
+    {# ===== Админ: активность участников ===== #}
+    <h2>Активность участников <span style="font-size:0.75rem; color:var(--text-soft); font-weight:400;">за 7 дней</span></h2>
+    <article class="card">
+      {% for item in admin_activity %}
+        <div class="activity-item">
+          <div class="activity-avatar">{{ item.username[:1] | upper }}</div>
+          <div class="activity-text"><strong>{{ item.username }}</strong> {{ item.action }}</div>
+          <div class="activity-time">{{ item.time_ago }}</div>
+        </div>
+      {% else %}
+        <div class="empty">Нет активности за последнюю неделю.</div>
+      {% endfor %}
+    </article>
+
+    {# ===== Админ: требуют оценок ===== #}
+    <h2>Требуют оценок</h2>
+    <article class="card">
+      {% for w in unrated_winners %}
+        <div class="rate-item">
+          <div class="activity-avatar">🎬</div>
+          <div class="rate-name">{{ w.lot_name }}</div>
+          <div class="rate-badge">{{ w.ratings_count }} из {{ w.total_count }} оценок</div>
+          <a href="/winners" class="checklist-link">Оценить →</a>
+        </div>
+      {% else %}
+        <div class="empty">Все победители оценены. 🎉</div>
+      {% endfor %}
+    </article>
+
+    {# ===== Админ: статистика сервера ===== #}
+    <h2>Статистика сервера</h2>
+    <article class="card">
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-box-value">{{ stats.total_users }}</div>
+          <div class="stat-box-label">Участников</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-value">{{ stats.total_watched }}</div>
+          <div class="stat-box-label">Просмотрено</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-value">{{ stats.total_ratings }}</div>
+          <div class="stat-box-label">Оценок</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-value">{{ stats.total_quotes }}</div>
+          <div class="stat-box-label">Цитат</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-value">{{ stats.total_winners }}</div>
+          <div class="stat-box-label">Победителей</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-value">{{ stats.active_week }}</div>
+          <div class="stat-box-label">Активных за неделю</div>
+        </div>
+      </div>
+    </article>
+    {% endif %}
+
+    <footer style="text-align: center; padding: 28px 0; color: var(--text-soft); font-size: 0.78rem;">
+      🐝 DeeBeelkin {{ bot_version }}
+    </footer>
   </main>
 
-  <footer style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 0.82rem;">
-    🐝 DeeBeelkin {{ bot_version }}
-  </footer>
-
   <script>
-    async function checkPings() {
-      // Discord ping
-      const dcCard = document.getElementById('ping-discord');
-      const dcDot = dcCard.querySelector('.ping-dot');
-      const dcValue = dcCard.querySelector('.ping-value');
-      const dcMs = dcCard.querySelector('.ping-ms');
+    // Проверка соединений (компактные индикаторы)
+    async function checkConnections() {
+      // Discord
       try {
         const t0 = Date.now();
-        const r = await fetch('/api/ping/discord', { method: 'GET' });
+        const r = await fetch('/api/ping/discord');
         const ms = Date.now() - t0;
         const data = await r.json();
-        if (data.online) {
-          dcDot.className = 'ping-dot online';
-          dcValue.textContent = 'онлайн';
-          dcValue.className = 'ping-value green';
-          dcMs.textContent = ms + ' мс';
-        } else {
-          dcDot.className = 'ping-dot offline';
-          dcValue.textContent = 'офлайн';
-          dcValue.className = 'ping-value red';
-          dcMs.textContent = '—';
-        }
+        const el = document.getElementById('conn-discord');
+        const msEl = document.getElementById('ms-discord');
+        if (el) el.className = 'conn-indicator ' + (data.online ? 'online' : 'offline');
+        if (msEl) msEl.textContent = data.online ? ms + 'ms' : '—';
       } catch (e) {
-        dcDot.className = 'ping-dot offline';
-        dcValue.textContent = 'ошибка';
-        dcValue.className = 'ping-value red';
-        dcMs.textContent = '—';
+        const el = document.getElementById('conn-discord');
+        if (el) el.className = 'conn-indicator offline';
       }
 
-      // Telegram ping
-      const tgCard = document.getElementById('ping-telegram');
-      const tgDot = tgCard.querySelector('.ping-dot');
-      const tgValue = tgCard.querySelector('.ping-value');
-      const tgMs = tgCard.querySelector('.ping-ms');
+      // Telegram
       try {
         const t0 = Date.now();
-        const r = await fetch('/api/ping/telegram', { method: 'GET' });
+        const r = await fetch('/api/ping/telegram');
         const ms = Date.now() - t0;
         const data = await r.json();
-        if (data.online) {
-          tgDot.className = 'ping-dot online';
-          tgValue.textContent = 'онлайн';
-          tgValue.className = 'ping-value green';
-          tgMs.textContent = ms + ' мс';
-        } else {
-          tgDot.className = 'ping-dot offline';
-          tgValue.textContent = 'офлайн';
-          tgValue.className = 'ping-value red';
-          tgMs.textContent = '—';
-        }
+        const el = document.getElementById('conn-telegram');
+        const msEl = document.getElementById('ms-telegram');
+        if (el) el.className = 'conn-indicator ' + (data.online ? 'online' : 'offline');
+        if (msEl) msEl.textContent = data.online ? ms + 'ms' : '—';
       } catch (e) {
-        tgDot.className = 'ping-dot offline';
-        tgValue.textContent = 'ошибка';
-        tgValue.className = 'ping-value red';
-        tgMs.textContent = '—';
+        const el = document.getElementById('conn-telegram');
+        if (el) el.className = 'conn-indicator offline';
       }
     }
-
-    // Проверка при загрузке + каждые 60 секунд
-    checkPings();
-    setInterval(checkPings, 60000);
+    checkConnections();
+    setInterval(checkConnections, 60000);
   </script>
 </body>
 </html>
