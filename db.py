@@ -1274,30 +1274,34 @@ async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search
     table_winners = _guild.guild_table(guild_id, "winners")
     table_r = _guild.guild_table(guild_id, "ratings")
     async with _connect() as db:
-        # Подзапрос: одна строка на winner_id с AVG и COUNT (без дублирования строк из-за второго JOIN)
-        agg_subq = (
-            f"(SELECT AVG(r2.rating), COUNT(r2.id) FROM {table_r} r2 "
-            f" WHERE r2.winner_id = win.id)"
+        # Три отдельных scalar-подзапроса (SQLite не позволяет multi-column subquery в COALESCE).
+        avg_subq = (
+            f"COALESCE((SELECT AVG(r2.rating) FROM {table_r} r2 "
+            f"          WHERE r2.winner_id = win.id), 0) as avg_rating"
+        )
+        count_subq = (
+            f"COALESCE((SELECT COUNT(r3.id) FROM {table_r} r3 "
+            f"          WHERE r3.winner_id = win.id), 0) as ratings_count"
         )
         user_subq = (
-            f"(SELECT r3.rating FROM {table_r} r3 "
-            f" WHERE r3.winner_id = win.id AND r3.user_discord_id = ?)"
+            f"(SELECT r4.rating FROM {table_r} r4 "
+            f" WHERE r4.winner_id = win.id AND r4.user_discord_id = ?) as user_rating"
         )
         base_select = (
             f"SELECT w.id, w.title, w.watched_at, w.rating, "
-            f"  COALESCE({agg_subq}, 0) as avg_rating, "
-            f"  COALESCE((SELECT COUNT(r4.id) FROM {table_r} r4 WHERE r4.winner_id = win.id), 0) as ratings_count, "
-            f"  {user_subq} as user_rating "
+            f"  {avg_subq}, "
+            f"  {count_subq}, "
+            f"  {user_subq} "
             f"FROM {table_w} w "
             f"LEFT JOIN {table_winners} win ON lower(win.lot_name) = lower(w.title) "
         )
         if search:
             sql = base_select + "WHERE w.title LIKE ? GROUP BY w.id ORDER BY w.watched_at DESC LIMIT ? OFFSET ?"
             # user_discord_id сначала (для user_subq), затем search, limit, offset
-            params = (user_discord_id or 0, user_discord_id or 0, f"%{search}%", limit, offset)
+            params = (user_discord_id or 0, f"%{search}%", limit, offset)
         else:
             sql = base_select + "GROUP BY w.id ORDER BY w.watched_at DESC LIMIT ? OFFSET ?"
-            params = (user_discord_id or 0, user_discord_id or 0, limit, offset)
+            params = (user_discord_id or 0, limit, offset)
         async with db.execute(sql, params) as cur:
             rows = await cur.fetchall()
         # Нормализуем: avg_rating → округлённый float, user_rating → int|None
