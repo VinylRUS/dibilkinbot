@@ -1681,7 +1681,7 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
     import random
     guild_id = get_current_guild_id(_user)
 
-    # Проверка 1: если есть активный сбор — крутить нельзя (сначала завершите сбор)
+    # Проверка 1: если есть активный сбор (status='collecting' или 'assigned') — крутить нельзя
     active_collection = await db.g_get_active_collection(guild_id)
     if active_collection:
         return JSONResponse({
@@ -1689,14 +1689,18 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
             "error_code": "active_collection_exists",
         }, status_code=400)
 
-    # Проверка 2: если уже был победитель после завершённого сбора — крутить нельзя
+    # Проверка 2: если уже был победитель за последние 60 минут — крутить нельзя
+    # НО только если в колесе больше нет элементов (колесо пустое после предыдущей крутки)
     recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
     if recent_winner:
-        return JSONResponse({
-            "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
-            "error_code": "winner_already_determined",
-            "winner": recent_winner,
-        }, status_code=400)
+        # Проверим — может быть в колесе ещё остались фильмы после предыдущей крутки
+        items_check = await db.g_list_wheel_items(guild_id, active_only=True)
+        if len(items_check) < 2:
+            return JSONResponse({
+                "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
+                "error_code": "winner_already_determined",
+                "winner": recent_winner,
+            }, status_code=400)
 
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
@@ -1765,14 +1769,17 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
             "error_code": "active_collection_exists",
         }, status_code=400)
 
-    # Проверка 2: если уже был победитель после завершённого сбора — крутить нельзя
+    # Проверка 2: если уже был победитель за последние 60 минут — крутить нельзя
+    # НО только если в колесе больше нет элементов (колесо пустое после предыдущей крутки)
     recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
     if recent_winner:
-        return JSONResponse({
-            "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
-            "error_code": "winner_already_determined",
-            "winner": recent_winner,
-        }, status_code=400)
+        items_check = await db.g_list_wheel_items(guild_id, active_only=True)
+        if len(items_check) < 2:
+            return JSONResponse({
+                "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
+                "error_code": "winner_already_determined",
+                "winner": recent_winner,
+            }, status_code=400)
 
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     if len(items) < 2:
