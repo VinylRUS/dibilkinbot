@@ -934,12 +934,16 @@ async def watched_page(
     per_page = 20
     offset = (page - 1) * per_page
     search = q.strip() or None
-    watched = await db.g_list_watched(guild_id, limit=per_page, offset=offset, search=search)
+    user_discord_id = _user.get("discord_id", 0)
+    watched = await db.g_list_watched(
+        guild_id, limit=per_page, offset=offset, search=search,
+        user_discord_id=user_discord_id,
+    )
     total_count = await db.g_count_watched(guild_id, search)
     total_pages = max(1, (total_count + per_page - 1) // per_page)
 
     # Предзагрузка постеров из кеша movie_meta (0 запросов к API)
-    titles = [w[1] for w in watched]  # w = (id, title, watched_at, rating)
+    titles = [w[1] for w in watched]  # w = (id, title, watched_at, rating, avg, count, user_rating)
     posters = await db.get_posters_for_titles(titles) if titles else {}
 
     return templates.TemplateResponse(request, "watched.html", {
@@ -1003,19 +1007,18 @@ async def api_edit_watched(
     title: str = Form(""),
     rating: int | None = Form(None),
 ):
-    """Редактировать название и/или оценку фильма в бэклоге."""
+    """Редактировать название фильма в бэклоге.
+
+    Параметр rating оставлен для обратной совместимости со старым JS-кодом,
+    но больше не используется — оценки теперь per-user через /api/watched/{id}/rate.
+    """
     guild_id = get_current_guild_id(_user)
-    
+
     if title.strip():
         updated = await db.g_update_watched_title(guild_id, watched_id, title.strip())
         if not updated:
             return JSONResponse({"error": "not found"}, status_code=404)
-    
-    if rating is not None and 1 <= rating <= 10:
-        updated = await db.g_update_watched_rating(guild_id, watched_id, rating)
-        if not updated:
-            return JSONResponse({"error": "not found or invalid rating"}, status_code=404)
-    
+
     return JSONResponse({"ok": True})
 
 
@@ -1025,16 +1028,53 @@ async def api_rate_watched(
     _user: dict = Depends(require_user),
     rating: int = Form(...),
 ):
-    """Поставить оценку фильму в бэклоге (1-10)."""
+    """Поставить per-user оценку фильму в бэклоге (1-10).
+
+    Логика:
+      1. Найти title фильма по watched_id.
+      2. Найти или создать winner по title (если фильм не был победителем колеса —
+         создаётся «виртуальный» unconfirmed winner, чтобы было к чему привязать оценки).
+      3. g_upsert_rating — per-user оценка (один юзер = одна оценка, можно переголосовать).
+      4. Вернуть avg_rating, ratings_count, user_rating для обновления UI без перезагрузки.
+    """
     if not (1 <= rating <= 10):
         return JSONResponse({"error": "rating must be 1-10"}, status_code=400)
-    
+
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+
     guild_id = get_current_guild_id(_user)
-    updated = await db.g_update_watched_rating(guild_id, watched_id, rating)
-    if not updated:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    
-    return JSONResponse({"ok": True, "rating": rating})
+
+    # 1. Найти title по watched_id
+    table_w = db._guild.guild_table(guild_id, "watched")
+    async with db._connect() as conn:
+        async with conn.execute(
+            f"SELECT title FROM {table_w} WHERE id = ?", (watched_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return JSONResponse({"error": "watched not found"}, status_code=404)
+    title = row[0]
+
+    # 2. Найти или создать winner по title
+    winner_id = await db.g_get_or_create_winner_by_title(guild_id, title)
+
+    # 3. Per-user upsert оценки
+    success = await db.g_upsert_rating(guild_id, winner_id, user_discord_id, rating)
+    if not success:
+        return JSONResponse({"error": "failed to save rating"}, status_code=500)
+
+    # 4. Вернуть агрегаты
+    avg, count = await db.g_get_average_rating(guild_id, winner_id)
+    return JSONResponse({
+        "ok": True,
+        "watched_id": watched_id,
+        "winner_id": winner_id,
+        "user_rating": rating,
+        "avg_rating": avg,
+        "ratings_count": count,
+    })
 
 
 @app.get("/api/movie/poster")
