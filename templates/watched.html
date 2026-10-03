@@ -178,6 +178,30 @@
     .watched-title:hover {
       color: var(--accent);
     }
+
+    /* === Average rating badge === */
+    .avg-rating-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 4px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .avg-rating-badge .avg-value {
+      font-weight: 700;
+    }
+    .avg-rating-badge .avg-count {
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 0.72rem;
+    }
   </style>
 </head>
 <body>
@@ -217,7 +241,7 @@
           {% endif %}
         </div>
       {% else %}
-        {% for w_id, title, watched_at, rating in watched %}
+        {% for w_id, title, watched_at, rating, avg_rating, ratings_count, user_rating in watched %}
           <div class="watched-card" id="watched-{{ w_id }}">
             <div class="watched-info">
               <div class="watched-title" id="title-{{ w_id }}"
@@ -225,12 +249,20 @@
                    {% if title.lower() in posters %}data-poster="{{ posters[title.lower()] }}"{% endif %}
                    >{{ title }}</div>
               <div class="watched-date mono">{{ format_msk(watched_at) }}</div>
+              <div class="avg-rating-badge" id="avg-{{ w_id }}"
+                   {% if not ratings_count or ratings_count == 0 %}style="display:none;"{% endif %}
+                   title="Средняя оценка участников">
+                <span>⭐</span>
+                <span class="avg-value">{{ avg_rating }}</span>
+                <span class="avg-count">· <span id="count-{{ w_id }}">{{ ratings_count }}</span> оцен{{ 'ка' if ratings_count == 1 else ('ки' if ratings_count < 5 else 'ок') }}</span>
+              </div>
             </div>
             <div class="watched-actions">
-              <!-- Звёзды оценки -->
+              <!-- Звёзды оценки (per-user) -->
               <div class="rating-stars" id="stars-{{ w_id }}">
                 {% for i in range(1, 11) %}
-                  <button type="button" class="star-btn {{ 'active' if rating == i else '' }}"
+                  <button type="button" class="star-btn {{ 'active' if user_rating == i else '' }}"
+                          data-rating="{{ i }}"
                           onclick="rateWatched({{ w_id }}, {{ i }})">{{ i }}</button>
                 {% endfor %}
               </div>
@@ -306,7 +338,14 @@
       input.focus(); // Курсор всегда в поле после операции
     });
 
-    // === Оценка ===
+    // === Оценка (per-user) ===
+    // Хелпер: правильное склонение слова «оценка/оценки/оценок»
+    function pluralRatings(n) {
+      if (n === 1) return 'оценка';
+      if (n > 1 && n < 5) return 'оценки';
+      return 'оценок';
+    }
+
     async function rateWatched(watchedId, rating) {
       const formData = new FormData();
       formData.append('rating', rating);
@@ -314,11 +353,24 @@
         const r = await fetch(`/api/watched/${watchedId}/rate`, { method: 'POST', body: formData });
         const data = await r.json();
         if (r.ok) {
-          // Подсветить активную кнопку
+          // Подсветить активную кнопку (оценка текущего юзера)
           const container = document.getElementById(`stars-${watchedId}`);
           container.querySelectorAll('.star-btn').forEach(btn => {
-            btn.classList.toggle('active', parseInt(btn.textContent) === rating);
+            btn.classList.toggle('active', parseInt(btn.dataset.rating) === rating);
           });
+
+          // Обновить badge со средней оценкой
+          const card = container.closest('.watched-card');
+          const badge = card.querySelector('.avg-rating-badge');
+          const count = data.ratings_count || 0;
+          if (count > 0) {
+            badge.style.display = '';
+            badge.querySelector('.avg-value').textContent = data.avg_rating;
+            const countEl = badge.querySelector('.avg-count');
+            countEl.innerHTML = `· <span id="count-${watchedId}">${count}</span> ${pluralRatings(count)}`;
+          } else {
+            badge.style.display = 'none';
+          }
         } else {
           alert(data.error || 'Ошибка');
         }

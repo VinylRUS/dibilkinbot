@@ -1,5 +1,17 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.8.4
+### Новое
+- Per-user оценки в бэклоге: каждый участник ставит свою оценку фильму (1-10) на /watched, оценки суммируются и отображаются как средняя «⭐ X.X · N оценок». Каждый может переголосовать в любой момент — своя оценка подсвечивается активной звездой. Раньше оценка была одна на весь фильм и перезаписывалась последним голосовавшим — теперь каждый голос независимый
+- Средняя оценка фильма в бэклоге: badge «⭐ X.X · N оценок» под каждым фильмом. Высчитывается из per-user оценок (через JOIN с winners по совпадению названия и ratings по winner_id). Badge обновляется мгновенно при голосовании без перезагрузки
+
+### Техническое
+- db.g_list_watched: LEFT JOIN с guild_X_winners (по lower(title) = lower(lot_name)) + коррелированные подзапросы к guild_X_ratings для avg_rating, ratings_count и user_rating. Возвращает 7-tuple (id, title, watched_at, rating, avg_rating, ratings_count, user_rating) вместо прежнего 4-tuple. user_discord_id передаётся как новый параметр
+- db.g_get_or_create_winner_by_title: найти winner по названию (case-insensitive) или создать «виртуальный» unconfirmed winner. Используется при оценке фильма из /watched, чтобы привязать per-user оценку к ratings (для films, не бывших победителями колеса)
+- /api/watched/{id}/rate переделан: теперь ищет title по watched_id → find/create winner → g_upsert_rating (per-user). Возвращает {user_rating, avg_rating, ratings_count} для обновления UI
+- /api/watched/{id}/edit: параметр rating оставлен для обратной совместимости, но игнорируется — оценки теперь только через /rate
+- watched.html: звёзды используют user_rating (а не общую rating), badge обновляется JS без перезагрузки, добавлена функция pluralRatings для склонения «оценка/оценки/оценок»
+
 ## v1.8.3
 ### Исправлено
 - Колесо не крутилось если был недавний победитель: блокировка срабатывала даже когда в колесе ещё оставались фильмы. Теперь блокировка только если в колесе меньше 2 элементов

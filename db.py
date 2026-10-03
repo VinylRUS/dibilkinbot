@@ -1260,18 +1260,53 @@ async def g_is_watched(guild_id: int, title: str) -> bool:
             return await cur.fetchone() is not None
 
 
-async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search: str | None = None) -> list[tuple]:
-    """Список просмотренных фильмов с пагинацией и опциональным поиском."""
-    table = _guild.guild_table(guild_id, "watched")
+async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search: str | None = None,
+                         user_discord_id: int = 0) -> list[tuple]:
+    """Список просмотренных фильмов с пагинацией и опциональным поиском.
+
+    Возвращает кортежи (id, title, watched_at, rating, avg_rating, ratings_count, user_rating):
+      - rating: персональная оценка из watched.rating (legacy, может быть None)
+      - avg_rating: средняя оценка из ratings через JOIN с winners (0.0 если нет)
+      - ratings_count: количество per-user оценок (0 если нет)
+      - user_rating: оценка текущего юзера (int или None) — для подсветки звёзд
+    """
+    table_w = _guild.guild_table(guild_id, "watched")
+    table_winners = _guild.guild_table(guild_id, "winners")
+    table_r = _guild.guild_table(guild_id, "ratings")
     async with _connect() as db:
+        # Подзапрос: одна строка на winner_id с AVG и COUNT (без дублирования строк из-за второго JOIN)
+        agg_subq = (
+            f"(SELECT AVG(r2.rating), COUNT(r2.id) FROM {table_r} r2 "
+            f" WHERE r2.winner_id = win.id)"
+        )
+        user_subq = (
+            f"(SELECT r3.rating FROM {table_r} r3 "
+            f" WHERE r3.winner_id = win.id AND r3.user_discord_id = ?)"
+        )
+        base_select = (
+            f"SELECT w.id, w.title, w.watched_at, w.rating, "
+            f"  COALESCE({agg_subq}, 0) as avg_rating, "
+            f"  COALESCE((SELECT COUNT(r4.id) FROM {table_r} r4 WHERE r4.winner_id = win.id), 0) as ratings_count, "
+            f"  {user_subq} as user_rating "
+            f"FROM {table_w} w "
+            f"LEFT JOIN {table_winners} win ON lower(win.lot_name) = lower(w.title) "
+        )
         if search:
-            sql = f"SELECT id, title, watched_at, rating FROM {table} WHERE title LIKE ? ORDER BY watched_at DESC LIMIT ? OFFSET ?"
-            params = (f"%{search}%", limit, offset)
+            sql = base_select + "WHERE w.title LIKE ? GROUP BY w.id ORDER BY w.watched_at DESC LIMIT ? OFFSET ?"
+            # user_discord_id сначала (для user_subq), затем search, limit, offset
+            params = (user_discord_id or 0, user_discord_id or 0, f"%{search}%", limit, offset)
         else:
-            sql = f"SELECT id, title, watched_at, rating FROM {table} ORDER BY watched_at DESC LIMIT ? OFFSET ?"
-            params = (limit, offset)
+            sql = base_select + "GROUP BY w.id ORDER BY w.watched_at DESC LIMIT ? OFFSET ?"
+            params = (user_discord_id or 0, user_discord_id or 0, limit, offset)
         async with db.execute(sql, params) as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+        # Нормализуем: avg_rating → округлённый float, user_rating → int|None
+        result = []
+        for r in rows:
+            avg = round(r[4], 1) if r[4] else 0.0
+            user_r = int(r[6]) if r[6] is not None else None
+            result.append((r[0], r[1], r[2], r[3], avg, r[5], user_r))
+        return result
 
 
 async def g_count_watched(guild_id: int, search: str | None = None) -> int:
@@ -1402,6 +1437,31 @@ async def g_add_winner(guild_id: int, lot_id: str | None, lot_name: str, tmdb_id
         cur = await db.execute(
             f"INSERT INTO {table} (lot_id, lot_name, tmdb_id, confidence, detected_at) VALUES (?, ?, ?, ?, ?)",
             (lot_id, lot_name, tmdb_id, confidence, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_get_or_create_winner_by_title(guild_id: int, title: str) -> int:
+    """Найти winner по названию (case-insensitive) или создать unconfirmed.
+
+    Используется при оценке фильма из /watched: если фильм не был победителем
+    колеса (или ещё не имеет записи в winners), создаётся «виртуальный» winner
+    с confidence='unconfirmed'. Это позволяет хранить per-user оценки в ratings.
+    Возвращает winner_id.
+    """
+    table = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id FROM {table} WHERE lower(lot_name) = lower(?) ORDER BY id LIMIT 1",
+            (title,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            return row[0]
+        cur = await db.execute(
+            f"INSERT INTO {table} (lot_id, lot_name, tmdb_id, confidence, detected_at) VALUES (?, ?, ?, ?, ?)",
+            (None, title, None, "unconfirmed", datetime.utcnow().isoformat()),
         )
         await db.commit()
         return cur.lastrowid
