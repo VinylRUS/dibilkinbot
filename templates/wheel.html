@@ -407,17 +407,10 @@
 
     <!-- Список лотов -->
     <aside class="wheel-sidebar">
-      <!-- Кнопка загрузки из списков желаемого (скрыта если активный сбор или уже есть победитель) -->
-      {% if not active_collection and not recent_winner %}
-      <button id="load-watchlist-btn" style="width: 100%; background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; margin: 0 0 14px 0; font-weight: 600;" onclick="loadFromWatchlist()">
-        📋 Загрузить из списков желаемого
-      </button>
-      {% endif %}
-
       <h2>Лоты в колесе <span id="count" class="count-badge">0</span></h2>
 
       <ul id="items-list" class="items-list"></ul>
-      <div id="empty-state" class="empty-state">Загрузите фильмы из списков желаемого 🎬</div>
+      <div id="empty-state" class="empty-state">Колесо пустое. Начните сбор фильмов на <a href="/movienight" style="color: var(--accent);">/movienight</a> 🎬</div>
       <button id="clear-btn" class="clear-btn" style="display:none">Очистить колесо</button>
     </aside>
   </main>
@@ -694,27 +687,7 @@
       });
     }
 
-    // === WebSocket ===
-    // === Load from watchlist ===
-    async function loadFromWatchlist() {
-      const btn = document.getElementById('load-watchlist-btn');
-      if (!btn) return;
-      btn.disabled = true; btn.textContent = '⏳ Загрузка...';
-      try {
-        const r = await fetch('/api/wheel/load-from-watchlist', { method: 'POST' });
-        const data = await r.json();
-        if (r.ok) {
-          btn.textContent = `✅ Загружено: ${data.loaded} (всего: ${data.total})`;
-          setTimeout(() => { btn.textContent = '📋 Загрузить из списков желаемого'; btn.disabled = false; }, 3000);
-        } else {
-          btn.textContent = '❌ Ошибка';
-          setTimeout(() => { btn.textContent = '📋 Загрузить из списков желаемого'; btn.disabled = false; }, 2000);
-        }
-      } catch (e) {
-        btn.textContent = '❌ ' + e.message;
-        setTimeout(() => { btn.textContent = '📋 Загрузить из списков желаемого'; btn.disabled = false; }, 2000);
-      }
-    }
+    // === Load from watchlist (убрано в v1.8.3 — заменено сбором фильмов) ===
 
     function connectWS() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
