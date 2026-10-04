@@ -48,6 +48,25 @@ def create_session(payload: dict) -> str:
     return serializer.dumps({"u": payload, "t": datetime.utcnow().isoformat()})
 
 
+def _is_https_request(request: Request) -> bool:
+    """Определить, идёт ли запрос по HTTPS.
+
+    Учитывает X-Forwarded-Proto (если за reverse-proxy: nginx, BotHost, etc.).
+    """
+    if request.url.scheme == "https":
+        return True
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
+    return forwarded_proto == "https"
+
+
+def _cookie_secure_flag(request: Request) -> dict:
+    """Вернуть kwargs для set_cookie: secure=True только на HTTPS.
+
+    На HTTP (dev) secure=True сделал бы cookie невидимым для браузера.
+    """
+    return {"secure": True} if _is_https_request(request) else {}
+
+
 def read_session(token: str) -> dict | None:
     """Возвращает payload (dict) из сессии или None."""
     try:
@@ -136,12 +155,12 @@ async def api_ping_telegram(_user: dict = Depends(require_user)):
 
 
 @app.post("/theme")
-async def set_theme(theme: str = Form(...)):
+async def set_theme(request: Request, theme: str = Form(...)):
     """Установить тему (light/dark). Записывает куку и редиректит обратно."""
     if theme not in ("light", "dark"):
         theme = "light"
     resp = RedirectResponse(url="/", status_code=303)
-    resp.set_cookie("theme", theme, max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax")
+    resp.set_cookie("theme", theme, max_age=60 * 60 * 24 * 365, httponly=True, samesite="lax", **_cookie_secure_flag(request))
     return resp
 
 
@@ -273,7 +292,7 @@ async def login_submit(
         }
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
-        resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
+        resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax", **_cookie_secure_flag(request))
         return resp
 
     # Способ 2: вход по Discord ID (число)
@@ -352,7 +371,7 @@ async def login_submit(
                     "current_guild_id": member_guild_id,
                     "temp": True,
                 })
-                resp.set_cookie("temp_session", temp_token, max_age=300, httponly=True, samesite="lax")
+                resp.set_cookie("temp_session", temp_token, max_age=300, httponly=True, samesite="lax", **_cookie_secure_flag(request))
                 return resp
 
             # Есть пароль → проверяем
@@ -376,7 +395,7 @@ async def login_submit(
         }
         token = create_session(user_payload)
         resp = RedirectResponse(url="/", status_code=303)
-        resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
+        resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax", **_cookie_secure_flag(request))
         resp.delete_cookie("temp_session")
         return resp
 
@@ -432,7 +451,7 @@ async def set_password_submit(
 
     if not password:
         return RedirectResponse(url="/set-password?error=empty", status_code=303)
-    if len(password) < 4:
+    if len(password) < 8:
         return RedirectResponse(url="/set-password?error=short", status_code=303)
     if password != password_confirm:
         return RedirectResponse(url="/set-password?error=mismatch", status_code=303)
@@ -520,7 +539,7 @@ async def select_guild_submit(
     _user["current_guild_id"] = guild_id
     token = create_session(_user)
     resp = RedirectResponse(url="/", status_code=303)
-    resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax")
+    resp.set_cookie("session", token, max_age=SESSION_TTL, httponly=True, samesite="lax", **_cookie_secure_flag(request))
     return resp
 
 
@@ -2259,6 +2278,20 @@ async def api_collection_start_spin(
     # Завершаем сбор — достаём и шафлим picks
     picks = await db.g_complete_collection_spin(guild_id, collection["id"], user_discord_id)
     if not picks:
+        # Пустой список может означать:
+        # 1. Сбор уже завершён другим одновременным вызовом (race condition защита)
+        # 2. В сборе действительно не было picks (никто ничего не добавил)
+        # Проверяем текущий статус — если уже 'completed', возвращаем OK с redirect
+        # на /wheel (пользователь увидит уже загруженное колесо).
+        collection_after = await db.g_get_active_collection(guild_id)
+        if not collection_after:
+            # Сбор завершён — колесо уже должно быть заполнено предыдущим вызовом
+            return JSONResponse({
+                "ok": True,
+                "picks_count": 0,
+                "already_completed": True,
+                "redirect": "/wheel",
+            })
         return JSONResponse({"error": "no picks found"}, status_code=400)
 
     # Очищаем колесо перед загрузкой

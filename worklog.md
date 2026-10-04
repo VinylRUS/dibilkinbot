@@ -59,3 +59,29 @@ GitHub: https://github.com/VinylRUS/dibilkinbot
    - На странице /wheel — кнопка "Загрузить из списков желаемого" (все непросмотренные фильмы всех юзеров)
    - /wheel list и /wheel remove остаются
 5. Время по МСК (UTC+3) — хардкод, отображение в панели и Discord
+
+---
+Task ID: review-v1.8.4
+Agent: main
+Task: Полное код-ревью проекта (db.py, web.py, bot.py, guild.py, config.py, main.py, ws_manager.py, crypto.py, templates/, style.css)
+
+Work Log:
+- Запустил 4 параллельных Explore-агента для ревью разных частей кодовой базы
+- Каждый агент вернул детальный отчёт с номерами строк, severity и предложениями фиксов
+- Сформировал сводный отчёт в /home/z/my-project/kinovecher/CODEREVIEW.md
+
+Stage Summary:
+- Всего найдено 121 проблема: 18 CRITICAL, 27 HIGH, 40 MEDIUM, 36 LOW
+- Главные критичные проблемы:
+  1. Multi-tenant изоляция сломана (is_guild_member не проверяет конкретный guild)
+  2. is_admin глобальный, не per-guild, кешируется в cookie на 7 дней
+  3. WebSocket /ws/wheel без auth + утечка added_by через broadcast
+  4. Пароли: 1000 iter SHA-256 без HMAC, мин. длина 4
+  5. /login без rate-limiting (brute-force)
+  6. Race conditions в g_get_or_create_winner_by_title, g_complete_collection_spin, g_start_collection, verify_tg_link
+  7. 15 POST-форм без CSRF-токенов
+  8. XSS в onsubmit="confirm('...{{ user_var }}...')" (4 шаблона)
+  9. notify_wheel_winner хардкодит guild_id=0
+  10. config.py: дефолт пароля changeme + path traversal в DATABASE_PATH
+- Что хорошо: SQL-инъекций через имена таблиц нет, async with везде корректен, Jinja2 autoescape включён, Fernet для секретов
+- План: 3 фазы исправления (безопасность → race/целостность → производительность/UX)
