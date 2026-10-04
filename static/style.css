@@ -908,19 +908,23 @@ input:checked + .slider:before {
   100% { background-position: -200% 0; }
 }
 
-/* ===== Компактный рейтинг 5 звёзд с половинками (1-10 значений) ===== */
+/* ===== Компактный рейтинг 5 звёзд с половинками (1-10 значений) =====
+   Подход: 10 кнопок-половинок, каждая шириной var(--star-size)/2.
+   Чётные кнопки = правые половинки, нечётные = левые.
+   Каждая кнопка содержит ::before с символом ★, обрезанным через overflow:hidden.
+   Визуально 10 половинок образуют 5 целых звёзд, без налезания. */
 .star-rating {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;  /* без зазора между половинками */
   position: relative;
   --star-size: 22px;
   --star-color-empty: var(--border-strong);
   --star-color-full: var(--accent);
 }
-.star-rating .star {
+.star-rating .star-half {
   position: relative;
-  width: var(--star-size);
+  width: calc(var(--star-size) / 2);
   height: var(--star-size);
   cursor: pointer;
   flex-shrink: 0;
@@ -928,59 +932,50 @@ input:checked + .slider:before {
   border: none;
   padding: 0;
   margin: 0;
+  overflow: hidden;
+  transition: filter 0.1s, transform 0.1s;
+}
+.star-rating .star-half::before {
+  content: "★";
+  position: absolute;
+  top: 0;
   font-size: var(--star-size);
   line-height: 1;
   color: var(--star-color-empty);
-  transition: color 0.1s, transform 0.1s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.star-rating .star::before {
-  content: "★";
-}
-.star-rating .star .half {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 50%;
-  height: 100%;
-  overflow: hidden;
-  color: var(--star-color-full);
   pointer-events: none;
 }
-.star-rating .star .half::before {
-  content: "★";
-  position: absolute;
-  top: 0;
-  left: 0;
-  font-size: var(--star-size);
-  line-height: 1;
-}
-.star-rating .star.full {
+/* Левая половинка: символ ★ прижат к левому краю (видна левая половина звезды) */
+.star-rating .star-half.left::before { left: 0; }
+/* Правая половинка: символ ★ сдвинут влево (видна правая половина звезды) */
+.star-rating .star-half.right::before { left: calc(var(--star-size) / -2); }
+.star-rating .star-half.filled::before {
   color: var(--star-color-full);
 }
-.star-rating .star:hover {
-  transform: scale(1.15);
+.star-rating .star-half:hover {
+  filter: brightness(1.3);
+  transform: scale(1.1);
+  z-index: 1;
+}
+.star-rating .star-half:hover::before {
   color: var(--star-color-full);
 }
-.star-rating .star:hover ~ .star {
+/* Подсветка всех половинок до текущей при hover (как в классическом star rating) */
+.star-rating:hover .star-half:hover ~ .star-half::before {
   color: var(--star-color-empty);
 }
-.star-rating.hover-half .star:hover .half { display: block; }
-.star-rating.hover-full .star:hover .half { display: none; }
 .star-rating .rating-value {
-  margin-left: 6px;
+  margin-left: 8px;
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--accent);
-  min-width: 32px;
+  min-width: 36px;
 }
-.star-rating.readonly .star {
+.star-rating.readonly .star-half {
   cursor: default;
 }
-.star-rating.readonly .star:hover {
+.star-rating.readonly .star-half:hover {
   transform: none;
+  filter: none;
 }
 
 /* ===== Мобильная адаптивность ratings ===== */
