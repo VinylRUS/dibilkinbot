@@ -1416,6 +1416,7 @@ async def _send_backup_to_telegram(backup_path: Path, filename: str) -> None:
     import httpx
     import html
     from pathlib import Path
+    from timezone_utils import now_msk  # fix: was missing → NameError at runtime
 
     # Получаем TG-токен
     raw_token = await db.get_setting("telegram_token")
