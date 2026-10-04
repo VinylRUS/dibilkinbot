@@ -139,13 +139,21 @@
 
     {% if winners|length == 0 %}
       <article class="card">
-        <div class="empty">
-          {% if search %}
-            Ничего не найдено по запросу «{{ search }}».
-          {% else %}
-            Пока нет победителей. Крутаните колесо на <a href="/wheel">/wheel</a>.
-          {% endif %}
-        </div>
+        {% if search %}
+          <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <p class="empty-state-title">Ничего не найдено</p>
+            <p class="empty-state-text">По запросу «{{ search }}» нет победителей.</p>
+            <a href="/winners" class="btn-outline">Сбросить поиск</a>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <div class="empty-state-icon">🎡</div>
+            <p class="empty-state-title">Пока нет победителей</p>
+            <p class="empty-state-text">Крутаните колесо, чтобы определить первый фильм.</p>
+            <a href="/wheel" class="btn-primary">К колесу →</a>
+          </div>
+        {% endif %}
       </article>
     {% endif %}
 

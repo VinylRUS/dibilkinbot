@@ -60,6 +60,12 @@
   --badge-unconfirmed-text: #8B5A1C;
   --badge-confirmed-bg: rgba(79, 121, 66, 0.12);
   --badge-confirmed-text: #4F7942;
+
+  /* Алиасы для обратной совместимости с инлайн-стилями в шаблонах
+     (var(--card), var(--bg), var(--shadow) использовались без определения) */
+  --card: var(--glass-bg);
+  --bg: var(--input-bg);
+  --shadow: var(--glass-shadow);
 }
 
 /* ===== Тема: dark (глубокий тёмный со стеклянным эффектом) ===== */
@@ -110,6 +116,11 @@
   --badge-unconfirmed-text: #FFB703;
   --badge-confirmed-bg: rgba(111, 174, 90, 0.15);
   --badge-confirmed-text: #6FAE5A;
+
+  /* Алиасы для обратной совместимости (как в light теме) */
+  --card: var(--glass-bg);
+  --bg: var(--input-bg);
+  --shadow: var(--glass-shadow);
 }
 
 /* ===== Базовые стили ===== */
@@ -153,127 +164,12 @@ body::after {
 }
 
 /* Все основное содержимое — выше blob'ов */
-nav.top, .container, main, footer, .login-card {
+.container, main, footer, .login-card {
   position: relative;
   z-index: 1;
 }
 
-/* ===== Навбар (glass) ===== */
-nav.top {
-  background: var(--nav-glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  padding: 0 20px;
-  height: 60px;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  border-bottom: 1px solid var(--nav-glass-border);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
-}
-nav.top .brand-link {
-  text-decoration: none;
-  margin-right: 16px;
-  display: flex;
-  align-items: center;
-  height: 100%;
-}
-nav.top .brand {
-  font-weight: 800;
-  color: var(--accent);
-  font-size: 0.95rem;
-  letter-spacing: -0.02em;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  border-radius: 10px;
-  transition: background 0.2s;
-  height: 36px;
-}
-nav.top .brand-link:hover .brand {
-  background: var(--accent-soft);
-}
-nav.top .brand-icon {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  vertical-align: middle;
-}
-nav.top .nav-link {
-  color: var(--nav-text);
-  text-decoration: none;
-  font-size: 0.85rem;
-  padding: 6px 14px;
-  border-radius: 10px;
-  transition: all 0.2s;
-  font-weight: 500;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  box-sizing: border-box;
-}
-nav.top .nav-link svg {
-  flex-shrink: 0;
-  opacity: 0.7;
-  transition: opacity 0.2s;
-}
-nav.top .nav-link:hover svg,
-nav.top .nav-link.active svg {
-  opacity: 1;
-}
-nav.top .nav-link:hover {
-  background: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 4px 12px var(--accent-soft);
-}
-nav.top .nav-link.active {
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 600;
-}
-nav.top .right {
-  color: var(--nav-text);
-  font-size: 0.82rem;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-  margin-left: auto;
-  height: 36px;
-  box-sizing: border-box;
-}
-nav.top .right a {
-  padding: 6px 10px;
-  border-radius: 8px;
-  transition: all 0.2s;
-  color: var(--nav-text);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 32px;
-  box-sizing: border-box;
-}
-nav.top .right a svg {
-  opacity: 0.7;
-  transition: opacity 0.2s;
-}
-nav.top .right a:hover svg {
-  opacity: 1;
-}
-nav.top .right a:hover {
-  background: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 4px 12px var(--accent-soft);
-}
-
-/* Кнопка переключения темы в навбаре */
+/* ===== Кнопка переключения темы ===== */
 .theme-form {
   display: flex;
   align-items: center;
@@ -544,8 +440,141 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-/* Кнопки в навбаре: не наследуют margin-top: 22px */
-nav.top button, .theme-toggle, .nav-group-btn { margin: 0; }
+/* Кнопки-тогглы в sidebar: не наследуют margin-top: 22px глобальной кнопки */
+.theme-toggle { margin: 0; }
+
+/* ===== Дизайн-система кнопок ===== */
+
+/* Главная CTA-кнопка (для ссылок и <button>) */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  text-decoration: none;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin: 0;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  box-shadow: 0 4px 16px rgba(255, 183, 3, 0.2);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(255, 183, 3, 0.3);
+  color: var(--accent-text);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Outline-вариант (для вторичных действий рядом с .btn-primary) */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin: 0;
+  border: 1px solid var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  box-shadow: none;
+}
+.btn-outline:hover:not(:disabled) {
+  background: var(--accent-soft);
+  transform: translateY(-2px);
+  color: var(--accent);
+}
+.btn-outline:active:not(:disabled) { transform: translateY(0); }
+
+/* Danger-кнопка (для удаления, сброса) */
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--red);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin: 0;
+  border: 1px solid var(--red);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+
+/* Ghost-кнопка (минималистичная, для редких действий) */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.85rem;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Компактная icon-only кнопка (✏️, ×, 🔑) — для действий в списках */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  margin: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.btn-icon:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btn-icon.danger {
+  color: var(--red);
+  border-color: var(--red);
+}
+.btn-icon.danger:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+
 .saved {
   background: var(--badge-confirmed-bg);
   color: var(--badge-confirmed-text);
@@ -594,104 +623,8 @@ input:checked + .slider:before {
   background: var(--accent-text);
 }
 
-/* ===== Dropdown-группы в навбаре ===== */
-.nav-group {
-  position: relative;
-  margin-right: 4px;
-  display: flex;
-  align-items: center;
-  height: 36px;
-}
-.nav-group-btn {
-  background: transparent;
-  border: none;
-  color: var(--nav-text);
-  font-size: 0.85rem;
-  font-weight: 500;
-  padding: 6px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  box-sizing: border-box;
-}
-.nav-group-btn:hover {
-  background: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 4px 12px var(--accent-soft);
-}
-.nav-group-btn .chevron {
-  font-size: 0.7rem;
-  transition: transform 0.2s;
-}
-.nav-group.open .chevron { transform: rotate(180deg); }
+/* ===== Hover на карточках (article.card уже определён выше с полным набором стилей) ===== */
 
-.dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 200px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  box-shadow: var(--glass-shadow-hover);
-  padding: 8px;
-  opacity: 0;
-  transform: translateY(-8px);
-  pointer-events: none;
-  transition: opacity 0.2s, transform 0.2s;
-  z-index: 200;
-}
-.nav-group.open .dropdown {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-.dropdown a {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  color: var(--text);
-  text-decoration: none;
-  border-radius: 10px;
-  font-size: 0.85rem;
-  transition: all 0.2s;
-}
-.dropdown a svg {
-  flex-shrink: 0;
-  opacity: 0.7;
-  transition: opacity 0.2s;
-}
-.dropdown a:hover svg,
-.dropdown a.active svg {
-  opacity: 1;
-}
-.dropdown a:hover {
-  background: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 4px 12px var(--accent-soft);
-}
-.dropdown a.active {
-  color: var(--accent);
-  font-weight: 700;
-  background: var(--accent-soft);
-}
-
-/* ===== Hover на карточках ===== */
-article.card {
-  transition: transform 0.25s, box-shadow 0.25s, background 0.25s;
-}
-article.card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--glass-shadow-hover);
-  background: var(--glass-bg-hover);
-}
 
 /* ===== Ping-статистика (glass) ===== */
 .ping-card {
@@ -876,12 +809,216 @@ article.card:hover {
   margin-top: 12px;
 }
 
-/* ===== Старая мобильная адаптивность nav.top (больше не используется) ===== */
-/* Стили для nav.top оставлены для обратной совместимости, но nav.top не рендерится */
+/* ===== Мобильная адаптивность h2 и grid ===== */
 @media (max-width: 768px) {
   h2 { font-size: 1.15rem; }
   .grid { grid-template-columns: 1fr; }
 }
+
+/* ===== Toast-уведомления (замена alert()) ===== */
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  max-width: calc(100vw - 40px);
+}
+.toast {
+  pointer-events: auto;
+  padding: 12px 16px 12px 14px;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  font-size: 0.88rem;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 360px;
+  animation: toast-slide-in 0.25s ease-out;
+}
+.toast.success { border-left: 4px solid var(--green); }
+.toast.error   { border-left: 4px solid var(--red); }
+.toast.info    { border-left: 4px solid var(--accent); }
+.toast .toast-icon { font-size: 1.1rem; flex-shrink: 0; }
+.toast .toast-text { flex: 1; min-width: 0; }
+.toast.removing { animation: toast-slide-out 0.2s ease-in forwards; }
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(40px); }
+}
+@media (max-width: 480px) {
+  .toast-container { left: 12px; right: 12px; bottom: 12px; }
+  .toast { max-width: 100%; min-width: 0; }
+}
+
+/* ===== Empty states (для пустых списков) ===== */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+.empty-state-icon {
+  font-size: 2.5rem;
+  opacity: 0.7;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+.empty-state-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 6px;
+}
+.empty-state-text {
+  font-size: 0.88rem;
+  margin: 0 0 16px;
+  color: var(--text-soft);
+}
+.empty-state .btn-primary,
+.empty-state .btn-outline {
+  margin-top: 4px;
+}
+
+/* ===== Skeleton loading (для shimmer-плейсхолдеров) ===== */
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--glass-bg) 0%,
+    var(--glass-bg-hover) 50%,
+    var(--glass-bg) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s infinite;
+  border-radius: 8px;
+  display: block;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ===== Компактный рейтинг 5 звёзд с половинками (1-10 значений) ===== */
+.star-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+  --star-size: 22px;
+  --star-color-empty: var(--border-strong);
+  --star-color-full: var(--accent);
+}
+.star-rating .star {
+  position: relative;
+  width: var(--star-size);
+  height: var(--star-size);
+  cursor: pointer;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-size: var(--star-size);
+  line-height: 1;
+  color: var(--star-color-empty);
+  transition: color 0.1s, transform 0.1s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.star-rating .star::before {
+  content: "★";
+}
+.star-rating .star .half {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--star-color-full);
+  pointer-events: none;
+}
+.star-rating .star .half::before {
+  content: "★";
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: var(--star-size);
+  line-height: 1;
+}
+.star-rating .star.full {
+  color: var(--star-color-full);
+}
+.star-rating .star:hover {
+  transform: scale(1.15);
+  color: var(--star-color-full);
+}
+.star-rating .star:hover ~ .star {
+  color: var(--star-color-empty);
+}
+.star-rating.hover-half .star:hover .half { display: block; }
+.star-rating.hover-full .star:hover .half { display: none; }
+.star-rating .rating-value {
+  margin-left: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 32px;
+}
+.star-rating.readonly .star {
+  cursor: default;
+}
+.star-rating.readonly .star:hover {
+  transform: none;
+}
+
+/* ===== Мобильная адаптивность ratings ===== */
+@media (max-width: 480px) {
+  .star-rating { --star-size: 20px; }
+  .star-rating .rating-value { font-size: 0.8rem; }
+}
+
+/* ===== Мобильная адаптивность карточек списков (winners, watched, quotes) ===== */
+@media (max-width: 640px) {
+  /* winners.html: .winner-card — grid 2 колонки → 1 колонка на мобиле */
+  .winner-card {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .winner-card .stars {
+    align-items: flex-start !important;
+  }
+  .winner-card .stars-grid {
+    max-width: 100% !important;
+  }
+  /* watched.html: .watched-card — flex row → column на мобиле */
+  .watched-card {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .watched-card .watched-actions {
+    justify-content: space-between !important;
+    width: 100% !important;
+    flex-wrap: wrap !important;
+  }
+  .watched-card .star-rating {
+    flex-wrap: wrap;
+  }
+}
+
+
+
 
 /* ===== Скроллбар (для тёмной темы) ===== */
 [data-theme="dark"] ::-webkit-scrollbar {
