@@ -1,5 +1,24 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.8.5
+### Новое
+- Минимальная длина пароля увеличена до 8 символов при установке нового пароля. Существующие пароли продолжат работать без изменений
+
+### Техническое
+- Реинфорс хеширования паролей: PBKDF2-HMAC-SHA256 с 600 000 итераций (рекомендация OWASP 2023), формат pbkdf2_sha256$iter$salt_hex$hash_hex. Старый формат (1000 iter SHA-256 без HMAC) остаётся поддерживаемым для верификации существующих паролей. При успешной верификации legacy-пароля автоматически происходит пере-хеширование на новый формат (плавная миграция без требования пользователям менять пароли). password_salt для нового формата — NULL (salt внутри строки хеша)
+- db._hash_password_legacy: оставлен только для верификации legacy-паролей. Использует 1000 итераций SHA-256 без HMAC (как было в v1.8.2)
+- db._is_legacy_hash: определяет формат хеша по наличию префикса 'pbkdf2_'
+- db.set_user_password: минимальная длина 8 символов (раньше 4), записывает новый формат, password_salt=NULL
+- Race condition в db.g_get_or_create_winner_by_title: обёрнут в BEGIN IMMEDIATE, что сериализует писателей. Два одновременных вызова с одним title не создают дубликат — второй видит запись первого после блокировки
+- Race condition в db.g_upsert_rating: обёрнут в BEGIN IMMEDIATE. INSERT rating и check-then-insert watched теперь атомарны — два одновременных вызова не создают дубликатов в watched (раньше watch мог получить две записи одного фильма). Убран try/except aiosqlite.IntegrityError (UNIQUE-индекса на lower(title) в guild_X_watched нет, поэтому catch никогда не срабатывал)
+- Race condition в db.g_complete_collection_spin: обёрнут в BEGIN IMMEDIATE. UPDATE collections SET status='completed' теперь идёт ПЕРВЫМ (с проверкой WHERE status='active'). Если cur.rowcount == 0 — сбор уже завершён другим вызовом, возвращаем [] (веб-слой не загружает дубликаты в колесо)
+- web.py /api/collection/start_spin: при пустом списке picks проверяет, что сбор действительно завершён (g_get_active_collection возвращает None), и возвращает ok=True с already_completed=True вместо ошибки. Пользователь увидит уже загруженное колесо
+- Race condition в db.g_start_collection: обёрнут в BEGIN IMMEDIATE. Два одновременных POST /api/collection/start не создают два активных сбора
+- Cookie secure=True: добавлен хелпер _cookie_secure_flag(request), который возвращает secure=True если запрос идёт по HTTPS (учитывает X-Forwarded-Proto для reverse-proxy). Применён ко всем 5 set_cookie вызовам (theme, session × 3, temp_session). На dev-сервере по HTTP cookie остаются без secure (иначе браузер их не принял бы)
+- Шаблон set_password.html: обновлён текст ошибки и placeholder с «4 символа» на «8 символов», minlength=8
+- web.py /set-password: минимальная длина 8 (раньше 4) — валидация до вызова db.set_user_password
+- Тесты: scripts/test_password_migration.py (6 сценариев: новый формат, верификация, мин. длина, legacy верификация, авто-миграция, has_password/reset). scripts/test_race_conditions.py (4 сценария: g_get_or_create_winner_by_title, g_upsert_rating, g_start_collection, g_complete_collection_spin — все через asyncio.gather с 3-5 одновременными вызовами)
+
 ## v1.8.4
 ### Новое
 - Per-user оценки в бэклоге: каждый участник ставит свою оценку фильму (1-10) на /watched, оценки суммируются и отображаются как средняя «⭐ X.X · N оценок». Каждый может переголосовать в любой момент — своя оценка подсвечивается активной звездой. Раньше оценка была одна на весь фильм и перезаписывалась последним голосовавшим — теперь каждый голос независимый

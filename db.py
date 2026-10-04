@@ -775,50 +775,157 @@ async def is_steam_profile_set(discord_id: int) -> bool:
     return profile is not None and bool(profile.get("steam_id64"))
 
 
-# === Password (v1.8.2) ===
+# === Password (v1.8.2 → v1.8.5 reinforced) ===
 
 import hashlib as _hashlib
 import secrets as _secrets
 
+# Параметры PBKDF2 (OWASP 2023 recommendation: ≥ 600 000 iterations для SHA-256)
+_PBKDF2_ITERATIONS = 600_000
+_PBKDF2_ALGO = "sha256"
+# Префикс для нового формата: "pbkdf2_sha256$iterations$salt_hex$hash_hex"
+# Старый формат (v1.8.2): просто hex-строка без префикса, 1000 iter SHA-256 без HMAC.
+_PASSWORD_NEW_PREFIX = "pbkdf2"
+_LEGACY_SHA256_ITERATIONS = 1000  # для старых паролей
 
-def _hash_password(password: str, salt: str) -> str:
-    """Хешировать пароль с salt через sha256 (1000 итераций для усложнения брутфорса)."""
+
+def _hash_password_legacy(password: str, salt: str) -> str:
+    """Старый алгоритм (v1.8.2): 1000 итераций SHA-256 без HMAC.
+
+    Оставлен только для верификации существующих паролей.
+    При успешной верификации пароль пере-хешируется через _hash_password_new.
+    """
     h = password + salt
-    for _ in range(1000):
+    for _ in range(_LEGACY_SHA256_ITERATIONS):
         h = _hashlib.sha256(h.encode()).hexdigest()
     return h
 
 
-async def set_user_password(discord_id: int, password: str) -> bool:
-    """Установить пароль для юзера. Генерирует случайный salt.
-    Возвращает True если обновлено."""
-    if not password or len(password) < 4:
+def _hash_password_new(password: str, salt_hex: str | None = None) -> str:
+    """Новый алгоритм (v1.8.5): PBKDF2-HMAC-SHA256, 600 000 итераций.
+
+    Возвращает строку вида: pbkdf2_sha256$600000$salt_hex$hash_hex
+    """
+    if salt_hex is None:
+        salt_hex = _secrets.token_hex(16)
+    salt_bytes = bytes.fromhex(salt_hex)
+    dk = _hashlib.pbkdf2_hmac(_PBKDF2_ALGO, password.encode("utf-8"), salt_bytes, _PBKDF2_ITERATIONS)
+    return f"{_PASSWORD_NEW_PREFIX}_{_PBKDF2_ALGO}${_PBKDF2_ITERATIONS}${salt_hex}${dk.hex()}"
+
+
+def _is_legacy_hash(stored_hash: str) -> bool:
+    """True если stored_hash — старый формат (без префикса 'pbkdf2_')."""
+    return not stored_hash.startswith(f"{_PASSWORD_NEW_PREFIX}_")
+
+
+def _verify_password_format(stored_hash: str, password: str) -> bool:
+    """Проверить пароль против stored_hash в любом формате (legacy или новый).
+
+    Возвращает True только при точном совпадении (constant-time через compare_digest).
+    """
+    if _is_legacy_hash(stored_hash):
+        # Старый формат: salt хранится в password_salt отдельно, hash — в password_hash.
+        # Вызывающий (verify_user_password) подставит salt.
+        # Эта ветка вызывается из verify_user_password напрямую.
+        raise RuntimeError("legacy hash should be verified via verify_user_password with salt")
+    # Новый формат: pbkdf2_sha256$iter$salt_hex$hash_hex
+    parts = stored_hash.split("$")
+    if len(parts) != 4:
         return False
-    salt = _secrets.token_hex(16)
-    password_hash = _hash_password(password, salt)
+    algo_full, iter_str, salt_hex, hash_hex = parts
+    if algo_full != f"{_PASSWORD_NEW_PREFIX}_{_PBKDF2_ALGO}":
+        return False  # неизвестный алгоритм
+    try:
+        iterations = int(iter_str)
+    except ValueError:
+        return False
+    try:
+        salt_bytes = bytes.fromhex(salt_hex)
+        stored_dk_bytes = bytes.fromhex(hash_hex)
+    except ValueError:
+        return False
+    # PBKDF2-HMAC с теми же параметрами
+    test_dk = _hashlib.pbkdf2_hmac(_PBKDF2_ALGO, password.encode("utf-8"), salt_bytes, iterations)
+    return _secrets.compare_digest(test_dk, stored_dk_bytes)
+
+
+def _hash_password(password: str, salt: str) -> str:
+    """DEPRECATED: только для обратной совместимости.
+
+    Возвращает новый формат хеша (PBKDF2), salt используется только если передан.
+    Salt — для совместимости с вызовами, где salt генерировался отдельно.
+    """
+    # Игнорируем переданный salt (новый формат хранит salt в самой строке),
+    # но генерируем свой.
+    return _hash_password_new(password)
+
+
+async def set_user_password(discord_id: int, password: str) -> bool:
+    """Установить пароль для юзера (новый формат PBKDF2, v1.8.5+).
+
+    Минимальная длина: 8 символов. Старые пароли (длиной 4-7) НЕ затрагиваются
+    при verify, но при смене/установке нового пароля требуется длина ≥ 8.
+
+    Возвращает True если обновлено.
+    """
+    if not password or len(password) < 8:
+        return False
+    password_hash = _hash_password_new(password)
+    # password_salt — оставляем NULL для нового формата (salt внутри хеша).
+    # Legacy-код может читать password_salt, но для новых паролей он не нужен.
     async with _connect() as db:
         cur = await db.execute(
-            "UPDATE users SET password_hash = ?, password_salt = ? WHERE discord_id = ?",
-            (password_hash, salt, discord_id),
+            "UPDATE users SET password_hash = ?, password_salt = NULL WHERE discord_id = ?",
+            (password_hash, discord_id),
         )
         await db.commit()
         return cur.rowcount > 0
 
 
 async def verify_user_password(discord_id: int, password: str) -> bool:
-    """Проверить пароль юзера. Возвращает True если совпадает."""
+    """Проверить пароль юзера (поддержка legacy + нового формата).
+
+    Если пароль в старом формате (1000 iter SHA-256 без HMAC) и проверка успешна —
+    автоматически пере-хеширует пароль через новый формат (PBKDF2 600k iter).
+    Это обеспечивает плавную миграцию без требования пользователям менять пароли.
+
+    Возвращает True если совпадает.
+    """
     async with _connect() as db:
         async with db.execute(
             "SELECT password_hash, password_salt FROM users WHERE discord_id = ?",
             (discord_id,)
         ) as cur:
             row = await cur.fetchone()
-    if not row or not row[0] or not row[1]:
-        return False
-    stored_hash = row[0]
-    salt = row[1]
-    test_hash = _hash_password(password, salt)
-    return _secrets.compare_digest(stored_hash, test_hash)
+        if not row or not row[0]:
+            return False
+        stored_hash = row[0]
+        salt = row[1]  # может быть NULL для нового формата
+
+        # Определяем формат и проверяем
+        if _is_legacy_hash(stored_hash):
+            # Старый формат: salt в password_salt, hash в password_hash
+            if not salt:
+                # Аномалия: legacy hash без salt — не можем проверить
+                return False
+            test_hash = _hash_password_legacy(password, salt)
+            match = _secrets.compare_digest(stored_hash, test_hash)
+            if match:
+                # Пере-хешируем через новый формат (плавная миграция)
+                try:
+                    new_hash = _hash_password_new(password)
+                    await db.execute(
+                        "UPDATE users SET password_hash = ?, password_salt = NULL WHERE discord_id = ?",
+                        (new_hash, discord_id),
+                    )
+                    await db.commit()
+                    log.info("User %s password migrated from legacy SHA-256 to PBKDF2", discord_id)
+                except Exception as e:
+                    log.warning("Failed to migrate password for user %s: %s", discord_id, e)
+            return match
+        else:
+            # Новый формат: всё внутри stored_hash
+            return _verify_password_format(stored_hash, password)
 
 
 async def has_password(discord_id: int) -> bool:
@@ -1452,23 +1559,37 @@ async def g_get_or_create_winner_by_title(guild_id: int, title: str) -> int:
     Используется при оценке фильма из /watched: если фильм не был победителем
     колеса (или ещё не имеет записи в winners), создаётся «виртуальный» winner
     с confidence='unconfirmed'. Это позволяет хранить per-user оценки в ratings.
+
+    Безопасность от race condition: BEGIN IMMEDIATE сериализует писателей.
+    Два одновременных вызова с одним title не создадут дубликат — второй
+    увидит запись, созданную первым, после блокировки.
+
     Возвращает winner_id.
     """
     table = _guild.guild_table(guild_id, "winners")
     async with _connect() as db:
-        async with db.execute(
-            f"SELECT id FROM {table} WHERE lower(lot_name) = lower(?) ORDER BY id LIMIT 1",
-            (title,)
-        ) as cur:
-            row = await cur.fetchone()
-        if row:
-            return row[0]
-        cur = await db.execute(
-            f"INSERT INTO {table} (lot_id, lot_name, tmdb_id, confidence, detected_at) VALUES (?, ?, ?, ?, ?)",
-            (None, title, None, "unconfirmed", datetime.utcnow().isoformat()),
-        )
-        await db.commit()
-        return cur.lastrowid
+        # BEGIN IMMEDIATE берёт write-lock на БД до COMMIT — другие писатели ждут.
+        # Это устраняет race condition между SELECT и INSERT.
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            async with db.execute(
+                f"SELECT id FROM {table} WHERE lower(lot_name) = lower(?) ORDER BY id LIMIT 1",
+                (title,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row:
+                winner_id = row[0]
+            else:
+                cur = await db.execute(
+                    f"INSERT INTO {table} (lot_id, lot_name, tmdb_id, confidence, detected_at) VALUES (?, ?, ?, ?, ?)",
+                    (None, title, None, "unconfirmed", datetime.utcnow().isoformat()),
+                )
+                winner_id = cur.lastrowid
+            await db.commit()
+            return winner_id
+        except Exception:
+            await db.rollback()
+            raise
 
 
 async def g_confirm_winner(guild_id: int, winner_id: int, confirmed_by: int) -> bool:
@@ -1551,6 +1672,13 @@ async def g_count_winners(guild_id: int, search: str | None = None) -> int:
 # --- g_ratings ---
 
 async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, rating: int) -> bool:
+    """Per-user upsert оценки + автоматический «переезд» в watched при первой оценке.
+
+    Атомарность через BEGIN IMMEDIATE: INSERT rating и check-then-insert watched
+    выполняются в одной транзакции, что устраняет race condition (раньше два
+    одновременных вызова могли оба вставить дубликат в watched, т.к. SELECT
+    и INSERT не были связаны).
+    """
     if not (1 <= rating <= 10):
         return False
     table_r = _guild.guild_table(guild_id, "ratings")
@@ -1558,32 +1686,36 @@ async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, r
     table_winners = _guild.guild_table(guild_id, "winners")
     async with _connect() as db:
         now = datetime.utcnow().isoformat()
-        await db.execute(
-            f"INSERT INTO {table_r} (winner_id, user_discord_id, rating, created_at, updated_at) "
-            f"VALUES (?, ?, ?, ?, ?) "
-            f"ON CONFLICT(winner_id, user_discord_id) DO UPDATE SET rating = excluded.rating, updated_at = excluded.updated_at",
-            (winner_id, user_discord_id, rating, now, now),
-        )
-        await db.commit()
-        # Если ещё не в watched — добавляем (первая оценка = переезд в бэклог)
-        async with db.execute(f"SELECT lot_name FROM {table_winners} WHERE id = ?", (winner_id,)) as cur:
-            row = await cur.fetchone()
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            # 1. Upsert оценки (per-user)
+            await db.execute(
+                f"INSERT INTO {table_r} (winner_id, user_discord_id, rating, created_at, updated_at) "
+                f"VALUES (?, ?, ?, ?, ?) "
+                f"ON CONFLICT(winner_id, user_discord_id) DO UPDATE SET rating = excluded.rating, updated_at = excluded.updated_at",
+                (winner_id, user_discord_id, rating, now, now),
+            )
+            # 2. Найти lot_name победителя
+            async with db.execute(f"SELECT lot_name FROM {table_winners} WHERE id = ?", (winner_id,)) as cur:
+                row = await cur.fetchone()
             if not row:
+                await db.rollback()
                 return False
             lot_name = row[0]
-        async with db.execute(
-            f"SELECT 1 FROM {table_w} WHERE lower(title) = lower(?) LIMIT 1", (lot_name,)
-        ) as cur:
-            if not await cur.fetchone():
-                try:
+            # 3. Если ещё не в watched — добавляем (первая оценка = переезд в бэклог)
+            async with db.execute(
+                f"SELECT 1 FROM {table_w} WHERE lower(title) = lower(?) LIMIT 1", (lot_name,)
+            ) as cur:
+                if not await cur.fetchone():
                     await db.execute(
                         f"INSERT INTO {table_w} (title, watched_at, rating, watcher_user_id) VALUES (?, ?, ?, ?)",
                         (lot_name, now, rating, user_discord_id),
                     )
-                    await db.commit()
-                except aiosqlite.IntegrityError:
-                    pass
-        return True
+            await db.commit()
+            return True
+        except Exception:
+            await db.rollback()
+            raise
 
 
 async def g_get_average_rating(guild_id: int, winner_id: int) -> tuple[float, int]:
@@ -1731,31 +1863,40 @@ def _gen_collection_token() -> str:
 async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) -> dict:
     """Запустить новый сбор фильмов. Если уже есть активный — вернуть его (не создавать новый).
     Возвращает dict с полями: id, status, max_per_user, started_by, started_at, token.
+
+    Атомарность через BEGIN IMMEDIATE: два одновременных вызова не создадут
+    два активных сбора — второй увидит запись первого.
     """
     table = _guild.guild_table(guild_id, "collections")
     async with _connect() as db:
-        # Проверяем активный сбор
-        async with db.execute(
-            f"SELECT id, status, max_per_user, started_by, started_at, token FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
-        ) as cur:
-            row = await cur.fetchone()
-        if row:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            # Проверяем активный сбор
+            async with db.execute(
+                f"SELECT id, status, max_per_user, started_by, started_at, token FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+            ) as cur:
+                row = await cur.fetchone()
+            if row:
+                await db.commit()
+                return {
+                    "id": row[0], "status": row[1], "max_per_user": row[2],
+                    "started_by": row[3], "started_at": row[4], "token": row[5],
+                }
+            # Создаём новый
+            token = _gen_collection_token()
+            now = datetime.utcnow().isoformat()
+            cur = await db.execute(
+                f"INSERT INTO {table} (status, max_per_user, started_by, started_at, token) VALUES ('active', ?, ?, ?, ?)",
+                (max_per_user, started_by, now, token),
+            )
+            await db.commit()
             return {
-                "id": row[0], "status": row[1], "max_per_user": row[2],
-                "started_by": row[3], "started_at": row[4], "token": row[5],
+                "id": cur.lastrowid, "status": "active", "max_per_user": max_per_user,
+                "started_by": started_by, "started_at": now, "token": token,
             }
-        # Создаём новый
-        token = _gen_collection_token()
-        now = datetime.utcnow().isoformat()
-        cur = await db.execute(
-            f"INSERT INTO {table} (status, max_per_user, started_by, started_at, token) VALUES ('active', ?, ?, ?, ?)",
-            (max_per_user, started_by, now, token),
-        )
-        await db.commit()
-        return {
-            "id": cur.lastrowid, "status": "active", "max_per_user": max_per_user,
-            "started_by": started_by, "started_at": now, "token": token,
-        }
+        except Exception:
+            await db.rollback()
+            raise
 
 
 async def g_get_active_collection(guild_id: int) -> dict | None:
@@ -2025,37 +2166,52 @@ async def g_complete_collection_spin(
 ) -> list[dict]:
     """Завершить сбор: достать все picks, перемешать, вернуть список для загрузки в колесо.
     Статус collection → 'completed', spin_started_at заполняется, picks/participants очищаются.
+
     Возвращает shuffled список picks (готов для добавления в колесо).
+    Пустой список = сбор уже завершён другим вызовом (защита от двойного клика).
     """
     import random
     table_c = _guild.guild_table(guild_id, "collections")
     table_p = _guild.guild_table(guild_id, "collection_participants")
     table_pick = _guild.guild_table(guild_id, "collection_picks")
     async with _connect() as db:
-        # Достаём все picks
-        async with db.execute(
-            f"SELECT user_discord_id, watchlist_id, title, tmdb_id FROM {table_pick} WHERE collection_id = ? ORDER BY id",
-            (collection_id,)
-        ) as cur:
-            rows = await cur.fetchall()
-        picks = [
-            {"user_discord_id": r[0], "watchlist_id": r[1], "title": r[2], "tmdb_id": r[3]}
-            for r in rows
-        ]
-        # Перемешиваем
-        random.shuffle(picks)
-        # Помечаем сбор завершённым со spin_started
-        now = datetime.utcnow().isoformat()
-        await db.execute(
-            f"UPDATE {table_c} SET status = 'completed', completed_at = ?, completed_by = ?, spin_started_at = ?, spin_started_by = ? "
-            f"WHERE id = ? AND status = 'active'",
-            (now, completed_by, now, completed_by, collection_id),
-        )
-        # Очищаем picks и participants (история не сохраняется)
-        await db.execute(f"DELETE FROM {table_pick} WHERE collection_id = ?", (collection_id,))
-        await db.execute(f"DELETE FROM {table_p} WHERE collection_id = ?", (collection_id,))
-        await db.commit()
-        return picks
+        # BEGIN IMMEDIATE сериализует писателей — два одновременных вызова
+        # не получат оба набор picks.
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            # Сначала атомарно помечаем сбор завершённым (если ещё active).
+            # Если UPDATE совпал с 0 строк — сбор уже завершён другим вызовом.
+            now = datetime.utcnow().isoformat()
+            cur = await db.execute(
+                f"UPDATE {table_c} SET status = 'completed', completed_at = ?, completed_by = ?, spin_started_at = ?, spin_started_by = ? "
+                f"WHERE id = ? AND status = 'active'",
+                (now, completed_by, now, completed_by, collection_id),
+            )
+            if cur.rowcount == 0:
+                # Сбор уже завершён — ничего не возвращаем, чтобы веб-слой
+                # не загрузил дубликаты в колесо.
+                await db.commit()
+                return []
+            # Достаём все picks (теперь уже завершённого) сбора
+            async with db.execute(
+                f"SELECT user_discord_id, watchlist_id, title, tmdb_id FROM {table_pick} WHERE collection_id = ? ORDER BY id",
+                (collection_id,)
+            ) as cur:
+                rows = await cur.fetchall()
+            picks = [
+                {"user_discord_id": r[0], "watchlist_id": r[1], "title": r[2], "tmdb_id": r[3]}
+                for r in rows
+            ]
+            # Перемешиваем
+            random.shuffle(picks)
+            # Очищаем picks и participants (история не сохраняется)
+            await db.execute(f"DELETE FROM {table_pick} WHERE collection_id = ?", (collection_id,))
+            await db.execute(f"DELETE FROM {table_p} WHERE collection_id = ?", (collection_id,))
+            await db.commit()
+            return picks
+        except Exception:
+            await db.rollback()
+            raise
 
 
 # --- g_santa (Тайный Санта, v1.8.0) ---
