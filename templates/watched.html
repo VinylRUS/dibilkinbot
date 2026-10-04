@@ -268,24 +268,13 @@
             <div class="watched-actions">
               <!-- Звёзды оценки (per-user, 5 звёзд с половинками = 1-10) -->
               <div class="star-rating" id="stars-{{ w_id }}" data-watched-id="{{ w_id }}" data-user-rating="{{ user_rating or 0 }}">
-                {% for i in range(1, 6) %}
-                  {% set value_full = i * 2 %}
-                  {% set value_half = i * 2 - 1 %}
-                  {% set is_full = user_rating and user_rating >= value_full %}
-                  {% set is_half = user_rating and user_rating == value_half %}
-                  <button type="button" class="star {{ 'full' if is_full else '' }}"
-                          data-rating="{{ value_full }}"
-                          onclick="rateWatched({{ w_id }}, {{ value_full }})"
-                          aria-label="Оценка {{ value_full }} из 10">
-                    {% if is_half %}<span class="half"></span>{% endif %}
-                  </button>
-                  <button type="button" class="star {{ 'full' if is_full else '' }}"
-                          data-rating="{{ value_half }}"
-                          onclick="rateWatched({{ w_id }}, {{ value_half }})"
-                          aria-label="Оценка {{ value_half }} из 10"
-                          style="width: calc(var(--star-size) / 2); margin-left: calc(var(--star-size) / -2);">
-                    {% if is_half %}<span class="half" style="display:none;"></span>{% endif %}
-                  </button>
+                {% for i in range(1, 11) %}
+                  {# i = 1..10, нечётные = левые половинки, чётные = правые #}
+                  {% set is_filled = user_rating and i <= user_rating %}
+                  <button type="button" class="star-half {{ 'left' if i % 2 == 1 else 'right' }} {{ 'filled' if is_filled else '' }}"
+                          data-rating="{{ i }}"
+                          onclick="rateWatched({{ w_id }}, {{ i }})"
+                          aria-label="Оценка {{ i }} из 10"></button>
                 {% endfor %}
                 <span class="rating-value">{{ user_rating if user_rating else '—' }}/10</span>
               </div>
@@ -406,33 +395,12 @@
     function updateStarsDisplay(container, rating) {
       const valueEl = container.querySelector('.rating-value');
       if (valueEl) valueEl.textContent = `${rating}/10`;
-      // Звёзды идут парами: full (value=2,4,6,8,10) + half-overlay (value=1,3,5,7,9)
-      const stars = container.querySelectorAll('.star');
-      stars.forEach(star => {
-        const v = parseInt(star.dataset.rating);
-        star.classList.remove('full');
-        // Убираем .half у full-button (она остаётся если рейтинг >= value_full)
-        if (v <= rating && v % 2 === 0) {
-          star.classList.add('full');
-        }
-        // Half-overlay (нечётные значения) — показываем half-overlay только если rating == v
-        if (v === rating && v % 2 === 1) {
-          // Предыдущая звезда (full-button) должна показать half-overlay
-          const prevFull = star.previousElementSibling;
-          if (prevFull) {
-            prevFull.classList.remove('full');
-            let half = prevFull.querySelector('.half');
-            if (!half) {
-              half = document.createElement('span');
-              half.className = 'half';
-              prevFull.appendChild(half);
-            }
-          }
-        } else if (v % 2 === 0) {
-          // Чистим half-overlay у этой full-button, если оценка не половинная
-          const half = star.querySelector('.half');
-          if (half && rating % 2 === 0) half.remove();
-        }
+      // 10 кнопок-половинок, каждая с data-rating 1..10.
+      // Подсвечиваем (filled) все, у которых data-rating <= rating.
+      const halves = container.querySelectorAll('.star-half');
+      halves.forEach(half => {
+        const v = parseInt(half.dataset.rating);
+        half.classList.toggle('filled', v <= rating);
       });
     }
 
