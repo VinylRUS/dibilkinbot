@@ -195,4 +195,51 @@ document.addEventListener('click', (e) => {
     }
   }
 });
+
+// === Toast-уведомления (замена alert()) ===
+// Глобальная функция showToast(message, type='info', duration=3500)
+// type: 'success' | 'error' | 'info'
+window.showToast = function(message, type = 'info', duration = 3500) {
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+  }
+  // Авто-детект типа по первым символам сообщения
+  if (type === 'info' && message) {
+    const m = message.trim();
+    if (m.startsWith('✓') || m.startsWith('✅') || m.toLowerCase().startsWith('успешно')) type = 'success';
+    else if (m.startsWith('❌') || m.startsWith('⚠') || m.startsWith('Ошибка') || m.startsWith('Сетевая ошибка')) type = 'error';
+  }
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : 'ℹ';
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-text"></span>`;
+  toast.querySelector('.toast-text').textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('removing');
+    setTimeout(() => toast.remove(), 200);
+  }, duration);
+};
+
+// Глобальная замена alert() на toast для ВСЕХ страниц.
+// Старый alert() блокировал UI, был нестилизован и не показывал иконку.
+// showToast автоматически определяется по первому символу (✓/❌/⚠).
+// ВАЖНО: alert с очень длинным текстом (>200 символов) или с \n\n
+// (multi-line confirm-like messages) — оставляем как alert, чтобы
+// не терять смысл сообщения в маленьком toast.
+(function() {
+  const originalAlert = window.alert;
+  window.alert = function(message) {
+    if (typeof message !== 'string') message = String(message);
+    // Multi-line / длинные сообщения — показываем как alert (старый行为)
+    if (message.length > 200 || message.includes('\n\n')) {
+      return originalAlert.call(window, message);
+    }
+    // Короткие — через toast
+    window.showToast(message);
+  };
+})();
 </script>

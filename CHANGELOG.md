@@ -1,5 +1,29 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.8.6
+### Новое
+- Дизайн-система кнопок: унифицированные классы .btn-primary, .btn-outline, .btn-danger, .btn-ghost, .btn-icon — заменили ~30 inline-стилей на кнопках. Главная CTA на дашборде (раньше рендерилась как синяя подчёркнутая ссылка) теперь корректная кнопка с акцентом
+- Компактный рейтинг 5 звёзд с половинками вместо 10 числовых кнопок (1-10 значений): ~120px ширины вместо ~220px, привычный «звёздный» UX, корректно помещается на мобильном вместе с edit/delete
+- Toast-уведомления: глобальная замена alert() на glassmorphism toast с auto-detect типа по эмодзи (✓→success, ❌/⚠→error). Появляется в правом нижнем углу, не блокирует UI, автоматически исчезает через 3.5 сек
+- Empty states с иконками и CTA: вместо «font-style: italic; padding: 28px» теперь крупная иконка + заголовок + текст + кнопка действия. Применено к /watched и /winners
+- Мобильная адаптивность winners/watched: на экранах ≤640px карточки переходят в одну колонку, действия переносятся вниз, звёзды не обрезаются
+
+### Техническое
+- CSS cleanup: удалён весь мёртвый код nav.top / .nav-group / .dropdown (~250 строк). style.css: 1271 → ~1080 строк. Никакой регрессии — nav.top не рендерится с v1.8.2 (заменён на sidebar)
+- Объединены дублирующиеся правила article.card (transition + :hover) — было 2 одинаковых блока, остался 1
+- Фикс CSS-переменных: в инлайн-стилях шаблонов использовались var(--card), var(--bg), var(--shadow) без их определения. На 9 страницах из 15 glassmorphism визуально ломался (карточки прозрачные, виден только border). Добавлены алиасы в :root и [data-theme="dark"]: --card: var(--glass-bg), --bg: var(--input-bg), --shadow: var(--glass-shadow)
+- Добавлены классы кнопок: .btn-primary (для ссылок и <button>, accent + glow + lift on hover), .btn-outline (прозрачная с border), .btn-danger (red border, fill on hover), .btn-ghost (минимальная, для редких действий), .btn-icon (компактная 4×8px для ✏️/×/🔑), .btn-icon.danger (red variant)
+- Toast JS: глобальная функция window.showToast(message, type, duration) с авто-детектом типа. Polyfill: window.alert перехватывается, короткие сообщения (<200 символов, без \n\n) идут через toast, длинные — через старый alert. Применено ко всем страницам через sidebar.html
+- Compact star rating: 5 звёзд + 5 половинок-overlay (10 кнопок всего). CSS через .star-rating с --star-size переменной, half-overlay через .star .half (position:absolute, overflow:hidden, width:50%). На мобильном --star-size уменьшается до 20px. aria-label на каждой кнопке для screen reader'ов
+- Empty state CSS: .empty-state с .empty-state-icon (2.5rem, opacity 0.7), .empty-state-title (1.05rem bold), .empty-state-text (0.88rem soft), CTA через .btn-primary/.btn-outline
+- Skeleton loading CSS: .skeleton с shimmer-анимацией (gradient + background-position animation, 1.4s infinite). Готов к использованию для плейсхолдеров при AJAX-загрузке
+- Мобильная адаптивность: @media (max-width: 640px) — .winner-card (grid 2 колонки → 1), .watched-card (flex row → column), .watched-actions (justify-content: space-between, flex-wrap). !important для перебивания инлайн-стилей шаблонов
+- panel.html: убран inline-стиль с .btn-primary «Новый сбор» → заменён на .btn-outline
+- quotes.html: убран inline-стиль с #import-btn → заменён на .btn-outline
+- watched.html: кнопки ✏️ и × получили класс .btn-icon и .btn-icon.danger + aria-label, звёзды заменены на .star-rating, alert() → showToast() для rateWatched и saveTitle
+- winners.html: empty state заменён на .empty-state с иконкой 🎡 и CTA «К колесу →»
+- Тест: scripts/test_css_vars.py — проверяет, что все var(--name) используемые в шаблонах определены в style.css. Запуск: python scripts/test_css_vars.py. Результат: 46 определено, 40 используется, 0 отсутствует
+
 ## v1.8.5
 ### Новое
 - Минимальная длина пароля увеличена до 8 символов при установке нового пароля. Существующие пароли продолжат работать без изменений
