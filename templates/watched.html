@@ -249,7 +249,7 @@
           </div>
         {% endif %}
       {% else %}
-        {% for w_id, title, watched_at, rating, avg_rating, ratings_count, user_rating in watched %}
+        {% for w_id, title, watched_at, rating, avg_rating, ratings_count, user_rating, winner_id in watched %}
           <div class="watched-card" id="watched-{{ w_id }}">
             <div class="watched-info">
               <div class="watched-title" id="title-{{ w_id }}"
@@ -259,7 +259,8 @@
               <div class="watched-date mono">{{ format_msk(watched_at) }}</div>
               <div class="avg-rating-badge" id="avg-{{ w_id }}"
                    {% if not ratings_count or ratings_count == 0 %}style="display:none;"{% endif %}
-                   title="Средняя оценка участников">
+                   {% if winner_id %}data-winner-id="{{ winner_id }}" onclick="showRatingsModal({{ winner_id }}, '{{ title | replace("'", "\\'") }}')" style="cursor: pointer;"{% endif %}
+                   title="Нажмите чтобы увидеть кто как оценил">
                 <span>⭐</span>
                 <span class="avg-value">{{ avg_rating }}</span>
                 <span class="avg-count">· <span id="count-{{ w_id }}">{{ ratings_count }}</span> оцен{{ 'ка' if ratings_count == 1 else ('ки' if ratings_count < 5 else 'ок') }}</span>

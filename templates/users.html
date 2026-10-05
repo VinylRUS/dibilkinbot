@@ -91,7 +91,7 @@
         {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name in users %}
           <tr>
             <td>
-              <div class="user-row" style="border-bottom:none; padding:0;">
+              <a href="/u/{{ discord_id }}" class="user-row" style="border-bottom:none; padding:0; text-decoration:none; color:inherit;">
                 {% if avatar_url %}
                   <img src="{{ avatar_url }}" alt="" class="avatar">
                 {% else %}
@@ -106,7 +106,7 @@
                     <div class="guild-name">📱 {{ guild_name }}</div>
                   {% endif %}
                 </div>
-              </div>
+              </a>
             </td>
             <td class="mono">{{ discord_id }}</td>
             <td>

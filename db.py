@@ -1461,6 +1461,7 @@ async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search
         )
         base_select = (
             f"SELECT w.id, w.title, w.watched_at, w.rating, "
+            f"  win.id as winner_id, "
             f"  {avg_subq}, "
             f"  {count_subq}, "
             f"  {user_subq} "
@@ -1477,12 +1478,14 @@ async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search
         async with db.execute(sql, params) as cur:
             rows = await cur.fetchall()
         # Нормализуем: avg_rating → округлённый float, user_rating → float|None
-        # (с v1.8.7 оценки могут быть 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0)
+        # SELECT: w.id(0), w.title(1), w.watched_at(2), w.rating(3), win.id(4=winner_id),
+        #         avg_rating(5), ratings_count(6), user_rating(7)
         result = []
         for r in rows:
-            avg = round(r[4], 1) if r[4] else 0.0
-            user_r = float(r[6]) if r[6] is not None else None
-            result.append((r[0], r[1], r[2], r[3], avg, r[5], user_r))
+            avg = round(r[5], 1) if r[5] else 0.0
+            user_r = float(r[7]) if r[7] is not None else None
+            winner_id = r[4]  # может быть None если фильм не был победителем
+            result.append((r[0], r[1], r[2], r[3], avg, r[6], user_r, winner_id))
         return result
 
 
@@ -1830,6 +1833,160 @@ async def g_get_user_rating(guild_id: int, winner_id: int, user_discord_id: int)
         ) as cur:
             row = await cur.fetchone()
             return float(row[0]) if row else None
+
+
+# --- Публичный профиль (v1.9.0) ---
+
+async def g_get_user_stats(guild_id: int, user_discord_id: int) -> dict:
+    """Статистика юзера для публичного профиля.
+
+    Возвращает:
+    - ratings_count: сколько оценок поставил
+    - avg_rating: средняя оценка юзера (0.0-5.0)
+    - watched_count: сколько фильмов в бэклоге (с его оценкой или без)
+    - quotes_count: сколько цитат записал
+    - watchlist_count: сколько в списке желаемого
+    """
+    table_r = _guild.guild_table(guild_id, "ratings")
+    table_w = _guild.guild_table(guild_id, "watched")
+    table_q = _guild.guild_table(guild_id, "quotes")
+    table_wl = _guild.guild_table(guild_id, "watchlist")
+    async with _connect() as db:
+        # Оценки
+        async with db.execute(
+            f"SELECT COUNT(*), COALESCE(AVG(rating), 0) FROM {table_r} WHERE user_discord_id = ?",
+            (user_discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            ratings_count = row[0] or 0
+            avg_rating = round(row[1], 1) if row[1] else 0.0
+        # Бэклог (watched) — сколько фильмов в бэклоге guild'а
+        async with db.execute(f"SELECT COUNT(*) FROM {table_w}") as cur:
+            watched_count = (await cur.fetchone())[0]
+        # Цитаты — где этот юзер recorded_by (записал) или author_user_id (автор)
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_q} WHERE recorded_by = ? OR author_user_id = ?",
+            (user_discord_id, user_discord_id)
+        ) as cur:
+            quotes_count = (await cur.fetchone())[0]
+        # Вишлист
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_wl} WHERE user_discord_id = ?",
+            (user_discord_id,)
+        ) as cur:
+            watchlist_count = (await cur.fetchone())[0]
+    return {
+        "ratings_count": ratings_count,
+        "avg_rating": avg_rating,
+        "watched_count": watched_count,
+        "quotes_count": quotes_count,
+        "watchlist_count": watchlist_count,
+    }
+
+
+async def g_get_user_recent_ratings(guild_id: int, user_discord_id: int, limit: int = 5) -> list[dict]:
+    """Последние N оценок юзера: [{winner_id, lot_name, rating, updated_at, tmdb_id}, ...]"""
+    table_r = _guild.guild_table(guild_id, "ratings")
+    table_w = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT r.winner_id, w.lot_name, w.tmdb_id, r.rating, r.updated_at "
+            f"FROM {table_r} r JOIN {table_w} w ON r.winner_id = w.id "
+            f"WHERE r.user_discord_id = ? "
+            f"ORDER BY r.updated_at DESC LIMIT ?",
+            (user_discord_id, limit)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"winner_id": r[0], "lot_name": r[1], "tmdb_id": r[2],
+         "rating": float(r[3]), "updated_at": r[4]}
+        for r in rows
+    ]
+
+
+async def g_get_user_recent_quotes(guild_id: int, user_discord_id: int, limit: int = 5) -> list[dict]:
+    """Последние N цитат юзера (где он автор или записавший)."""
+    table_q = _guild.guild_table(guild_id, "quotes")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, author, text, recorded_at, message_link "
+            f"FROM {table_q} WHERE recorded_by = ? OR author_user_id = ? "
+            f"ORDER BY recorded_at DESC LIMIT ?",
+            (user_discord_id, user_discord_id, limit)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"id": r[0], "author": r[1], "text": r[2], "recorded_at": r[3], "message_link": r[4]}
+        for r in rows
+    ]
+
+
+async def g_get_taste_match(guild_id: int, user_a: int, user_b: int) -> dict:
+    """Насколько совпадают вкусы двух юзеров.
+
+    Берём фильмы, которые оба оценили. Считаем среднюю разницу оценок.
+    Возвращает:
+    - common_count: сколько общих оценённых фильмов
+    - compatibility: 0-100% (100 = полное совпадение, 0 = противоположные вкусы)
+    - avg_diff: средняя разница (0 = идентичны, 5 = максимально разные)
+    """
+    if user_a == user_b:
+        return {"common_count": 0, "compatibility": 0, "avg_diff": 5.0}
+    table_r = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        # JOIN оценок обоих юзеров по winner_id
+        async with db.execute(
+            f"SELECT a.rating, b.rating "
+            f"FROM {table_r} a JOIN {table_r} b "
+            f"ON a.winner_id = b.winner_id AND a.user_discord_id = ? AND b.user_discord_id = ?",
+            (user_a, user_b)
+        ) as cur:
+            rows = await cur.fetchall()
+    common = len(rows)
+    if common == 0:
+        return {"common_count": 0, "compatibility": 0, "avg_diff": 5.0}
+    total_diff = sum(abs(float(a) - float(b)) for a, b in rows)
+    avg_diff = total_diff / common
+    # Совместимость: 0 разницы = 100%, 5 разницы = 0%
+    compatibility = round(max(0, 100 - (avg_diff / 5.0) * 100))
+    return {"common_count": common, "compatibility": compatibility, "avg_diff": round(avg_diff, 2)}
+
+
+async def g_get_watched_together_count(guild_id: int, user_a: int, user_b: int) -> int:
+    """Сколько фильмов оба юзера оценили (т.е. посмотрели вместе)."""
+    if user_a == user_b:
+        return 0
+    table_r = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_r} a "
+            f"JOIN {table_r} b ON a.winner_id = b.winner_id "
+            f"WHERE a.user_discord_id = ? AND b.user_discord_id = ?",
+            (user_a, user_b)
+        ) as cur:
+            return (await cur.fetchone())[0]
+
+
+async def g_get_ratings_for_winner(guild_id: int, winner_id: int) -> list[dict]:
+    """Все оценки победителя с инфо о юзере (для модалки «кто как оценил»).
+
+    Возвращает [{user_discord_id, username, display_name, avatar_url, rating, updated_at}, ...]
+    """
+    table_r = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT r.user_discord_id, r.rating, r.updated_at, "
+            f"u.username, u.display_name, u.avatar_url "
+            f"FROM {table_r} r LEFT JOIN users u ON r.user_discord_id = u.discord_id "
+            f"WHERE r.winner_id = ? ORDER BY r.updated_at DESC",
+            (winner_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"user_discord_id": r[0], "rating": float(r[1]), "updated_at": r[2],
+         "username": r[3], "display_name": r[4], "avatar_url": r[5]}
+        for r in rows
+    ]
 
 
 # --- g_wheel_items ---

@@ -242,4 +242,74 @@ window.showToast = function(message, type = 'info', duration = 3500) {
     window.showToast(message);
   };
 })();
+
+// === Модалка «кто как оценил» (общая для всех страниц) ===
+window.showRatingsModal = function(winnerId, filmTitle) {
+  let modal = document.getElementById('ratings-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'ratings-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    modal.innerHTML = `
+      <div style="background:var(--glass-bg);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);border-radius:16px;padding:24px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:var(--glass-shadow);">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+          <div>
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">Кто как оценил</div>
+            <div id="ratings-modal-title" style="font-size:1.1rem;font-weight:700;color:var(--text);"></div>
+          </div>
+          <button onclick="closeRatingsModal()" class="btn-icon" aria-label="Закрыть" style="font-size:1.2rem;">×</button>
+        </div>
+        <div id="ratings-modal-content">
+          <div style="text-align:center;padding:20px;color:var(--text-muted);">⏳ Загрузка...</div>
+        </div>
+      </div>
+    `;
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeRatingsModal();
+    });
+    document.body.appendChild(modal);
+  }
+  document.getElementById('ratings-modal-title').textContent = filmTitle;
+  document.getElementById('ratings-modal-content').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);">⏳ Загрузка...</div>';
+  modal.style.display = 'flex';
+
+  fetch(`/api/winners/${winnerId}/ratings_list`)
+    .then(r => r.json())
+    .then(data => {
+      const content = document.getElementById('ratings-modal-content');
+      if (!data.ratings || data.ratings.length === 0) {
+        content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⭐</div><p class="empty-state-text">Пока никто не оценил</p></div>';
+        return;
+      }
+      content.innerHTML = data.ratings.map(r => {
+        const name = r.display_name || r.username || 'User#' + r.user_discord_id;
+        const initials = (name || '?')[0].toUpperCase();
+        const avatar = r.avatar_url
+          ? `<img src="${r.avatar_url}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">`
+          : `<div style="width:36px;height:36px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;">${initials}</div>`;
+        return `
+          <a href="/u/${r.user_discord_id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;">
+            ${avatar}
+            <div style="flex:1;min-width:0;">
+              <div style="color:var(--text);font-weight:600;font-size:0.92rem;">${name}</div>
+              <div style="color:var(--text-muted);font-size:0.75rem;" class="mono">${r.updated_at ? new Date(r.updated_at).toLocaleDateString('ru-RU') : ''}</div>
+            </div>
+            <div style="font-weight:700;color:var(--accent);font-size:0.95rem;">⭐ ${r.rating}/5</div>
+          </a>
+        `;
+      }).join('');
+    })
+    .catch(e => {
+      document.getElementById('ratings-modal-content').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠</div><p class="empty-state-text">Ошибка загрузки</p></div>';
+    });
+};
+
+window.closeRatingsModal = function() {
+  const modal = document.getElementById('ratings-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeRatingsModal();
+});
 </script>
