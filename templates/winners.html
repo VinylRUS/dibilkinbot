@@ -171,8 +171,12 @@
 
           {% if w.ratings_count > 0 %}
             <div class="rating-display">
-              <span class="avg-rating">⭐ {{ w.avg_rating }}/5</span>
-              <span class="ratings-count">({{ w.ratings_count }} оценк{{ 'а' if w.ratings_count == 1 else ('и' if w.ratings_count < 5 else 'ок') }})</span>
+              <a href="#" onclick="showRatingsModal({{ w.id }}, '{{ w.lot_name | replace("'", "\\'") }}'); return false;"
+                 style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px;"
+                 title="Нажмите чтобы увидеть кто как оценил">
+                <span class="avg-rating">⭐ {{ w.avg_rating }}/5</span>
+                <span class="ratings-count">({{ w.ratings_count }} оценк{{ 'а' if w.ratings_count == 1 else ('и' if w.ratings_count < 5 else 'ок') }})</span>
+              </a>
             </div>
           {% else %}
             <div class="rating-display">

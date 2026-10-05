@@ -611,12 +611,13 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         # Последние входы юзеров
         async with db._connect() as conn:
             async with conn.execute(
-                "SELECT username, display_name, last_login_at FROM users WHERE last_login_at > ? ORDER BY last_login_at DESC LIMIT 10",
+                "SELECT discord_id, username, display_name, last_login_at FROM users WHERE last_login_at > ? ORDER BY last_login_at DESC LIMIT 10",
                 (cutoff,)
             ) as cur:
                 for r in await cur.fetchall():
-                    username = r[1] or r[0] or "Unknown"
-                    login_at = r[2]
+                    user_did = r[0]
+                    username = r[2] or r[1] or "Unknown"
+                    login_at = r[3]
                     # Вычисляем "time ago"
                     if login_at:
                         try:
@@ -633,6 +634,7 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
                     else:
                         time_ago = "недавно"
                     admin_activity.append({
+                        "discord_id": user_did,
                         "username": username,
                         "action": "заходил(а) в панель",
                         "time_ago": time_ago,
@@ -1463,6 +1465,86 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         "is_santa_enabled": await is_santa_enabled(),
         "watchlist": watchlist,
     })
+
+
+# === Публичный профиль (v1.9.0) ===
+
+@app.get("/u/{discord_id}", response_class=HTMLResponse)
+async def public_profile_page(
+    request: Request,
+    discord_id: int,
+    _user: dict = Depends(require_user),
+):
+    """Публичный профиль пользователя. Виден всем залогиненным юзерам."""
+    target = await db.get_user(discord_id)
+    if not target:
+        return templates.TemplateResponse(request, "profile_public.html", {
+            "user": _user,
+            "target": None,
+            "not_found": True,
+        }, status_code=404)
+
+    guild_id = get_current_guild_id(_user)
+    target_discord_id = target[0]
+    username = target[1]
+    display_name = target[2]
+    is_target_admin = bool(target[3])
+    avatar_url = target[4]
+    top_role = target[6]
+    guild_name = target[7]
+    last_login_at = target[8]
+
+    # Статистика
+    stats = await db.g_get_user_stats(guild_id, target_discord_id)
+    # Последние оценки
+    recent_ratings = await db.g_get_user_recent_ratings(guild_id, target_discord_id, limit=5)
+    # Последние цитаты
+    recent_quotes = await db.g_get_user_recent_quotes(guild_id, target_discord_id, limit=5)
+
+    # Taste match с текущим юзером
+    current_discord_id = _user.get("discord_id", 0)
+    taste_match = None
+    watched_together = 0
+    if current_discord_id and current_discord_id != target_discord_id:
+        taste_match = await db.g_get_taste_match(guild_id, current_discord_id, target_discord_id)
+        watched_together = await db.g_get_watched_together_count(guild_id, current_discord_id, target_discord_id)
+
+    is_self = (current_discord_id == target_discord_id)
+
+    return templates.TemplateResponse(request, "profile_public.html", {
+        "user": _user,
+        "target": {
+            "discord_id": target_discord_id,
+            "username": username,
+            "display_name": display_name or username,
+            "avatar_url": avatar_url,
+            "is_admin": is_target_admin,
+            "top_role": top_role,
+            "guild_name": guild_name,
+            "last_login_at": last_login_at,
+        },
+        "stats": stats,
+        "recent_ratings": recent_ratings,
+        "recent_quotes": recent_quotes,
+        "taste_match": taste_match,
+        "watched_together": watched_together,
+        "is_self": is_self,
+        "not_found": False,
+    })
+
+
+@app.get("/api/winners/{winner_id}/ratings_list")
+async def api_get_ratings_list(
+    winner_id: int,
+    _user: dict = Depends(require_user),
+):
+    """Список всех оценок победителя (для модалки «кто как оценил»).
+
+    Возвращает [{user_discord_id, username, display_name, avatar_url, rating, updated_at}, ...].
+    """
+    guild_id = get_current_guild_id(_user)
+    ratings = await db.g_get_ratings_for_winner(guild_id, winner_id)
+    return JSONResponse({"ratings": ratings, "count": len(ratings)})
 
 
 # === Watchlist API ===

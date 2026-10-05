@@ -143,13 +143,16 @@
     <h2>Активность участников <span style="font-size:0.75rem; color:var(--text-soft); font-weight:400;">за 7 дней</span></h2>
     <article class="card">
       {% for item in admin_activity %}
-        <div class="activity-item">
+        <a href="/u/{{ item.discord_id }}" class="activity-item" style="text-decoration:none;color:inherit;">
           <div class="activity-avatar">{{ item.username[:1] | upper }}</div>
           <div class="activity-text"><strong>{{ item.username }}</strong> {{ item.action }}</div>
           <div class="activity-time">{{ item.time_ago }}</div>
-        </div>
+        </a>
       {% else %}
-        <div class="empty">Нет активности за последнюю неделю.</div>
+        <div class="empty-state">
+          <div class="empty-state-icon">😴</div>
+          <p class="empty-state-text">Нет активности за последнюю неделю.</p>
+        </div>
       {% endfor %}
     </article>
 

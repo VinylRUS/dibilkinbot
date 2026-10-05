@@ -1,5 +1,30 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.9.0
+### Новое
+- Публичный профиль пользователя: страница /u/{discord_id} видна всем залогиненным. Показывает аватар, display_name, роль, статистику (оценок, средняя оценка, цитат, в вишлисте), последние 5 оценок и 5 цитат. Если оба юзера оценили ≥3 общих фильма — показывается «Taste Match» с процентом совпадения вкусов и счётчиком «вместе посмотрели N фильмов»
+- Кликабельность по всему боту: hover на badge «⭐ X.X · N оценок» в /watched и /winners открывает модалку «Кто как оценил» со списком юзеров и их оценок. Каждый юзер в списке кликабелен → его публичный профиль. Автор цитаты в /quotes кликабелен → профиль. Аватарки в админ-активности /panel и в списке /users — кликабельны → профиль
+
+### Техническое
+- db.g_get_user_stats(guild_id, user_discord_id): возвращает dict с ratings_count, avg_rating, watched_count, quotes_count, watchlist_count. 4 отдельных COUNT запроса (для каждой таблицы guild_{id}_*)
+- db.g_get_user_recent_ratings(guild_id, user_discord_id, limit=5): последние N оценок юзера через JOIN ratings + winners по winner_id, ORDER BY updated_at DESC
+- db.g_get_user_recent_quotes(guild_id, user_discord_id, limit=5): последние N цитат где юзер автор (author_user_id) ИЛИ записавший (recorded_by)
+- db.g_get_taste_match(guild_id, user_a, user_b): JOIN оценок двух юзеров по winner_id, считает среднюю разницу (avg_diff), совместимость = 100 - (avg_diff/5)*100. Возвращает {common_count, compatibility, avg_diff}
+- db.g_get_watched_together_count(guild_id, user_a, user_b): COUNT(*) FROM ratings a JOIN ratings b ON a.winner_id=b.winner_id WHERE a.user_discord_id=A AND b.user_discord_id=B
+- db.g_get_ratings_for_winner(guild_id, winner_id): список оценок победителя с JOIN на users для display_name/avatar_url. Возвращает [{user_discord_id, rating, updated_at, username, display_name, avatar_url}]
+- db.g_list_watched: добавлен winner_id в SELECT (LEFT JOIN winners). Возвращает 8-tuple (id, title, watched_at, rating, avg_rating, ratings_count, user_rating, winner_id) вместо прежнего 7-tuple. winner_id может быть None если фильм не был победителем колеса
+- web.py GET /u/{discord_id}: новый маршрут публичного профиля. require_user (виден всем залогиненным). Возвращает target user, stats, recent_ratings, recent_quotes, taste_match с текущим юзером, watched_together count. Если юзер не найден — 404 с empty-state
+- web.py GET /api/winners/{winner_id}/ratings_list: новый API для модалки «кто как оценил». Возвращает {ratings: [{user_discord_id, rating, updated_at, username, display_name, avatar_url}], count}
+- web.py /panel admin_activity: добавлен discord_id в SQL (SELECT discord_id, username, display_name, last_login_at) и в dict. Теперь аватарка в списке активности кликабельна
+- templates/profile_public.html: новый шаблон. Hero блок с аватаром 96px (или инициал в круге), display_name + badge ADMIN, мета (роль, сервер, @username). Stats grid 4 карточки. Taste match card с процентом 2.2rem. Recent ratings list и quote cards. Empty state «Пользователь не найден» если discord_id не существует
+- templates/sidebar.html: добавлена глобальная функция window.showRatingsModal(winnerId, filmTitle) — создаёт модалку при первом вызове, fetch /api/winners/{id}/ratings_list, рендерит список юзеров с аватарами/оценками/датами. Каждый юзер кликабелен на /u/{discord_id}. closeRatingsModal() на Escape и клик вне модалки
+- templates/watched.html: распаковка 8-tuple (добавлен winner_id), avg-rating-badge получает data-winner-id + onclick=showRatingsModal если winner_id есть. cursor: pointer на badge
+- templates/winners.html: avg-rating + ratings-count обёрнуты в <a onclick=showRatingsModal>. title подсказка «Нажмите чтобы увидеть кто как оценил»
+- templates/quotes.html: автор цитаты (аватар + имя + дата) обёрнут в <a href=/u/{author_user_id}> если есть author_user_id. Добавлен rel=noopener noreferrer для внешних ссылок
+- templates/panel.html: activity-item обёрнут в <a href=/u/{discord_id}>. Empty state «😴 Нет активности» вместо простого текста
+- templates/users.html: user-row обёрнут в <a href=/u/{discord_id}> вместо div
+- Тест: scripts/test_v190_public_profile.py — 6 сценариев (stats, recent_ratings, taste_match, watched_together, ratings_for_winner, list_watched с winner_id). Существующий test_watched_ratings обновлён для 8-tuple
+
 ## v1.8.7
 ### Новое
 - Шкала оценок изменена с 10-балльной на 5-балльную с половинками: 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0. Теперь 5 видимых звёзд, каждая может быть заполнена наполовину. Существующие оценки автоматически конвертированы: 10→5.0, 9→4.5, 8→4.0, 7→3.5, 6→3.0, 5→2.5, 4→2.0, 3→1.5, 2→1.0, 1→0.5. Пользователям не нужно ничего делать — оценки сохранятся

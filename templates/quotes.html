@@ -227,6 +227,9 @@
           <article class="quote-card">
             <div class="quote-content">
               <div class="quote-header">
+                {% if author_user_id %}
+                  <a href="/u/{{ author_user_id }}" style="text-decoration:none;display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+                {% endif %}
                 {% if author_avatar %}
                   <img src="{{ author_avatar }}" alt="" class="quote-avatar">
                 {% else %}
@@ -236,11 +239,12 @@
                   <div class="quote-author">{{ author }}</div>
                   <div class="quote-date mono">{{ format_msk(recorded_at) }}</div>
                 </div>
+                {% if author_user_id %}</a>{% endif %}
               </div>
               <p class="quote-text">{{ text }}</p>
               {% if message_link %}
                 <div class="quote-meta">
-                  <a href="{{ message_link }}" target="_blank">↗ исходное сообщение</a>
+                  <a href="{{ message_link }}" target="_blank" rel="noopener noreferrer">↗ исходное сообщение</a>
                 </div>
               {% endif %}
             </div>
