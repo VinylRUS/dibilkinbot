@@ -234,7 +234,8 @@ async def init_db() -> None:
                     winner_id = cur_w.lastrowid
 
                 # Если был rating — создаём rating запись (если ещё нет)
-                if rating_val and 1 <= rating_val <= 10:
+                # Шкала 0.5-5 с половинками (после v1.8.7 миграции)
+                if rating_val and _is_valid_rating(rating_val):
                     try:
                         await db.execute(
                             "INSERT INTO ratings (winner_id, user_discord_id, rating, created_at) "
@@ -258,6 +259,70 @@ async def init_db() -> None:
                     log.info("v1.0.0 migration: %d rows moved to guild_0_* tables", migrated)
             except Exception as e:
                 log.error("v1.0.0 guild migration failed: %s", e)
+
+            # === Миграция v1.8.7: шкала оценок 1-10 → 0.5-5 (с половинками) ===
+            # Запускается ОДИН РАЗ (флаг migration_v187_done в global settings).
+            # Конвертирует все существующие оценки в guild_{id}_ratings и
+            # legacy watched.rating по формуле: new_rating = old_rating / 2.
+            # Пример: 10→5.0, 9→4.5, 8→4.0, 7→3.5, 6→3.0, 5→2.5, 4→2.0, 3→1.5, 2→1.0, 1→0.5.
+            async with db.execute(
+                "SELECT value FROM settings WHERE key = 'migration_v187_done'"
+            ) as cur:
+                v187_row = await cur.fetchone()
+            if not v187_row:
+                log.info("v1.8.7 migration: converting ratings 1-10 → 0.5-5")
+                # Получаем список всех guild_id из реестра
+                try:
+                    async with db.execute("SELECT guild_id FROM guilds") as cur:
+                        guild_ids = [row[0] for row in await cur.fetchall()]
+                except Exception:
+                    guild_ids = []
+                # Добавляем guild 0 (legacy)
+                if 0 not in guild_ids:
+                    guild_ids.append(0)
+                total_migrated_ratings = 0
+                total_migrated_watched = 0
+                for gid in guild_ids:
+                    table_r = guild_module.guild_table(gid, "ratings")
+                    table_w = guild_module.guild_table(gid, "watched")
+                    # Проверяем существование таблиц (для нового guild таблиц может не быть)
+                    try:
+                        cur_r = await db.execute(
+                            f"UPDATE {table_r} SET rating = rating / 2.0 WHERE rating > 5"
+                        )
+                        total_migrated_ratings += cur_r.rowcount
+                    except Exception as e:
+                        log.warning("v1.8.7 migration: ratings table for guild %s: %s", gid, e)
+                    try:
+                        cur_w = await db.execute(
+                            f"UPDATE {table_w} SET rating = rating / 2.0 WHERE rating IS NOT NULL AND rating > 5"
+                        )
+                        total_migrated_watched += cur_w.rowcount
+                    except Exception as e:
+                        log.warning("v1.8.7 migration: watched table for guild %s: %s", gid, e)
+                # Также мигрируем legacy ratings и watched (если существуют)
+                try:
+                    cur_r = await db.execute(
+                        "UPDATE ratings SET rating = rating / 2.0 WHERE rating > 5"
+                    )
+                    total_migrated_ratings += cur_r.rowcount
+                except Exception:
+                    pass  # legacy таблицы могут не существовать
+                try:
+                    cur_w = await db.execute(
+                        "UPDATE watched SET rating = rating / 2.0 WHERE rating IS NOT NULL AND rating > 5"
+                    )
+                    total_migrated_watched += cur_w.rowcount
+                except Exception:
+                    pass
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value, is_secret) VALUES ('migration_v187_done', '1', 0)"
+                )
+                await db.commit()
+                log.info(
+                    "v1.8.7 migration done: %d ratings + %d watched records converted to 0.5-5 scale",
+                    total_migrated_ratings, total_migrated_watched
+                )
 
         log.info("DB initialized at %s (size=%d bytes)",
                  settings.database_path, settings.database_path.stat().st_size)
@@ -1072,15 +1137,15 @@ async def delete_winner(winner_id: int) -> bool:
 
 # === Ratings (community rating, v0.8.0) ===
 
-async def upsert_rating(winner_id: int, user_discord_id: int, rating: int) -> bool:
-    """Поставить или обновить оценку победителю.
+async def upsert_rating(winner_id: int, user_discord_id: int, rating) -> bool:
+    """Поставить или обновить оценку победителю (legacy, без guild_id).
     Один юзер = одна оценка на фильм (UNIQUE constraint).
-    Возвращает True если оценка поставлена, False если рейтинг вне диапазона 1-10.
+    Возвращает True если оценка поставлена, False если рейтинг вне диапазона 0.5-5.
 
     Побочный эффект: при первой оценке победитель "переезжает" в watched
     (если ещё не там) — INSERT INTO watched, чтобы он появился в бэклоге.
     """
-    if not (1 <= rating <= 10):
+    if not _is_valid_rating(rating):
         return False
 
     async with _connect() as db:
@@ -1146,15 +1211,15 @@ async def get_average_rating(winner_id: int) -> tuple[float, int]:
             return round(row[0], 1), row[1]
 
 
-async def get_user_rating(winner_id: int, user_discord_id: int) -> int | None:
-    """Оценка конкретного юзера для победителя (или None)."""
+async def get_user_rating(winner_id: int, user_discord_id: int) -> float | None:
+    """Оценка конкретного юзера для победителя (или None). Legacy."""
     async with _connect() as db:
         async with db.execute(
             "SELECT rating FROM ratings WHERE winner_id = ? AND user_discord_id = ?",
             (winner_id, user_discord_id)
         ) as cur:
             row = await cur.fetchone()
-            return row[0] if row else None
+            return float(row[0]) if row else None
 
 
 async def get_winners_with_ratings(limit: int = 50) -> list[dict]:
@@ -1411,11 +1476,12 @@ async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search
             params = (user_discord_id or 0, limit, offset)
         async with db.execute(sql, params) as cur:
             rows = await cur.fetchall()
-        # Нормализуем: avg_rating → округлённый float, user_rating → int|None
+        # Нормализуем: avg_rating → округлённый float, user_rating → float|None
+        # (с v1.8.7 оценки могут быть 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0)
         result = []
         for r in rows:
             avg = round(r[4], 1) if r[4] else 0.0
-            user_r = int(r[6]) if r[6] is not None else None
+            user_r = float(r[6]) if r[6] is not None else None
             result.append((r[0], r[1], r[2], r[3], avg, r[5], user_r))
         return result
 
@@ -1452,9 +1518,11 @@ async def g_update_watched_title(guild_id: int, watched_id: int, new_title: str)
         return cur.rowcount > 0
 
 
-async def g_update_watched_rating(guild_id: int, watched_id: int, rating: int) -> bool:
-    """Поставить/обновить оценку фильму в бэклоге."""
-    if not (1 <= rating <= 10):
+async def g_update_watched_rating(guild_id: int, watched_id: int, rating) -> bool:
+    """Поставить/обновить оценку фильму в бэклоге (legacy, до v1.8.4).
+    Шкала 0.5-5 с шагом 0.5.
+    """
+    if not _is_valid_rating(rating):
         return False
     table = _guild.guild_table(guild_id, "watched")
     async with _connect() as db:
@@ -1671,15 +1739,37 @@ async def g_count_winners(guild_id: int, search: str | None = None) -> int:
 
 # --- g_ratings ---
 
-async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, rating: int) -> bool:
+# Допустимые значения оценок: 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0
+# (с половинками — 5 звёзд с возможностью поставить половину)
+_VALID_RATINGS = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0}
+
+
+def _is_valid_rating(rating) -> bool:
+    """Проверить, что оценка валидна (0.5-5 с шагом 0.5).
+
+    Принимает int или float. int 1..5 валиден (трактуется как 1.0, 2.0...).
+    float 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0 валиден.
+    """
+    try:
+        r = float(rating)
+    except (TypeError, ValueError):
+        return False
+    # Проверка на шаг 0.5: r * 2 должно быть целым числом от 1 до 10
+    doubled = r * 2
+    return doubled == int(doubled) and 1 <= int(doubled) <= 10
+
+
+async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, rating: float) -> bool:
     """Per-user upsert оценки + автоматический «переезд» в watched при первой оценке.
 
     Атомарность через BEGIN IMMEDIATE: INSERT rating и check-then-insert watched
     выполняются в одной транзакции, что устраняет race condition (раньше два
     одновременных вызова могли оба вставить дубликат в watched, т.к. SELECT
     и INSERT не были связаны).
+
+    Шкала: 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0 (с половинками).
     """
-    if not (1 <= rating <= 10):
+    if not _is_valid_rating(rating):
         return False
     table_r = _guild.guild_table(guild_id, "ratings")
     table_w = _guild.guild_table(guild_id, "watched")
@@ -1730,7 +1820,8 @@ async def g_get_average_rating(guild_id: int, winner_id: int) -> tuple[float, in
             return round(row[0], 1), row[1]
 
 
-async def g_get_user_rating(guild_id: int, winner_id: int, user_discord_id: int) -> int | None:
+async def g_get_user_rating(guild_id: int, winner_id: int, user_discord_id: int) -> float | None:
+    """Получить per-user оценку победителя (0.5-5.0 с шагом 0.5)."""
     table = _guild.guild_table(guild_id, "ratings")
     async with _connect() as db:
         async with db.execute(
@@ -1738,7 +1829,7 @@ async def g_get_user_rating(guild_id: int, winner_id: int, user_discord_id: int)
             (winner_id, user_discord_id)
         ) as cur:
             row = await cur.fetchone()
-            return row[0] if row else None
+            return float(row[0]) if row else None
 
 
 # --- g_wheel_items ---

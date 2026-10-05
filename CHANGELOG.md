@@ -1,5 +1,24 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.8.7
+### Новое
+- Шкала оценок изменена с 10-балльной на 5-балльную с половинками: 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0. Теперь 5 видимых звёзд, каждая может быть заполнена наполовину. Существующие оценки автоматически конвертированы: 10→5.0, 9→4.5, 8→4.0, 7→3.5, 6→3.0, 5→2.5, 4→2.0, 3→1.5, 2→1.0, 1→0.5. Пользователям не нужно ничего делать — оценки сохранятся
+
+### Техническое
+- db._is_valid_rating(rating): проверка 0.5-5 с шагом 0.5 (через rating * 2 должно быть целым 1-10). Принимает int (1..5) и float (0.5, 1.0, 1.5... 5.0)
+- db.g_upsert_rating: тип параметра rating изменён с int на float, валидация через _is_valid_rating
+- db.g_update_watched_rating: то же — float + валидация через _is_valid_rating (legacy, не используется с v1.8.4)
+- db.upsert_rating (legacy без guild_id): float + валидация
+- db.get_user_rating (legacy): возвращает float вместо int
+- db.g_get_user_rating: возвращает float вместо int
+- db.g_list_watched: нормализация user_rating через float() вместо int() (раньше 3.5 обрезалось до 3)
+- db.init_db: добавлена миграция v1.8.7 (флаг migration_v187_done в global settings). Конвертирует ratings.rating и watched.rating по формуле new = old / 2.0 во всех guild_{id}_ratings, guild_{id}_watched, legacy ratings, legacy watched. Запускается один раз при первом старте после обновления
+- web.py /api/watched/{id}/rate и /api/winners/{id}/rate: тип rating Form(int) → Form(float), валидация через db._is_valid_rating, error message: «rating must be 0.5-5 with 0.5 step»
+- watched.html: цикл {% for i in range(1, 11) %} генерирует 10 кнопок-половинок с data-rating = i * 0.5 (0.5, 1.0, 1.5, ... 5.0). aria-label «Оценка X из 5». rating-value показывает «X/5» вместо «X/10»
+- winners.html: 10 числовых кнопок 1-10 заменены на star-rating компонент (5 звёзд с половинками). Удалён stars-grid класс, добавлен star-rating с 10 кнопками-половинками. JS rateWinner обновлён для работы с float значениями через parseFloat. Кнопка «Удалить» получила класс btn-icon danger вместо delete-btn. avg-rating показывает «/5» вместо «/10». your-rating показывает «X/5» вместо «⭐×N X/10»
+- watched.html JS updateStarsDisplay: parseFloat вместо parseInt, текст «X/5» вместо «X/10»
+- Тесты: scripts/test_v187_rating_migration.py — 5 сценариев (валидация, формула миграции, upsert float, повторный init_db, g_list_watched с float user_rating). scripts/test_stars_visual.py — генерирует HTML со звёздами 0.5, 2.5, 4.0, 4.5, 5.0 для визуальной проверки через VLM (все 6 проверок прошли: 5.0→5 полных, 2.5→2+половинка, 4.0→4+пустая, 4.5→4+половинка, 0.5→половинка, без оценки→все пустые). Существующие тесты (test_race_conditions, test_watched_rate_flow) обновлены для использования float оценок
+
 ## v1.8.6
 ### Новое
 - Дизайн-система кнопок: унифицированные классы .btn-primary, .btn-outline, .btn-danger, .btn-ghost, .btn-icon — заменили ~30 inline-стилей на кнопках. Главная CTA на дашборде (раньше рендерилась как синяя подчёркнутая ссылка) теперь корректная кнопка с акцентом
