@@ -882,14 +882,16 @@ async def delete_winner_endpoint(
 async def api_rate_winner(
     winner_id: int,
     _user: dict = Depends(require_user),
-    rating: int = Form(...),
+    rating: float = Form(...),
 ):
     """Поставить или обновить оценку победителю.
     Любой залогиненный юзер может оценивать. Один юзер = одна оценка (можно переголосовать).
     При первой оценке победитель автоматически переезжает в /watched.
+
+    Шкала 0.5-5 с шагом 0.5 (5 звёзд с половинками).
     """
-    if not (1 <= rating <= 10):
-        return JSONResponse({"error": "rating must be 1-10"}, status_code=400)
+    if not db._is_valid_rating(rating):
+        return JSONResponse({"error": "rating must be 0.5-5 with 0.5 step"}, status_code=400)
 
     user_discord_id = _user.get("discord_id", 0)
     if not user_discord_id:
@@ -1045,9 +1047,9 @@ async def api_edit_watched(
 async def api_rate_watched(
     watched_id: int,
     _user: dict = Depends(require_user),
-    rating: int = Form(...),
+    rating: float = Form(...),
 ):
-    """Поставить per-user оценку фильму в бэклоге (1-10).
+    """Поставить per-user оценку фильму в бэклоге (0.5-5 с половинками).
 
     Логика:
       1. Найти title фильма по watched_id.
@@ -1056,8 +1058,8 @@ async def api_rate_watched(
       3. g_upsert_rating — per-user оценка (один юзер = одна оценка, можно переголосовать).
       4. Вернуть avg_rating, ratings_count, user_rating для обновления UI без перезагрузки.
     """
-    if not (1 <= rating <= 10):
-        return JSONResponse({"error": "rating must be 1-10"}, status_code=400)
+    if not db._is_valid_rating(rating):
+        return JSONResponse({"error": "rating must be 0.5-5 with 0.5 step"}, status_code=400)
 
     user_discord_id = _user.get("discord_id", 0)
     if not user_discord_id:
