@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,6 +38,25 @@ serializer = URLSafeTimedSerializer(settings.app_secret, salt="panel-session-v3"
 
 app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_url=None)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+# v2.0.4: Глобальный handler для 422 — FastAPI по умолчанию возвращает {detail: [{loc, msg, type, ...}]}
+# Фронт теперь умеет парсить этот формат, но также добавим человекочитаемое поле `error`.
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for err in exc.errors():
+        loc = err.get("loc", [])
+        field = loc[-1] if loc else "?"
+        msg = err.get("msg", "")
+        errors.append(f"{field}: {msg}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "; ".join(errors) if errors else "validation failed",
+            "detail": exc.errors(),  # оригинальный формат FastAPI для совместимости
+        },
+    )
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _cached_bot_version: str | None = None
@@ -3011,12 +3031,20 @@ async def api_create_achievement(
     discord_role_id: str = Form(""),
     game_name: str = Form(""),
 ):
-    """Создать ачивку."""
-    name = name.strip()
+    """Создать ачивку.
+
+    v2.0.4: если threshold пришёл пустым или не-числом, FastAPI сам возвращает 422.
+    Фронт конвертирует threshold в секунды и использует String() чтобы избежать NaN.
+    Здесь trigger_threshold уже int (FastAPI валидирует).
+    """
+    name = (name or "").strip()
     if not name or len(name) > 64:
         return JSONResponse({"error": "name required (1-64 chars)"}, status_code=400)
     if trigger_type not in db.ACHIEVEMENT_TRIGGERS:
-        return JSONResponse({"error": f"invalid trigger_type: {trigger_type}"}, status_code=400)
+        return JSONResponse(
+            {"error": f"invalid trigger_type: {trigger_type}. Valid: {sorted(db.ACHIEVEMENT_TRIGGERS)}"},
+            status_code=400,
+        )
     # icon_url или icon_key — что-то одно должно быть
     icon_url = icon_url.strip() if icon_url else ""
     icon_key = icon_key.strip() if icon_key else ""
