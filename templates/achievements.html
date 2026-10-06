@@ -633,10 +633,26 @@
           showToast('✓ Ачивка создана', 'success');
           setTimeout(() => window.location.reload(), 600);
         } else {
-          // Показываем реальную ошибку с сервера (data.error / data.detail / полный JSON)
-          const errMsg = data.error || data.detail || JSON.stringify(data);
-          showToast('Ошибка: ' + errMsg, 'error', 6000);
-          console.error('Achievement create error:', data);
+          // v2.0.4: Распаковка типичных ошибок FastAPI:
+          // - {error: "..."} — наш JSONResponse
+          // - {detail: [{loc: [...], msg: "...", type: "..."}, ...]} — FastAPI 422 validation
+          // - {detail: "..."} — FastAPI HTTPException
+          let errMsg;
+          if (Array.isArray(data.detail)) {
+            // 422: список ошибок валидации полей
+            errMsg = data.detail.map(e => {
+              const field = e.loc && e.loc.length > 1 ? e.loc[e.loc.length - 1] : (e.loc || ['?'])[0];
+              return `${field}: ${e.msg}`;
+            }).join('; ');
+          } else if (typeof data.detail === 'string') {
+            errMsg = data.detail;
+          } else if (data.error) {
+            errMsg = data.error;
+          } else {
+            errMsg = JSON.stringify(data);
+          }
+          showToast('Ошибка: ' + errMsg, 'error', 8000);
+          console.error('Achievement create error (status=' + r.status + '):', data);
         }
       } catch (err) {
         showToast('Сетевая ошибка: ' + err.message, 'error');
