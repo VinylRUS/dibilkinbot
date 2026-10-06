@@ -4,13 +4,29 @@
 ### Новое
 - /winners теперь показывает только реальные победители колеса (confirmed). Фильмы добавленные вручную в бэклог больше не появляются в победителях — они остаются в /watched с оценками, но не засоряют список победителей
 - Блок «Участники» на дашборде — виден всем юзерам. Сетка аватаров с именами, клик → публичный профиль. Цвет рамки аватара показывает роль: оранжевая (Матка), зелёная (Трутень), серая (Пчела)
+- Сортировка бэклога: выпадающий список «По дате» / «По оценке» в /watched. При выборе «По оценке» фильмы сортируются по средней оценке (топ вниз)
+- Спиннер вместо '...' при отправке форм (добавление фильма в бэклог, добавление в вишлист). CSS .spinner-inline — вращающийся круг
+- Редактирование ачивок: API /api/achievements/{id}/edit — обновить название и описание
+- Ретроспективная выдача ачивок: при создании ачивки с триггером (не manual) проверяются все существующие юзеры — если кто-то уже выполнил условия, ачивка выдаётся автоматически
+- Автоскачивание иконок: при создании ачивки с URL иконки (icons8 и др.) PNG скачивается в static/icons/custom_*.png. Больше не нужно дёргать внешний сервер при каждом рендере
+- Отзывы к фильмам: необязательное текстовое поле при оценке (до 500 символов). Колонка review в ratings таблице. API /api/winners/{id}/rate и /api/watched/{id}/rate принимают параметр review
+- Sidebar footer: аватарка выровнена по центру в свёрнутом режиме (убран padding-left)
 
 ### Техническое
-- db.g_get_winners_with_ratings: добавлен WHERE w.confidence = 'confirmed'. Виртуальные winners (unconfirmed, созданные при оценке фильма из бэклога) не показываются, но остаются в БД как контейнер для per-user оценок
-- db.g_count_winners: тот же фильтр confidence='confirmed' для корректной пагинации
-- db.list_active_members(limit=12): новый запрос — SELECT discord_id, username, display_name, avatar_url, last_login_at, role FROM users WHERE last_login_at IS NOT NULL ORDER BY last_login_at DESC. Возвращает последних активных юзеров
-- web.py dashboard: добавлен active_members = db.list_active_members() в контекст шаблона (выполняется для всех юзеров, не только админ)
-- panel.html: новый блок «🐝 Участники» между «Быстрые действия» и админ-секцией. flex-wrap сетка аватаров 48px, border-color зависит от роли. Кликабельны → /u/{discord_id}
+- db.g_get_winners_with_ratings + g_count_winners: WHERE w.confidence = 'confirmed'. Виртуальные winners (unconfirmed) не показываются в /winners, но остаются в БД для оценок
+- db.list_active_members(limit=12): новый запрос для дашборда. SELECT по last_login_at DESC
+- db.g_list_watched: добавлен параметр sort ('recent' | 'rating'). ORDER BY avg_rating DESC при sort='rating'
+- db.g_upsert_rating: добавлен параметр review. INSERT/UPDATE review колонки. ON CONFLICT обновляет review
+- db.g_update_achievement(name, description): обновление названия/описания. db.g_update_achievement_icon_config: обновление icon_config после скачивания иконки
+- guild.py ratings схема: rating REAL, добавлена колонка review TEXT
+- db.init_db: миграция v1.9.7 — ALTER TABLE guild_{id}_ratings ADD COLUMN review TEXT
+- web.py /api/achievements/create: после создания — ретроспективная проверка всех юзеров через g_check_and_grant_auto. Если URL иконки задан — httpx.get → сохранение в static/icons/custom_{hash}.png → обновление icon_config
+- web.py /api/achievements/{id}/edit: новый endpoint (require_admin)
+- web.py /watched: добавлен параметр sort, передаётся в g_list_watched и шаблон
+- web.py /api/winners/{id}/rate + /api/watched/{id}/rate: принимают review параметр, передаётся в g_upsert_rating
+- style.css: .spinner-inline (14px вращающийся круг, border 2px currentColor, animation 0.6s). .sb-user: padding 8px 0 в свёрнутом режиме (центрирование)
+- watched.html: <select name="sort"> с опциями «По дате» / «По оценке». Кнопка отправки: btn.innerHTML = spinner вместо textContent = '...'
+- profile.html: кнопка отправки вишлиста: spinner вместо '...'
 
 ## v1.9.6
 ### Новое

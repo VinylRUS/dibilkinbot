@@ -1061,6 +1061,21 @@ input:checked + .slider:before {
   100% { background-position: -200% 0; }
 }
 
+/* ===== Spinner (для кнопок при отправке) ===== */
+.spinner-inline {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spinner-rotate 0.6s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
 /* ===== Компактный рейтинг 5 звёзд с половинками (1-10 значений) =====
    Подход: 10 кнопок-половинок, каждая шириной var(--star-size)/2.
    Чётные кнопки = правые половинки, нечётные = левые.
@@ -1346,7 +1361,7 @@ body.has-sidebar.sidebar-open {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 8px 0;
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.2s;
@@ -1355,6 +1370,7 @@ body.has-sidebar.sidebar-open {
 }
 .sidebar.open .sb-user {
   justify-content: flex-start;
+  padding: 8px 12px;
 }
 .sb-user:hover { background: var(--accent-soft); }
 .sb-user-avatar {
