@@ -319,7 +319,7 @@
             {% set preset_keys = ['movie', 'star', 'trophy', 'film', 'popcorn', 'camera', 'crown', 'fire', 'diamond', 'heart', 'rocket', 'lightning', 'eye', 'check', 'users', 'quote', 'gift', 'santa', 'medal', 'target'] %}
             {% for key in preset_keys %}
               <button type="button" class="option-btn {% if loop.first %}active{% endif %}" data-icon-key="{{ key }}" title="{{ key }}" style="display:flex;align-items:center;justify-content:center;padding:6px;">
-                <span class="preset-icon-wrapper" data-key="{{ key }}"></span>
+                <img src="https://img.icons8.com/liquid-glass/24/FFFFFF/{{ key }}.png" alt="{{ key }}" width="20" height="20" loading="lazy" style="opacity:0.8;" onerror="this.style.display='none'; this.parentElement.innerHTML='{{ key[:2] }}';">
               </button>
             {% endfor %}
           </div>
@@ -432,15 +432,8 @@
       if (svg && window.renderAchievementSVG) svg.innerHTML = window.renderAchievementSVG(builderConfig);
     }
 
-    // Иконки preset (SVG path из библиотеки) — рендерим в кнопки
-    // preset icons теперь содержат только path, без <svg> обёртки.
-    // Оборачиваем в <svg viewBox="0 0 24 24" width="18" height="18">.
-    document.querySelectorAll('.preset-icon-wrapper').forEach(el => {
-      const key = el.dataset.key;
-      if (window.ACHIEVEMENT_PRESET_ICONS && window.ACHIEVEMENT_PRESET_ICONS[key]) {
-        el.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="color:currentColor;">${window.ACHIEVEMENT_PRESET_ICONS[key]}</svg>`;
-      }
-    });
+    // Liquid glass иконки уже рендерятся через <img> в шаблоне.
+    // preset-icon-wrapper больше не нужен.
 
     // Icon preset buttons — выбор
     document.querySelectorAll('#icon-grid .option-btn').forEach(btn => {

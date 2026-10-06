@@ -1,5 +1,34 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.9.5
+### Новое
+- Liquid glass иконки: sidebar навигация теперь использует полупрозрачные стеклянные иконки в стиле liquid-glass с icons8. При наведении — нежный тёплый glow (drop-shadow 3px rgba(255,183,3,0.25) + brightness 1.12), плавный переход 0.25s. Иконки ачивок в конструкторе тоже liquid glass
+- Кастомные dropdown: все выпадающие списки на всех страницах заменены на div-based компоненты с glassmorphism стилем. Больше нет белого-на-белом в option. Компонент автоматически заменяет все <select> при загрузке страницы — не нужно менять каждый шаблон вручную
+
+### Техническое
+- style.css: добавлены стили .custom-select-wrapper, .custom-select-trigger, .custom-select-options, .custom-select-option. Trigger: appearance:none, кастомная SVG-стрелка через ::after, border-radius 12px. Options: absolute positioned, backdrop-filter blur, background var(--card-solid), max-height 240px, slide animation 0.15s. Option:hover → accent-soft, .selected → accent фон
+- sidebar.html: window.upgradeSelects() — находит все <select>, скрывает оригинал (display:none), создаёт div-based копию. Синхронизация: custom → select (dispatchEvent change), select → custom (MutationObserver). Закрытие при клике вне. Запускается на DOMContentLoaded
+- sidebar.html: sb_icon макрос переписан — вместо inline SVG использует <img> с icons8 liquid-glass URL. Fallback на эмодзи через onerror. icon_map: dashboard→home, backlog→checkmark, channels→video, features→settings, users→groups, guilds→parallel-tasks, logout→exit
+- style.css: .sb-liquid-icon — opacity 0.75, transition 0.25s. .sb-item:hover → opacity 1, filter drop-shadow(0 0 3px rgba(255,183,3,0.25)) brightness(1.12). Эффект «тепления» — очень нежный
+- achievements.html: preset иконки заменены на <img> с liquid-glass URL. onerror fallback на первые 2 буквы
+
+## v1.9.4
+### Новое
+- Исправлены 4 критических бага в конструкторе ачивок, обнаруженные при ревью через браузер: иконки рендерились чёрными (SVG fill не поддерживал CSS-переменные), inline-скрипты не выполнялись, JSON обрезался в data-атрибутах, поле порога было видимо для ручных ачивок
+
+### Техническое
+- sidebar.html ACHIEVEMENT_COLORS: var(--accent) заменён на hex #FFB703 (SVG fill не поддерживает CSS-переменные). Аналогично для red→#E55A4E, green→#6FAE5A. ACHIEVEMENT_GLOW_COLORS тоже переведены на hex
+- achievements.html: убран inline <script>renderAchievementIcon(...)</script> — заменён на data-icon-config атрибут + рендеринг через querySelectorAll. Тот же фикс в profile_public.html
+- data-icon-config использует одинарные кавычки + |safe (двойные кавычки JSON конфликтовали с HTML-атрибутом)
+- onTriggerChange() вызывается при инициализации — поле порога скрывается для manual/first_*
+
+## v1.9.3
+### Новое
+- Иконки ачивок больше не вылезают за границы круга: preset SVG хранят только <path> элементы (без <svg> обёртки), что корректно масштабируется через transform внутри родительского SVG
+
+### Техническое
+- sidebar.html ACHIEVEMENT_PRESET_ICONS: изменён формат хранения с полного '<svg viewBox=...><path/></svg>' на только '<path d=.../>'. renderAchievementSVG оборачивает path в <g transform='translate(20,20) scale(0.9)' fill='white'>
+
 ## v1.9.2
 ### Новое
 - Конструктор ачивок переработан: убраны формы (круг/щит/звезда/...) — теперь всегда кружок. Иконки выбираются из встроенной библиотеки SVG (20 пресетов: movie, star, trophy, film, popcorn, camera, crown, fire, diamond, heart, rocket, lightning, eye, check, users, quote, gift, santa, medal, target) или по URL (например с icons8). Все выпадающие списки (select) получили кастомный стиль под glassmorphism тему — больше нет белого-на-белом
