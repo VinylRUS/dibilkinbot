@@ -1,5 +1,16 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.9.2
+### Новое
+- Конструктор ачивок переработан: убраны формы (круг/щит/звезда/...) — теперь всегда кружок. Иконки выбираются из встроенной библиотеки SVG (20 пресетов: movie, star, trophy, film, popcorn, camera, crown, fire, diamond, heart, rocket, lightning, eye, check, users, quote, gift, santa, medal, target) или по URL (например с icons8). Все выпадающие списки (select) получили кастомный стиль под glassmorphism тему — больше нет белого-на-белом
+
+### Техническое
+- sidebar.html: window.ACHIEVEMENT_SHAPES убран (было 6 форм), window.renderAchievementSVG теперь рендерит только кружок. Иконка может быть preset (icon_key) или по URL (icon_url). URL приоритетнее. Добавлена window.ACHIEVEMENT_PRESET_ICONS с 20 SVG-иконками (как sidebar SVG). COLORS теперь хранит {svg, hex} — hex для генерации icons8 URL
+- style.css: добавлены стили для select — appearance: none, кастомная SVG-стрелка через background-image (currentColor), color-scheme: dark light для нативного dropdown в тёмной теме. option получает явные background+color. Убран белый-на-белом
+- achievements.html: убран shape-grid (6 форм), заменён на icon-grid с 20 preset SVG-иконками. Добавлено поле URL (input type=text) для кастомной иконки с icons8. Hint со ссылкой на icons8.ru и инструкцией. JS: builderConfig использует icon_key + icon_url вместо shape + emoji. URL приоритетнее preset при заполнении
+- web.py /api/achievements/create: параметры icon_shape + icon_emoji заменены на icon_key + icon_url. icon_config хранит {icon_key, icon_url, color, glow}. Если оба пустые — дефолт icon_key='trophy'
+- Тест: scripts/test_achievements_visual.py — генерирует HTML с 4 секциями (preset SVG, URL icons8, glow варианты, select) для визуальной проверки через VLM. VLM подтвердил: preset иконки белые в кружках, URL иконки загрузились, select стилизован под тёмную тему без белого-на-белом
+
 ## v1.9.1
 ### Новое
 - Система ачивок: полноценная страница /achievements (только админ) с конструктором, где можно «собрать» иконку из слоёв (форма + эмодзи + цвет + glow), выбрать триггер авто-выдачи и привязать Discord роль. Ачивки отображаются в публичном профиле пользователя

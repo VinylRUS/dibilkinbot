@@ -315,24 +315,23 @@
           <label for="ach-description">Описание</label>
           <textarea id="ach-description" name="description" maxlength="200" placeholder="За 10 поставленных оценок"></textarea>
 
-          <label>Форма</label>
-          <div class="option-grid" id="shape-grid">
-            <button type="button" class="option-btn active" data-shape="circle" title="Круг">⭕</button>
-            <button type="button" class="option-btn" data-shape="shield" title="Щит">🛡</button>
-            <button type="button" class="option-btn" data-shape="star" title="Звезда">⭐</button>
-            <button type="button" class="option-btn" data-shape="hexagon" title="Шестиугольник">⬡</button>
-            <button type="button" class="option-btn" data-shape="ribbon" title="Лента">🎗</button>
-            <button type="button" class="option-btn" data-shape="badge" title="Бейдж">🎖</button>
-          </div>
-
-          <label>Иконка</label>
-          <div class="option-grid" id="emoji-grid">
-            {% for emoji in ['🎬', '🎭', '🏆', '⭐', '🎯', '🍿', '🎪', '🔥', '💎', '👑', '🦅', '🐝', '⚡', '🌟', '💫', '🎨', '📚', '🎮', '🚀', '🦁', '🐺', '🦊', '🐉', '🎭', '🎤', '🎧', '🎸', '🎹', '🎲', '🎰'] %}
-              <button type="button" class="option-btn {% if loop.first %}active{% endif %}" data-emoji="{{ emoji }}">{{ emoji }}</button>
+          <label>Иконка из библиотеки</label>
+          <div class="option-grid" id="icon-grid">
+            {% set preset_keys = ['movie', 'star', 'trophy', 'film', 'popcorn', 'camera', 'crown', 'fire', 'diamond', 'heart', 'rocket', 'lightning', 'eye', 'check', 'users', 'quote', 'gift', 'santa', 'medal', 'target'] %}
+            {% for key in preset_keys %}
+              <button type="button" class="option-btn {% if loop.first %}active{% endif %}" data-icon-key="{{ key }}" title="{{ key }}" style="display:flex;align-items:center;justify-content:center;padding:6px;">
+                <span class="preset-icon-wrapper" data-key="{{ key }}"></span>
+              </button>
             {% endfor %}
           </div>
 
-          <label>Цвет</label>
+          <label>Или URL иконки <span style="font-weight:400;color:var(--text-soft);font-size:0.72rem;">(напр. с icons8)</span></label>
+          <input type="text" id="ach-icon-url" name="icon_url" placeholder="https://img.icons8.com/ios-filled/50/FFFFFF/movie.png" style="font-size:0.78rem;">
+          <p style="font-size:0.72rem;color:var(--text-soft);margin-top:4px;line-height:1.4;">
+            💡 На <a href="https://icons8.ru/" target="_blank" rel="noopener" style="color:var(--accent);">icons8.ru</a> выбери иконку → скопируй «Link to this image» → вставь сюда. Цвет в URL можно менять (hex-код без #).
+          </p>
+
+          <label>Цвет фона кружка</label>
           <div class="color-grid" id="color-grid">
             <button type="button" class="color-btn active" data-color="accent" style="background: var(--accent);" title="accent"></button>
             <button type="button" class="color-btn" data-color="gold" style="background: #FFD700;" title="gold"></button>
@@ -423,8 +422,8 @@
 
     // === Конструктор — обновление превью ===
     let builderConfig = {
-      shape: 'circle',
-      emoji: '🎬',
+      icon_key: 'movie',
+      icon_url: '',
       color: 'accent',
       glow: 'none',
     };
@@ -434,24 +433,50 @@
       if (svg && window.renderAchievementSVG) svg.innerHTML = window.renderAchievementSVG(builderConfig);
     }
 
-    // Shape buttons
-    document.querySelectorAll('#shape-grid .option-btn').forEach(btn => {
+    // Иконки preset (SVG из библиотеки) — рендерим в кнопки
+    document.querySelectorAll('.preset-icon-wrapper').forEach(el => {
+      const key = el.dataset.key;
+      if (window.ACHIEVEMENT_PRESET_ICONS && window.ACHIEVEMENT_PRESET_ICONS[key]) {
+        el.innerHTML = window.ACHIEVEMENT_PRESET_ICONS[key];
+        // Делаем SVG 18px, белый цвет
+        const svg = el.querySelector('svg');
+        if (svg) {
+          svg.setAttribute('width', '18');
+          svg.setAttribute('height', '18');
+          svg.style.color = 'currentColor';
+        }
+      }
+    });
+
+    // Icon preset buttons — выбор
+    document.querySelectorAll('#icon-grid .option-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#shape-grid .option-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#icon-grid .option-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        builderConfig.shape = btn.dataset.shape;
+        builderConfig.icon_key = btn.dataset.iconKey;
+        builderConfig.icon_url = ''; // сбрасываем URL при выборе preset
+        document.getElementById('ach-icon-url').value = '';
         updatePreview();
       });
     });
 
-    // Emoji buttons
-    document.querySelectorAll('#emoji-grid .option-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#emoji-grid .option-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        builderConfig.emoji = btn.dataset.emoji;
-        updatePreview();
-      });
+    // URL иконки — при вводе переключаемся на URL
+    document.getElementById('ach-icon-url').addEventListener('input', (e) => {
+      const url = e.target.value.trim();
+      if (url) {
+        document.querySelectorAll('#icon-grid .option-btn').forEach(b => b.classList.remove('active'));
+        builderConfig.icon_url = url;
+        builderConfig.icon_key = '';
+      } else {
+        // URL пустой — возвращаемся к preset
+        builderConfig.icon_url = '';
+        const firstPreset = document.querySelector('#icon-grid .option-btn');
+        if (firstPreset) {
+          firstPreset.classList.add('active');
+          builderConfig.icon_key = firstPreset.dataset.iconKey;
+        }
+      }
+      updatePreview();
     });
 
     // Color buttons
@@ -490,8 +515,8 @@
     document.getElementById('create-achievement-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
-      formData.set('icon_shape', builderConfig.shape);
-      formData.set('icon_emoji', builderConfig.emoji);
+      formData.set('icon_key', builderConfig.icon_key || '');
+      formData.set('icon_url', builderConfig.icon_url || '');
       formData.set('icon_color', builderConfig.color);
       formData.set('icon_glow', builderConfig.glow);
       try {
