@@ -53,6 +53,9 @@
 
   <main class="container">
     <h2>👤 Профиль</h2>
+    {% if user.discord_id %}
+    <a href="/u/{{ user.discord_id }}" class="btn-outline" style="margin-bottom: 16px; display: inline-flex; align-items: center; gap: 6px;">👁 Посмотреть публичный профиль</a>
+    {% endif %}
     <article class="card">
       <div class="activity-row">
         <span class="hint">Discord ID</span>
@@ -65,10 +68,12 @@
       <div class="activity-row">
         <span class="hint">Роль</span>
         <span>
-          {% if user.is_admin %}
-            <span class="badge admin">admin</span>
+          {% if user.is_superuser %}
+            <span class="badge admin" style="background: var(--accent); color: var(--accent-text);"> Матка</span>
+          {% elif user.is_admin %}
+            <span class="badge admin" style="background: var(--green); color: #fff;">Трутень</span>
           {% else %}
-            <span class="badge user">viewer</span>
+            <span class="badge user">Пчела</span>
           {% endif %}
         </span>
       </div>

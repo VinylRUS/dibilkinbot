@@ -136,9 +136,15 @@
           {{ user.username }}
           {% if user.is_superuser %}<span class="sb-admin-badge"> Матка</span>{% elif user.is_admin %}<span class="sb-admin-badge" style="background: var(--green); color: #fff;">Трутень</span>{% endif %}
         </div>
-        <div class="sb-user-action">Профиль →</div>
+        <div class="sb-user-action">Настройки →</div>
       </div>
     </a>
+    <!-- Мой публичный профиль (кнопка) -->
+    {% if user.discord_id %}
+    <a href="/u/{{ user.discord_id }}" class="sb-theme-toggle" title="Мой профиль" style="text-decoration:none; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent);">
+      👁
+    </a>
+    {% endif %}
     <!-- Смена темы (кнопка) -->
     <form method="post" action="/theme" style="margin:0;">
       <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="sb-theme-toggle" title="Сменить тему">
