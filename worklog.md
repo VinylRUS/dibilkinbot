@@ -166,3 +166,45 @@ Stage Summary:
   сколько времени провёл в войсе, что делал и прочее
 - Вопрос: как достать эту инфу? Нужны вебхуки?
 - Обсуждение в процессе
+
+---
+Task ID: feature/auto-roles-and-dedupe-games
+Agent: main
+Task: Сделать подгрузку ролей в БД автоматической (как и списка игр) + дедупликация игр
+
+Work Log:
+- Создана ветка feature/auto-roles-and-dedupe-games из main
+- guild.py: добавлена таблица guild_{id}_discord_roles (role_id PK, name, color, position, hoisted, mentionable, permissions, synced_at). Добавлен base "discord_roles" в GUILD_TABLES
+- db.py: новые функции:
+  * g_sync_discord_roles(guild_id, roles) — INSERT OR REPLACE + удаление stale ролей
+  * g_list_discord_roles(guild_id) — чтение кеша из БД
+  * g_dedupe_games(guild_id) — для каждого (user, canonical_name) с >1 записью: DELETE всех строк + INSERT одной канонической с суммарной длительностью
+  * _normalize_game_name(name) — strip + collapse whitespace (Python)
+  * _NORM_GAME_SQL — SQL-выражение для нормализации (TRIM + LOWER + 5 итераций REPLACE('  ', ' '))
+  * g_list_server_games переписана: GROUP BY нормализованного имени, MAX(activity_name) для display
+  * g_get_game_play_time_specific теперь сравнивает по нормализованному имени
+- bot.py:
+  * fetch_guild_roles теперь возвращает permissions.value
+  * sync_guild_roles_to_db(guild_id) — обёртка над fetch + g_sync_discord_roles
+  * on_ready: для каждого guild после init_guild_tables вызывает sync_guild_roles_to_db
+  * on_guild_join: тоже вызывает sync_guild_roles_to_db
+  * Новые обработчики: on_guild_role_create / on_guild_role_update / on_guild_role_delete — пересинхронизируют кеш ролей
+  * _handle_presence_change: нормализует имена игр через db._normalize_game_name перед сохранением
+- web.py:
+  * /api/achievements/discord_roles теперь читает из БД-кеша (мгновенно)
+  * Новый POST /api/achievements/discord_roles/refresh — принудительная синхронизация с Discord + дедупликация игр
+- templates/achievements.html:
+  * loadDiscordRoles() вызывается автоматически при открытии страницы
+  * Кнопка «🔄 Обновить роли» дёргает refreshDiscordRoles() (POST /refresh)
+  * Кнопка игр переименована в «🔄 Обновить список игр» для консистентности
+- CHANGELOG.md: добавлена запись v2.0.2
+- Тесты: /home/z/my-project/scripts/test_roles_and_dedupe.py — 5 тестов покрывают sync/list roles, _normalize_game_name, g_list_server_games dedupe, g_dedupe_games, g_get_game_play_time_specific. Все 5 тестов проходят
+
+Stage Summary:
+- Роли теперь автоматически синхронизируются с БД при старте бота и при любых изменениях (create/update/delete). Веб-панель читает из кеша — мгновенно
+- Дедупликация игр на двух уровнях:
+  1. На вводе (_handle_presence_change нормализует имя)
+  2. На чтении (g_list_server_games группирует по нормализованному имени)
+  3. Опционально через кнопку refresh — g_dedupe_games схлопнет существующие дубликаты
+- Совместимо со старыми данными: ничего не сломано, всё работает на свежих и существующих БД
+- Готово к коммиту и PR в main

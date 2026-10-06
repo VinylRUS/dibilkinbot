@@ -383,14 +383,14 @@
             <select id="ach-game-select" name="game_name">
               <option value="">Любая игра</option>
             </select>
-            <button type="button" class="btn-ghost" onclick="loadServerGames()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Загрузить список игр</button>
+            <button type="button" class="btn-ghost" onclick="loadServerGames()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Обновить список игр</button>
           </div>
 
           <label>Discord роль (опционально)</label>
           <select id="ach-discord-role" name="discord_role_id">
             <option value="">— без роли —</option>
           </select>
-          <button type="button" class="btn-ghost" onclick="loadDiscordRoles()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Загрузить роли сервера</button>
+          <button type="button" class="btn-ghost" onclick="refreshDiscordRoles()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Обновить роли</button>
           <div id="role-warning" class="role-warning" style="display:none;">
             ⚠ Бот должен иметь manage_roles permission, а его роль должна быть выше роли ачивки в иерархии Discord.
           </div>
@@ -589,6 +589,12 @@
     updatePreview();
     onTriggerChange();
 
+    // v2.0.2: автозагрузка ролей (из кеша БД — мгновенно) и игр
+    // при открытии страницы. Не требует ручного нажатия на кнопки.
+    loadDiscordRoles();
+    // Игры подгружаются автоматически внутри onTriggerChange() если trigger=game_play_time.
+    // (loadServerGames сам вызывается из onTriggerChange при нужде.)
+
     // Render existing achievement icons (data-icon-config attributes)
     document.querySelectorAll('.ach-icon[data-icon-config]').forEach(el => {
       const config = JSON.parse(el.dataset.iconConfig);
@@ -627,26 +633,71 @@
     });
 
     // === Discord roles ===
+    // v2.0.2: роли авто-синхронизируются в БД (on_ready + role events).
+    // На странице сразу подгружаем кеш (мгновенно), кнопка «🔄 Обновить»
+    // дёргает /refresh — который синхронизирует с Discord + дедуплит игры.
+
+    function _populateRoleSelect(roles) {
+      const select = document.getElementById('ach-discord-role');
+      const warning = document.getElementById('role-warning');
+      if (!select) return;
+      select.innerHTML = '<option value="">— без роли —</option>';
+      if (roles && roles.length > 0) {
+        roles.forEach(role => {
+          const opt = document.createElement('option');
+          opt.value = role.id;
+          opt.textContent = role.name + (role.color ? ' 🎨' : '');
+          select.appendChild(opt);
+        });
+        warning.style.display = '';
+        // Обновляем кастомный dropdown (upgradeSelects создаёт копию)
+        select.removeAttribute('data-upgraded');
+        select.style.display = 'none';
+        const oldWrapper = select.nextElementSibling;
+        if (oldWrapper && oldWrapper.classList.contains('custom-select-wrapper')) {
+          oldWrapper.remove();
+        }
+        if (window.upgradeSelects) window.upgradeSelects();
+      }
+      return roles && roles.length > 0;
+    }
+
     async function loadDiscordRoles() {
+      // GET — мгновенно из БД-кеша
       try {
         const r = await fetch('/api/achievements/discord_roles');
         const data = await r.json();
-        const select = document.getElementById('ach-discord-role');
-        const warning = document.getElementById('role-warning');
-        select.innerHTML = '<option value="">— без роли —</option>';
-        if (data.roles && data.roles.length > 0) {
-          data.roles.forEach(role => {
-            const opt = document.createElement('option');
-            opt.value = role.id;
-            opt.textContent = role.name + (role.color ? ' 🎨' : '');
-            select.appendChild(opt);
-          });
-          warning.style.display = '';
+        const ok = _populateRoleSelect(data.roles || []);
+        if (!ok) {
+          // Кеш пустой — попробуем принудительно синхронизировать
+          await refreshDiscordRoles();
+        }
+      } catch (e) {
+        showToast('Ошибка загрузки ролей: ' + e.message, 'error');
+      }
+    }
+
+    async function refreshDiscordRoles() {
+      // POST /refresh — синхронизирует с Discord + обновляет кеш
+      const btn = event?.target || document.querySelector('button[onclick="refreshDiscordRoles()"]');
+      if (btn) { btn.innerHTML = '<span class="spinner-inline"></span>'; btn.disabled = true; }
+      try {
+        const r = await fetch('/api/achievements/discord_roles/refresh', { method: 'POST' });
+        const data = await r.json();
+        const ok = _populateRoleSelect(data.roles || []);
+        if (ok) {
+          let msg = '✓ Роли синхронизированы (' + data.count + ')';
+          if (data.deduped_games > 0) {
+            msg += '\nДедуплицировано игр: ' + data.deduped_games;
+          }
+          showToast(msg, 'success');
         } else {
           showToast('Роли не найдены. Бот должен быть на сервере.', 'error');
         }
       } catch (e) {
-        showToast('Ошибка загрузки ролей: ' + e.message, 'error');
+        showToast('Ошибка синхронизации ролей: ' + e.message, 'error');
+      } finally {
+        if (btn) { btn.innerHTML = '🔄 Обновить роли'; btn.disabled = false; }
       }
     }
 

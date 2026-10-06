@@ -3134,12 +3134,38 @@ async def api_revoke_achievement(
 
 @app.get("/api/achievements/discord_roles")
 async def api_get_discord_roles(_user: dict = Depends(require_superuser)):
-    """Получить список ролей Discord-сервера для выпадающего списка."""
+    """Получить список ролей Discord-сервера — из БД-кеша (быстро).
+
+    v2.0.2: роли синхронизируются автоматически (on_ready + role events).
+    Этот endpoint читает из БД — мгновенно, без запросов к Discord API.
+    Для принудительного обновления кеша есть /api/achievements/discord_roles/refresh.
+    """
+    guild_id = get_current_guild_id(_user)
+    roles = await db.g_list_discord_roles(guild_id)
+    return JSONResponse({"roles": roles, "cached": True, "count": len(roles)})
+
+
+@app.post("/api/achievements/discord_roles/refresh")
+async def api_refresh_discord_roles(_user: dict = Depends(require_superuser)):
+    """Принудительно синхронизировать роли Discord-сервера с БД.
+
+    Запрашивает актуальный список ролей у Discord и обновляет кеш.
+    Используется кнопкой «🔄 Обновить роли» в конструкторе ачивок.
+    """
     guild_id = get_current_guild_id(_user)
     try:
         import bot as bot_module
-        roles = await bot_module.fetch_guild_roles(int(guild_id))
-        return JSONResponse({"roles": roles})
+        count = await bot_module.sync_guild_roles_to_db(int(guild_id))
+        # Заодно дедуплицируем игры при обновлении (умный housekeeping)
+        deduped = await db.g_dedupe_games(guild_id)
+        roles = await db.g_list_discord_roles(guild_id)
+        return JSONResponse({
+            "roles": roles,
+            "cached": False,
+            "count": len(roles),
+            "synced": count,
+            "deduped_games": deduped,
+        })
     except Exception as e:
         return JSONResponse({"error": str(e), "roles": []}, status_code=500)
 
