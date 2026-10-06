@@ -904,6 +904,14 @@ async def api_rate_winner(
     if not success:
         return JSONResponse({"error": "failed to save rating"}, status_code=500)
 
+    # Авто-выдача ачивок по триггеру ratings_count
+    try:
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
+    except Exception as e:
+        import logging
+        logging.getLogger("achievements").warning("auto-grant check failed: %s", e)
+
     avg, count = await db.g_get_average_rating(guild_id, winner_id)
     return JSONResponse({
         "ok": True,
@@ -1088,6 +1096,13 @@ async def api_rate_watched(
     if not success:
         return JSONResponse({"error": "failed to save rating"}, status_code=500)
 
+    # Авто-выдача ачивок по триггеру ratings_count
+    try:
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
+    except Exception as e:
+        import logging
+        logging.getLogger("achievements").warning("auto-grant check failed: %s", e)
     # 4. Вернуть агрегаты
     avg, count = await db.g_get_average_rating(guild_id, winner_id)
     return JSONResponse({
@@ -1365,6 +1380,13 @@ async def api_create_quote(
     quote_id = await db.g_add_quote(
         guild_id, author, author_user_id, text, recorded_by, author_avatar_url, message_link,
     )
+    # Авто-выдача ачивок по триггеру quotes_count (для записавшего)
+    try:
+        await db.g_check_and_grant_auto(guild_id, recorded_by, "quotes_count")
+        await db.g_check_and_grant_auto(guild_id, recorded_by, "first_quote")
+    except Exception as e:
+        import logging
+        logging.getLogger("achievements").warning("auto-grant check failed: %s", e)
     return JSONResponse({"ok": True, "id": quote_id})
 
 
@@ -1500,6 +1522,8 @@ async def public_profile_page(
     recent_ratings = await db.g_get_user_recent_ratings(guild_id, target_discord_id, limit=5)
     # Последние цитаты
     recent_quotes = await db.g_get_user_recent_quotes(guild_id, target_discord_id, limit=5)
+    # Достижения (ачивки)
+    user_achievements = await db.g_list_user_achievements(guild_id, target_discord_id, active_only=True)
 
     # Taste match с текущим юзером
     current_discord_id = _user.get("discord_id", 0)
@@ -1526,6 +1550,7 @@ async def public_profile_page(
         "stats": stats,
         "recent_ratings": recent_ratings,
         "recent_quotes": recent_quotes,
+        "user_achievements": user_achievements,
         "taste_match": taste_match,
         "watched_together": watched_together,
         "is_self": is_self,
@@ -2825,3 +2850,147 @@ async def ws_wheel(websocket: WebSocket):
         import logging
         logging.getLogger("ws_manager").debug("WS error: %s", e)
         await ws_manager.disconnect(websocket)
+
+
+# === Achievements (v1.9.1) ===
+
+@app.get("/achievements", response_class=HTMLResponse)
+async def achievements_page(request: Request, _user: dict = Depends(require_admin)):
+    """Страница управления ачивками. Только админ."""
+    guild_id = get_current_guild_id(_user)
+    achievements = await db.g_list_achievements(guild_id)
+    # Для каждой ачивки — сколько юзеров её получили
+    for ach in achievements:
+        users = await db.g_get_users_with_achievement(guild_id, ach["id"])
+        ach["granted_count"] = len([u for u in users if u["is_active"]])
+    return templates.TemplateResponse(request, "achievements.html", {
+        "user": _user,
+        "achievements": achievements,
+    })
+
+
+@app.post("/api/achievements/create")
+async def api_create_achievement(
+    _user: dict = Depends(require_admin),
+    name: str = Form(...),
+    description: str = Form(""),
+    icon_shape: str = Form(...),
+    icon_emoji: str = Form(...),
+    icon_color: str = Form(...),
+    icon_glow: str = Form("none"),
+    trigger_type: str = Form(...),
+    trigger_threshold: int = Form(0),
+    discord_role_id: str = Form(""),
+):
+    """Создать ачивку."""
+    name = name.strip()
+    if not name or len(name) > 64:
+        return JSONResponse({"error": "name required (1-64 chars)"}, status_code=400)
+    if trigger_type not in db.ACHIEVEMENT_TRIGGERS:
+        return JSONResponse({"error": f"invalid trigger_type: {trigger_type}"}, status_code=400)
+    icon_config = {
+        "shape": icon_shape,
+        "emoji": icon_emoji,
+        "color": icon_color,
+        "glow": icon_glow,
+    }
+    role_id = int(discord_role_id) if discord_role_id and discord_role_id.isdigit() else None
+    guild_id = get_current_guild_id(_user)
+    admin_id = _user.get("discord_id", 0)
+    try:
+        ach_id = await db.g_create_achievement(
+            guild_id, name, description.strip() or None,
+            icon_config, trigger_type, trigger_threshold,
+            role_id, created_by=admin_id,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse({"ok": True, "id": ach_id})
+
+
+@app.post("/api/achievements/{ach_id}/delete")
+async def api_delete_achievement(
+    ach_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Удалить ачивку (каскадно — и все её выдачи)."""
+    guild_id = get_current_guild_id(_user)
+    deleted = await db.g_delete_achievement(guild_id, ach_id)
+    if not deleted:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/achievements/{ach_id}/grant")
+async def api_grant_achievement(
+    ach_id: int,
+    _user: dict = Depends(require_admin),
+    user_discord_id: int = Form(...),
+):
+    """Вручную выдать ачивку юзеру. Если есть Discord роль — выдаёт и её."""
+    guild_id = get_current_guild_id(_user)
+    admin_id = _user.get("discord_id", 0)
+    ach = await db.g_get_achievement(guild_id, ach_id)
+    if not ach:
+        return JSONResponse({"error": "achievement not found"}, status_code=404)
+    ok = await db.g_grant_achievement(guild_id, ach_id, user_discord_id, granted_by=admin_id)
+    if not ok:
+        return JSONResponse({"error": "failed to grant"}, status_code=500)
+    # Выдаём Discord роль если есть
+    role_assigned = False
+    if ach["discord_role_id"]:
+        try:
+            import bot as bot_module
+            role_assigned = await bot_module.assign_role_to_member(int(guild_id), user_discord_id, int(ach["discord_role_id"]))
+        except Exception as e:
+            import logging
+            logging.getLogger("achievements").warning("Role assign failed: %s", e)
+    return JSONResponse({"ok": True, "role_assigned": role_assigned})
+
+
+@app.post("/api/achievements/{ach_id}/revoke")
+async def api_revoke_achievement(
+    ach_id: int,
+    _user: dict = Depends(require_admin),
+    user_discord_id: int = Form(...),
+):
+    """Отозвать ачивку. Снимает Discord роль если есть."""
+    guild_id = get_current_guild_id(_user)
+    ach = await db.g_get_achievement(guild_id, ach_id)
+    if not ach:
+        return JSONResponse({"error": "achievement not found"}, status_code=404)
+    ok = await db.g_revoke_achievement(guild_id, ach_id, user_discord_id)
+    if not ok:
+        return JSONResponse({"error": "not granted or already revoked"}, status_code=404)
+    # Снимаем Discord роль если есть
+    if ach["discord_role_id"]:
+        try:
+            import bot as bot_module
+            await bot_module.remove_role_from_member(int(guild_id), user_discord_id, int(ach["discord_role_id"]))
+        except Exception as e:
+            import logging
+            logging.getLogger("achievements").warning("Role remove failed: %s", e)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/achievements/discord_roles")
+async def api_get_discord_roles(_user: dict = Depends(require_admin)):
+    """Получить список ролей Discord-сервера для выпадающего списка."""
+    guild_id = get_current_guild_id(_user)
+    try:
+        import bot as bot_module
+        roles = await bot_module.fetch_guild_roles(int(guild_id))
+        return JSONResponse({"roles": roles})
+    except Exception as e:
+        return JSONResponse({"error": str(e), "roles": []}, status_code=500)
+
+
+@app.get("/api/achievements/{ach_id}/users")
+async def api_get_achievement_users(
+    ach_id: int,
+    _user: dict = Depends(require_admin),
+):
+    """Список юзеров, получивших конкретную ачивку."""
+    guild_id = get_current_guild_id(_user)
+    users = await db.g_get_users_with_achievement(guild_id, ach_id)
+    return JSONResponse({"users": users, "count": len(users)})

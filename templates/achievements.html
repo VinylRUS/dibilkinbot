@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>🏆 Ачивки · DeeBeelkin</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .achievements-grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .achievements-grid { grid-template-columns: 1fr; }
+    }
+    .achievements-list { display: flex; flex-direction: column; gap: 12px; }
+    .achievement-card {
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .achievement-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--glass-shadow-hover);
+    }
+    .achievement-card .ach-icon {
+      flex-shrink: 0;
+      width: 56px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .achievement-card .ach-info { flex: 1; min-width: 0; }
+    .achievement-card .ach-name {
+      font-weight: 700;
+      color: var(--text);
+      font-size: 1rem;
+      margin-bottom: 2px;
+    }
+    .achievement-card .ach-desc {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      margin-bottom: 4px;
+    }
+    .achievement-card .ach-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 0.75rem;
+    }
+    .ach-tag {
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .ach-tag.role { background: var(--badge-confirmed-bg); color: var(--badge-confirmed-text); }
+    .ach-tag.manual { background: var(--badge-unconfirmed-bg); color: var(--badge-unconfirmed-text); }
+    .ach-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .ach-delete-btn {
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .ach-delete-btn:hover { background: var(--red); color: #fff; }
+    .ach-grant-btn {
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .ach-grant-btn:hover { background: var(--accent-hover); }
+    /* Конструктор */
+    .builder {
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 20px;
+      position: sticky;
+      top: 20px;
+    }
+    .builder h3 {
+      margin: 0 0 16px;
+      color: var(--text);
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .preview-area {
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+      background: var(--bg-base);
+      border-radius: 12px;
+      margin-bottom: 16px;
+      min-height: 100px;
+      align-items: center;
+    }
+    .preview-area svg { width: 64px; height: 64px; }
+    .builder label {
+      display: block;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      margin-bottom: 4px;
+      margin-top: 12px;
+      font-weight: 600;
+    }
+    .builder input[type="text"],
+    .builder input[type="number"],
+    .builder select,
+    .builder textarea {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.88rem;
+      font-family: inherit;
+    }
+    .builder input:focus,
+    .builder select:focus,
+    .builder textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .builder textarea { resize: vertical; min-height: 60px; }
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+      gap: 6px;
+    }
+    .option-btn {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 4px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1.2rem;
+      transition: all 0.15s;
+      text-align: center;
+    }
+    .option-btn:hover { border-color: var(--accent); }
+    .option-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-text);
+      box-shadow: 0 0 12px var(--accent-soft);
+    }
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+    }
+    .color-btn {
+      aspect-ratio: 1;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .color-btn:hover { transform: scale(1.1); }
+    .color-btn.active {
+      border-color: var(--text);
+      box-shadow: 0 0 12px currentColor;
+      transform: scale(1.1);
+    }
+    .builder .builder-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 20px;
+    }
+    .builder .builder-actions button { flex: 1; }
+    .role-warning {
+      background: var(--badge-unconfirmed-bg);
+      color: var(--badge-unconfirmed-text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      margin-top: 8px;
+    }
+    .empty-state-mini {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-muted);
+    }
+    .empty-state-mini .icon { font-size: 2rem; opacity: 0.6; margin-bottom: 8px; }
+    /* Модалка выдачи */
+    .grant-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 9998;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .grant-modal-content {
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 520px;
+      width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: var(--glass-shadow);
+    }
+    .grant-user-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .grant-user-row:last-child { border-bottom: none; }
+    .grant-user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-weight: 700;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .grant-user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  </style>
+</head>
+<body>
+  {% include "sidebar.html" %}
+
+  <main class="container">
+    <h2>🏆 Ачивки сервера</h2>
+    <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;">
+      Создавайте ачивки для участников. Можно привязать Discord роль, настроить авто-выдачу по действиям или выдавать вручную.
+    </p>
+
+    <div class="achievements-grid">
+      {# Левая колонка: список ачивок #}
+      <div>
+        <h3 style="margin-bottom: 12px; color: var(--text);">Существующие ачивки</h3>
+        <div class="achievements-list">
+          {% if not achievements %}
+            <article class="card">
+              <div class="empty-state-mini">
+                <div class="icon">🏆</div>
+                <p>Пока нет ачивок. Создайте первую справа →</p>
+              </div>
+            </article>
+          {% else %}
+            {% for ach in achievements %}
+              <div class="achievement-card">
+                <div class="ach-icon" id="ach-icon-{{ ach.id }}"></div>
+                <div class="ach-info">
+                  <div class="ach-name">{{ ach.name }}</div>
+                  {% if ach.description %}<div class="ach-desc">{{ ach.description }}{% endif %}</div>
+                  <div class="ach-meta">
+                    <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' %} ≥ {{ ach.trigger_threshold }}{% endif %}</span>
+                    {% if ach.discord_role_id %}<span class="ach-tag role">Discord роль</span>{% endif %}
+                    {% if ach.trigger_type == 'manual' %}<span class="ach-tag manual">Только manual</span>{% endif %}
+                    <span class="ach-tag">👤 {{ ach.granted_count }}</span>
+                  </div>
+                </div>
+                <div class="ach-actions">
+                  <button class="ach-grant-btn" onclick="openGrantModal({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Выдать</button>
+                  <button class="ach-delete-btn" onclick="deleteAchievement({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Удалить</button>
+                </div>
+              </div>
+              <script>renderAchievementIcon({{ ach.id }}, {{ ach.icon_config | tojson }});</script>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+
+      {# Правая колонка: конструктор #}
+      <div class="builder">
+        <h3>🛠 Конструктор ачивки</h3>
+
+        <div class="preview-area">
+          <svg id="preview-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+
+        <form id="create-achievement-form">
+          <label for="ach-name">Название *</label>
+          <input type="text" id="ach-name" name="name" maxlength="64" placeholder="Критик" required>
+
+          <label for="ach-description">Описание</label>
+          <textarea id="ach-description" name="description" maxlength="200" placeholder="За 10 поставленных оценок"></textarea>
+
+          <label>Форма</label>
+          <div class="option-grid" id="shape-grid">
+            <button type="button" class="option-btn active" data-shape="circle" title="Круг">⭕</button>
+            <button type="button" class="option-btn" data-shape="shield" title="Щит">🛡</button>
+            <button type="button" class="option-btn" data-shape="star" title="Звезда">⭐</button>
+            <button type="button" class="option-btn" data-shape="hexagon" title="Шестиугольник">⬡</button>
+            <button type="button" class="option-btn" data-shape="ribbon" title="Лента">🎗</button>
+            <button type="button" class="option-btn" data-shape="badge" title="Бейдж">🎖</button>
+          </div>
+
+          <label>Иконка</label>
+          <div class="option-grid" id="emoji-grid">
+            {% for emoji in ['🎬', '🎭', '🏆', '⭐', '🎯', '🍿', '🎪', '🔥', '💎', '👑', '🦅', '🐝', '⚡', '🌟', '💫', '🎨', '📚', '🎮', '🚀', '🦁', '🐺', '🦊', '🐉', '🎭', '🎤', '🎧', '🎸', '🎹', '🎲', '🎰'] %}
+              <button type="button" class="option-btn {% if loop.first %}active{% endif %}" data-emoji="{{ emoji }}">{{ emoji }}</button>
+            {% endfor %}
+          </div>
+
+          <label>Цвет</label>
+          <div class="color-grid" id="color-grid">
+            <button type="button" class="color-btn active" data-color="accent" style="background: var(--accent);" title="accent"></button>
+            <button type="button" class="color-btn" data-color="gold" style="background: #FFD700;" title="gold"></button>
+            <button type="button" class="color-btn" data-color="red" style="background: var(--red);" title="red"></button>
+            <button type="button" class="color-btn" data-color="green" style="background: var(--green);" title="green"></button>
+            <button type="button" class="color-btn" data-color="purple" style="background: #9B59B6;" title="purple"></button>
+            <button type="button" class="color-btn" data-color="blue" style="background: #3498DB;" title="blue"></button>
+          </div>
+
+          <label>Glow</label>
+          <select id="ach-glow" name="icon_glow">
+            <option value="none">Без glow</option>
+            <option value="accent">Акцентный glow</option>
+            <option value="gold">Золотой glow</option>
+            <option value="pulse">Pulse анимация</option>
+          </select>
+
+          <label for="ach-trigger">Триггер</label>
+          <select id="ach-trigger" name="trigger_type" onchange="onTriggerChange()">
+            <option value="manual">Только ручная выдача</option>
+            <option value="ratings_count">Поставил N оценок</option>
+            <option value="quotes_count">Добавил N цитат</option>
+            <option value="watchlist_count">В вишлисте N фильмов</option>
+            <option value="wheel_wins">N раз фильм выиграл в колесе</option>
+            <option value="collections_started">Организовал N сборов</option>
+            <option value="santa_participations">Участвовал в Сайте N раз</option>
+            <option value="watched_count">В бэклоге N фильмов (гильдия)</option>
+            <option value="first_rating">Первая оценка</option>
+            <option value="first_quote">Первая цитата</option>
+          </select>
+
+          <label for="ach-threshold" id="threshold-label">Порог</label>
+          <input type="number" id="ach-threshold" name="trigger_threshold" min="1" value="1">
+
+          <label>Discord роль (опционально)</label>
+          <select id="ach-discord-role" name="discord_role_id">
+            <option value="">— без роли —</option>
+          </select>
+          <button type="button" class="btn-ghost" onclick="loadDiscordRoles()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Загрузить роли сервера</button>
+          <div id="role-warning" class="role-warning" style="display:none;">
+            ⚠ Бот должен иметь manage_roles permission, а его роль должна быть выше роли ачивки в иерархии Discord.
+          </div>
+
+          <div class="builder-actions">
+            <button type="submit" class="btn-primary">✨ Создать ачивку</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  {# Модалка выдачи ачивки #}
+  <div id="grant-modal" style="display:none;" class="grant-modal">
+    <div class="grant-modal-content">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+        <div>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">Выдача ачивки</div>
+          <div id="grant-modal-title" style="font-size:1.1rem;font-weight:700;color:var(--text);"></div>
+        </div>
+        <button onclick="closeGrantModal()" class="btn-icon" aria-label="Закрыть" style="font-size:1.2rem;">×</button>
+      </div>
+      <div style="margin-bottom:12px;">
+        <input type="text" id="grant-user-input" placeholder="Discord ID юзера" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;" onkeydown="if(event.key==='Enter'){grantAchievement();}">
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button onclick="grantAchievement()" class="btn-primary" style="flex:1;">Выдать</button>
+      </div>
+      <div id="grant-users-list">
+        <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">
+          Юзеры с этой ачивкой появятся здесь после загрузки
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // === SVG рендеринг — используем глобальные функции из sidebar.html ===
+    // window.ACHIEVEMENT_SHAPES, window.ACHIEVEMENT_COLORS,
+    // window.ACHIEVEMENT_GLOW_COLORS, window.renderAchievementSVG
+
+    function renderAchievementIcon(elementId, config) {
+      const el = document.getElementById(elementId);
+      if (el) {
+        const svg = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
+        el.innerHTML = `<svg viewBox="0 0 64 64" width="56" height="56" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+      }
+    }
+
+    // === Конструктор — обновление превью ===
+    let builderConfig = {
+      shape: 'circle',
+      emoji: '🎬',
+      color: 'accent',
+      glow: 'none',
+    };
+
+    function updatePreview() {
+      const svg = document.getElementById('preview-svg');
+      if (svg && window.renderAchievementSVG) svg.innerHTML = window.renderAchievementSVG(builderConfig);
+    }
+
+    // Shape buttons
+    document.querySelectorAll('#shape-grid .option-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#shape-grid .option-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        builderConfig.shape = btn.dataset.shape;
+        updatePreview();
+      });
+    });
+
+    // Emoji buttons
+    document.querySelectorAll('#emoji-grid .option-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#emoji-grid .option-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        builderConfig.emoji = btn.dataset.emoji;
+        updatePreview();
+      });
+    });
+
+    // Color buttons
+    document.querySelectorAll('#color-grid .color-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#color-grid .color-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        builderConfig.color = btn.dataset.color;
+        updatePreview();
+      });
+    });
+
+    // Glow select
+    document.getElementById('ach-glow').addEventListener('change', (e) => {
+      builderConfig.glow = e.target.value;
+      updatePreview();
+    });
+
+    function onTriggerChange() {
+      const trigger = document.getElementById('ach-trigger').value;
+      const thresholdInput = document.getElementById('ach-threshold');
+      const thresholdLabel = document.getElementById('threshold-label');
+      if (trigger === 'first_rating' || trigger === 'first_quote' || trigger === 'manual') {
+        thresholdInput.style.display = 'none';
+        thresholdLabel.style.display = 'none';
+      } else {
+        thresholdInput.style.display = '';
+        thresholdLabel.style.display = '';
+      }
+    }
+
+    // Initial preview
+    updatePreview();
+
+    // === Создание ачивки ===
+    document.getElementById('create-achievement-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      formData.set('icon_shape', builderConfig.shape);
+      formData.set('icon_emoji', builderConfig.emoji);
+      formData.set('icon_color', builderConfig.color);
+      formData.set('icon_glow', builderConfig.glow);
+      try {
+        const r = await fetch('/api/achievements/create', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          showToast('✓ Ачивка создана', 'success');
+          setTimeout(() => window.location.reload(), 600);
+        } else {
+          showToast(data.error || 'Ошибка создания', 'error');
+        }
+      } catch (err) {
+        showToast('Сетевая ошибка: ' + err.message, 'error');
+      }
+    });
+
+    // === Discord roles ===
+    async function loadDiscordRoles() {
+      try {
+        const r = await fetch('/api/achievements/discord_roles');
+        const data = await r.json();
+        const select = document.getElementById('ach-discord-role');
+        const warning = document.getElementById('role-warning');
+        select.innerHTML = '<option value="">— без роли —</option>';
+        if (data.roles && data.roles.length > 0) {
+          data.roles.forEach(role => {
+            const opt = document.createElement('option');
+            opt.value = role.id;
+            opt.textContent = role.name + (role.color ? ' 🎨' : '');
+            select.appendChild(opt);
+          });
+          warning.style.display = '';
+        } else {
+          showToast('Роли не найдены. Бот должен быть на сервере.', 'error');
+        }
+      } catch (e) {
+        showToast('Ошибка загрузки ролей: ' + e.message, 'error');
+      }
+    }
+
+    // === Удаление ===
+    async function deleteAchievement(achId, achName) {
+      if (!confirm(`Удалить ачивку «${achName}»? Все её выдачи тоже будут удалены. Это действие необратимо.`)) return;
+      try {
+        const r = await fetch(`/api/achievements/${achId}/delete`, { method: 'POST' });
+        if (r.ok) {
+          showToast('✓ Ачивка удалена', 'success');
+          setTimeout(() => window.location.reload(), 600);
+        } else {
+          const data = await r.json();
+          showToast(data.error || 'Ошибка удаления', 'error');
+        }
+      } catch (e) {
+        showToast('Сетевая ошибка: ' + e.message, 'error');
+      }
+    }
+
+    // === Модалка выдачи ===
+    let currentGrantAchId = null;
+
+    function openGrantModal(achId, achName) {
+      currentGrantAchId = achId;
+      document.getElementById('grant-modal-title').textContent = achName;
+      document.getElementById('grant-modal').style.display = 'flex';
+      document.getElementById('grant-user-input').focus();
+      loadAchievementUsers(achId);
+    }
+
+    function closeGrantModal() {
+      document.getElementById('grant-modal').style.display = 'none';
+      currentGrantAchId = null;
+    }
+
+    async function loadAchievementUsers(achId) {
+      try {
+        const r = await fetch(`/api/achievements/${achId}/users`);
+        const data = await r.json();
+        const container = document.getElementById('grant-users-list');
+        if (!data.users || data.users.length === 0) {
+          container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">Пока никто не получил эту ачивку</div>';
+          return;
+        }
+        container.innerHTML = data.users.map(u => {
+          const name = u.display_name || u.username || 'User#' + u.user_discord_id;
+          const initials = (name || '?')[0].toUpperCase();
+          const avatar = u.avatar_url
+            ? `<img src="${u.avatar_url}" alt="">`
+            : initials;
+          const isActive = u.is_active;
+          return `
+            <div class="grant-user-row">
+              <a href="/u/${u.user_discord_id}" class="grant-user-avatar">${avatar}</a>
+              <div style="flex:1;min-width:0;">
+                <div style="color:var(--text);font-weight:600;font-size:0.88rem;">${name}</div>
+                <div style="color:var(--text-muted);font-size:0.72rem;" class="mono">${u.granted_at ? new Date(u.granted_at).toLocaleDateString('ru-RU') : ''}</div>
+              </div>
+              ${isActive
+                ? `<button onclick="revokeAchievement(${u.user_discord_id})" class="ach-delete-btn" style="font-size:0.72rem;padding:4px 8px;">Забрать</button>`
+                : `<span style="color:var(--text-muted);font-size:0.72rem;">отозвана</span>`}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        showToast('Ошибка загрузки юзеров: ' + e.message, 'error');
+      }
+    }
+
+    async function grantAchievement() {
+      if (!currentGrantAchId) return;
+      const userInput = document.getElementById('grant-user-input');
+      const userId = parseInt(userInput.value.trim());
+      if (!userId) {
+        showToast('Введите Discord ID', 'error');
+        return;
+      }
+      const formData = new FormData();
+      formData.append('user_discord_id', userId);
+      try {
+        const r = await fetch(`/api/achievements/${currentGrantAchId}/grant`, {
+          method: 'POST',
+          body: formData
+        });
+        const data = await r.json();
+        if (r.ok) {
+          showToast('✓ Ачивка выдана' + (data.role_assigned ? ' (+ роль)' : ''), 'success');
+          userInput.value = '';
+          loadAchievementUsers(currentGrantAchId);
+        } else {
+          showToast(data.error || 'Ошибка выдачи', 'error');
+        }
+      } catch (e) {
+        showToast('Сетевая ошибка: ' + e.message, 'error');
+      }
+    }
+
+    async function revokeAchievement(userDiscordId) {
+      if (!currentGrantAchId) return;
+      if (!confirm('Отозвать ачивку у этого юзера? Discord роль будет снята.')) return;
+      const formData = new FormData();
+      formData.append('user_discord_id', userDiscordId);
+      try {
+        const r = await fetch(`/api/achievements/${currentGrantAchId}/revoke`, {
+          method: 'POST',
+          body: formData
+        });
+        if (r.ok) {
+          showToast('✓ Ачивка отозвана', 'success');
+          loadAchievementUsers(currentGrantAchId);
+        } else {
+          const data = await r.json();
+          showToast(data.error || 'Ошибка отзыва', 'error');
+        }
+      } catch (e) {
+        showToast('Сетевая ошибка: ' + e.message, 'error');
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeGrantModal();
+    });
+  </script>
+</body>
+</html>

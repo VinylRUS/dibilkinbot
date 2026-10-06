@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -255,6 +255,37 @@ GUILD_SCHEMA_TEMPLATES = {
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_event ON {table}(event_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_santa ON {table}(santa_discord_id);
+    """,
+    # === v1.9.1: Achievements ===
+    "achievements": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            icon_config TEXT NOT NULL,
+            trigger_type TEXT NOT NULL,
+            trigger_threshold INTEGER DEFAULT 0,
+            discord_role_id INTEGER,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            created_by INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_trigger ON {table}(trigger_type);
+        CREATE INDEX IF NOT EXISTS idx_{table}_active ON {table}(is_active);
+    """,
+    "user_achievements": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            achievement_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            granted_at TEXT NOT NULL,
+            granted_by INTEGER,
+            is_active INTEGER DEFAULT 1,
+            UNIQUE(achievement_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_achievement ON {table}(achievement_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_active ON {table}(is_active);
     """,
 }
 

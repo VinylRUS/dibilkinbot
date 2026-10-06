@@ -1,5 +1,43 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.9.1
+### Новое
+- Система ачивок: полноценная страница /achievements (только админ) с конструктором, где можно «собрать» иконку из слоёв (форма + эмодзи + цвет + glow), выбрать триггер авто-выдачи и привязать Discord роль. Ачивки отображаются в публичном профиле пользователя
+
+### Техническое
+- Схема БД: 2 новые таблицы guild_{id}_achievements (id, name, description, icon_config JSON, trigger_type, trigger_threshold, discord_role_id, is_active, created_at, created_by) и guild_{id}_user_achievements (id, achievement_id, user_discord_id, granted_at, granted_by, is_active, UNIQUE(achievement_id, user_discord_id)). Добавлены в GUILD_TABLES whitelist
+- db.ACHIEVEMENT_TRIGGERS: множество допустимых триггеров — manual, ratings_count, quotes_count, watchlist_count, wheel_wins, collections_started, santa_participations, watched_count, first_rating, first_quote
+- db.g_create_achievement(guild_id, name, description, icon_config dict, trigger_type, threshold, discord_role_id, created_by): создание шаблона. icon_config хранится как JSON
+- db.g_list_achievements(guild_id, active_only=False): список всех ачивок гильдии с распакованным icon_config
+- db.g_get_achievement(guild_id, ach_id): одна ачивка
+- db.g_delete_achievement(guild_id, ach_id): каскадное удаление шаблона + всех user_achievements
+- db.g_grant_achievement(guild_id, ach_id, user_discord_id, granted_by): INSERT OR IGNORE + UPDATE is_active=1 (idempotent, реактивирует отозванные). Возвращает False если ачивки не существует
+- db.g_revoke_achievement(guild_id, ach_id, user_discord_id): UPDATE is_active=0 (не удаляет, сохраняет историю)
+- db.g_list_user_achievements(guild_id, user_discord_id, active_only=True): JOIN user_achievements + achievements, возвращает [{achievement_id, granted_at, name, description, icon_config, trigger_type, discord_role_id}]
+- db.g_count_user_achievements(guild_id, user_discord_id): COUNT активных ачивок
+- db.g_has_achievement(guild_id, ach_id, user_discord_id): bool
+- db.g_get_users_with_achievement(guild_id, ach_id): JOIN users для display_name/avatar_url
+- db.g_get_user_trigger_count(guild_id, user_discord_id, trigger_type): считает счётчик для конкретного триггера (ratings → COUNT из ratings, quotes → COUNT из quotes WHERE recorded_by OR author_user_id, watchlist, wheel_wins через JOIN winners+wheel_items, collections_started, santa_participations, watched_count)
+- db.g_check_and_grant_auto(guild_id, user_discord_id, trigger_type, bot_obj=None): проверяет все активные ачивки этого триггера, выдаёт если порог пройден и ачивки ещё нет. Для first_rating/first_quote threshold игнорируется (всегда 1). Если есть discord_role_id и передан bot_obj — вызывает bot.assign_role_to_member. Возвращает список выданных ачивок
+- bot.assign_role_to_member(guild_id, user_discord_id, role_id): выдаёт Discord роль через member.add_roles. Проверяет что роль уже есть (idempotent). Логирует ошибки (Forbidden, HTTPException)
+- bot.remove_role_from_member(guild_id, user_discord_id, role_id): снимает роль через member.remove_roles. Idempotent
+- bot.fetch_guild_roles(guild_id): возвращает список ролей сервера [{id, name, color, position, hoisted, mentionable}]. Фильтрует @everyone и роль бота. Сортировка по position DESC
+- web.py GET /achievements: страница админа. require_admin. Список ачивок с granted_count
+- web.py POST /api/achievements/create: создание ачивки. Параметры: name, description, icon_shape, icon_emoji, icon_color, icon_glow, trigger_type, trigger_threshold, discord_role_id. Валидация trigger_type через ACHIEVEMENT_TRIGGERS
+- web.py POST /api/achievements/{ach_id}/delete: каскадное удаление
+- web.py POST /api/achievements/{ach_id}/grant: ручная выдача + Discord роль если есть. Параметр: user_discord_id
+- web.py POST /api/achievements/{ach_id}/revoke: отзыв + снятие Discord роли
+- web.py GET /api/achievements/discord_roles: список ролей сервера для выпадающего списка
+- web.py GET /api/achievements/{ach_id}/users: список юзеров с конкретной ачивкой
+- web.py /api/winners/{id}/rate и /api/watched/{id}/rate: после успешного g_upsert_rating вызывается g_check_and_grant_auto для trigger_type=ratings_count и first_rating
+- web.py /api/quotes: после g_add_quote вызывается g_check_and_grant_auto для quotes_count и first_quote
+- web.py /u/{discord_id}: добавлен user_achievements = g_list_user_achievements в контекст шаблона
+- templates/achievements.html: страница-конструктор с 2 колонками. Слева — список существующих ачивок с SVG-иконками, тегами (trigger, role, manual, granted count), кнопками «Выдать» и «Удалить». Справа — sticky конструктор: живое SVG-превью, поля (name, description), option-grid для формы (6 форм), emoji-grid (30 эмодзи), color-grid (6 цветов), select для glow, select для trigger (10 опций), threshold input (скрыт для first_*/manual), select для Discord роли с кнопкой «Загрузить роли сервера», warning о manage_roles permission. Модалка выдачи с вводом Discord ID и списком получивших
+- templates/sidebar.html: добавлена глобальная функция window.renderAchievementSVG(config) — рендерит SVG с shape (6 форм: circle, shield, star, hexagon, ribbon, badge), emoji, color (6: accent, gold, red, green, purple, blue), glow (4: none, accent, gold, pulse). Также ACHIEVEMENT_SHAPES, ACHIEVEMENT_COLORS, ACHIEVEMENT_GLOW_COLORS как глобальные константы. Добавлена иконка 'achievements' в макрос sb_icon
+- templates/sidebar.html: в админ-секцию добавлена ссылка /achievements с SVG иконкой и подписью «Ачивки»
+- templates/profile_public.html: новая секция «🏅 Достижения» между stats и recent_ratings. Каждая ачивка — карточка 80px с SVG-иконкой 48px и названием. Hover → lift + shadow. Использует window.renderAchievementSVG
+- Тест: scripts/test_v191_achievements.py — 7 сценариев (create+list, manual grant/revoke, auto-grant ratings_count threshold=5, first_rating, list_user_achievements, users_with_achievement, delete cascade). Все 8 наборов тестов проходят
+
 ## v1.9.0
 ### Новое
 - Публичный профиль пользователя: страница /u/{discord_id} видна всем залогиненным. Показывает аватар, display_name, роль, статистику (оценок, средняя оценка, цитат, в вишлисте), последние 5 оценок и 5 цитат. Если оба юзера оценили ≥3 общих фильма — показывается «Taste Match» с процентом совпадения вкусов и счётчиком «вместе посмотрели N фильмов»

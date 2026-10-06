@@ -76,6 +76,114 @@ async def is_guild_member(discord_id: int) -> tuple[bool, dict | None]:
     return False, None
 
 
+# === Achievement role management (v1.9.1) ===
+
+async def assign_role_to_member(guild_id: int, user_discord_id: int, role_id: int) -> bool:
+    """Выдать Discord роль участнику сервера.
+
+    Используется при выдаче ачивки с привязанной ролью.
+    Возвращает True если роль выдана (или уже была), False при ошибке.
+    """
+    if not _bot_running:
+        return False
+    bot = _get_bot()
+    if bot is None:
+        return False
+    guild = bot.get_guild(int(guild_id))
+    if guild is None:
+        log.warning("assign_role: guild %s not found", guild_id)
+        return False
+    role = guild.get_role(int(role_id))
+    if role is None:
+        log.warning("assign_role: role %s not found in guild %s", role_id, guild_id)
+        return False
+    member = guild.get_member(user_discord_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_discord_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
+            log.warning("assign_role: member %s not found: %s", user_discord_id, e)
+            return False
+    if member is None:
+        return False
+    if role in member.roles:
+        return True  # уже есть
+    try:
+        await member.add_roles(role, reason="Achievement granted")
+        log.info("assign_role: %s → %s in guild %s", role.name, member.display_name, guild_id)
+        return True
+    except (discord.Forbidden, discord.HTTPException) as e:
+        log.warning("assign_role: failed to add role %s to %s: %s (check bot permissions and role hierarchy)", role.name, user_discord_id, e)
+        return False
+
+
+async def remove_role_from_member(guild_id: int, user_discord_id: int, role_id: int) -> bool:
+    """Снять Discord роль с участника (при отзыве ачивки).
+
+    Возвращает True если роль снята (или её не было), False при ошибке.
+    """
+    if not _bot_running:
+        return False
+    bot = _get_bot()
+    if bot is None:
+        return False
+    guild = bot.get_guild(int(guild_id))
+    if guild is None:
+        return False
+    role = guild.get_role(int(role_id))
+    if role is None:
+        return False
+    member = guild.get_member(user_discord_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_discord_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return False
+    if member is None:
+        return False
+    if role not in member.roles:
+        return True  # уже нет
+    try:
+        await member.remove_roles(role, reason="Achievement revoked")
+        log.info("remove_role: %s ← %s in guild %s", role.name, member.display_name, guild_id)
+        return True
+    except (discord.Forbidden, discord.HTTPException) as e:
+        log.warning("remove_role: failed to remove role %s from %s: %s", role.name, user_discord_id, e)
+        return False
+
+
+async def fetch_guild_roles(guild_id: int) -> list[dict]:
+    """Получить список ролей Discord-сервера для конструктора ачивок.
+
+    Возвращает [{id, name, color, position, permissions}, ...].
+    Фильтрует @everyone (id = guild_id) и роль бота.
+    """
+    if not _bot_running:
+        return []
+    bot = _get_bot()
+    if bot is None:
+        return []
+    guild = bot.get_guild(int(guild_id))
+    if guild is None:
+        return []
+    roles = []
+    for role in guild.roles:
+        if role.name == "@everyone":
+            continue
+        if bot.user and role.id == guild.me.top_role.id:
+            continue
+        roles.append({
+            "id": str(role.id),
+            "name": role.name,
+            "color": str(role.color) if role.color != discord.Color.default() else None,
+            "position": role.position,
+            "hoisted": role.hoist,
+            "mentionable": role.mentionable,
+        })
+    roles.sort(key=lambda r: -r["position"])  # сверху более высокие
+    return roles
+
+
 # Глобальные ссылки для доступа из web.py
 _bot_running = False
 _bot_ref = None

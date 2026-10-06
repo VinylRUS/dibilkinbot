@@ -1989,6 +1989,327 @@ async def g_get_ratings_for_winner(guild_id: int, winner_id: int) -> list[dict]:
     ]
 
 
+# --- g_achievements (v1.9.1) ---
+
+# Допустимые типы триггеров
+ACHIEVEMENT_TRIGGERS = {
+    "manual",                 # только ручная выдача
+    "ratings_count",          # поставил N оценок
+    "quotes_count",           # добавил N цитат
+    "watchlist_count",        # в вишлисте N фильмов
+    "wheel_wins",             # N раз фильм юзера выиграл в колесе
+    "collections_started",    # N раз организовал сбор
+    "santa_participations",   # N раз участвовал в Сайте
+    "watched_count",          # в бэклоге N фильмов
+    "first_rating",           # первая оценка (threshold=1, особый)
+    "first_quote",            # первая цитата
+}
+
+
+async def g_create_achievement(
+    guild_id: int,
+    name: str,
+    description: str | None,
+    icon_config: dict,
+    trigger_type: str,
+    trigger_threshold: int = 0,
+    discord_role_id: int | None = None,
+    created_by: int = 0,
+) -> int:
+    """Создать шаблон ачивки. Возвращает achievement_id."""
+    import json
+    if trigger_type not in ACHIEVEMENT_TRIGGERS:
+        raise ValueError(f"Unknown trigger_type: {trigger_type}")
+    table = _guild.guild_table(guild_id, "achievements")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (name, description, icon_config, trigger_type, trigger_threshold, discord_role_id, is_active, created_at, created_by) "
+            f"VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+            (name, description, json.dumps(icon_config, ensure_ascii=False),
+             trigger_type, trigger_threshold, discord_role_id,
+             datetime.utcnow().isoformat(), created_by),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_list_achievements(guild_id: int, active_only: bool = False) -> list[dict]:
+    """Список всех ачивок гильдии."""
+    import json
+    table = _guild.guild_table(guild_id, "achievements")
+    async with _connect() as db:
+        sql = f"SELECT id, name, description, icon_config, trigger_type, trigger_threshold, discord_role_id, is_active, created_at, created_by FROM {table}"
+        if active_only:
+            sql += " WHERE is_active = 1"
+        sql += " ORDER BY id DESC"
+        async with db.execute(sql) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"id": r[0], "name": r[1], "description": r[2],
+         "icon_config": json.loads(r[3]) if r[3] else {},
+         "trigger_type": r[4], "trigger_threshold": r[5],
+         "discord_role_id": r[6], "is_active": bool(r[7]),
+         "created_at": r[8], "created_by": r[9]}
+        for r in rows
+    ]
+
+
+async def g_get_achievement(guild_id: int, achievement_id: int) -> dict | None:
+    """Получить одну ачивку."""
+    import json
+    table = _guild.guild_table(guild_id, "achievements")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, name, description, icon_config, trigger_type, trigger_threshold, discord_role_id, is_active, created_at, created_by FROM {table} WHERE id = ?",
+            (achievement_id,)
+        ) as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {
+        "id": r[0], "name": r[1], "description": r[2],
+        "icon_config": json.loads(r[3]) if r[3] else {},
+        "trigger_type": r[4], "trigger_threshold": r[5],
+        "discord_role_id": r[6], "is_active": bool(r[7]),
+        "created_at": r[8], "created_by": r[9],
+    }
+
+
+async def g_delete_achievement(guild_id: int, achievement_id: int) -> bool:
+    """Удалить ачивку и все её выдачи (каскадно)."""
+    table_a = _guild.guild_table(guild_id, "achievements")
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    async with _connect() as db:
+        await db.execute(f"DELETE FROM {table_ua} WHERE achievement_id = ?", (achievement_id,))
+        cur = await db.execute(f"DELETE FROM {table_a} WHERE id = ?", (achievement_id,))
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_grant_achievement(
+    guild_id: int, achievement_id: int, user_discord_id: int, granted_by: int | None = None
+) -> bool:
+    """Выдать ачивку юзеру. Если уже есть — ничего не делает (idempotent).
+
+    Возвращает True если выдали (или уже была выдана активная), False если ачивки не существует.
+    """
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    table_a = _guild.guild_table(guild_id, "achievements")
+    async with _connect() as db:
+        # Проверяем существование ачивки
+        async with db.execute(f"SELECT 1 FROM {table_a} WHERE id = ?", (achievement_id,)) as cur:
+            if not await cur.fetchone():
+                return False
+        # INSERT OR IGNORE (UNIQUE constraint) — если уже есть, не упадёт
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table_ua} (achievement_id, user_discord_id, granted_at, granted_by, is_active) "
+            f"VALUES (?, ?, ?, ?, 1)",
+            (achievement_id, user_discord_id, datetime.utcnow().isoformat(), granted_by),
+        )
+        # Если была неактивная — реактивируем
+        await db.execute(
+            f"UPDATE {table_ua} SET is_active = 1, granted_at = ?, granted_by = ? "
+            f"WHERE achievement_id = ? AND user_discord_id = ?",
+            (datetime.utcnow().isoformat(), granted_by, achievement_id, user_discord_id),
+        )
+        await db.commit()
+        return True
+
+
+async def g_revoke_achievement(guild_id: int, achievement_id: int, user_discord_id: int) -> bool:
+    """Отозвать ачивку (не удалять, а пометить is_active=0). Возвращает True если обновлено."""
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table_ua} SET is_active = 0 "
+            f"WHERE achievement_id = ? AND user_discord_id = ? AND is_active = 1",
+            (achievement_id, user_discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_list_user_achievements(
+    guild_id: int, user_discord_id: int, active_only: bool = True
+) -> list[dict]:
+    """Список ачивок юзера (с деталями шаблона)."""
+    import json
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    table_a = _guild.guild_table(guild_id, "achievements")
+    async with _connect() as db:
+        sql = (
+            f"SELECT ua.achievement_id, ua.granted_at, ua.granted_by, ua.is_active, "
+            f"a.name, a.description, a.icon_config, a.trigger_type, a.discord_role_id "
+            f"FROM {table_ua} ua JOIN {table_a} a ON ua.achievement_id = a.id "
+            f"WHERE ua.user_discord_id = ?"
+        )
+        if active_only:
+            sql += " AND ua.is_active = 1"
+        sql += " ORDER BY ua.granted_at DESC"
+        async with db.execute(sql, (user_discord_id,)) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"achievement_id": r[0], "granted_at": r[1], "granted_by": r[2],
+         "is_active": bool(r[3]), "name": r[4], "description": r[5],
+         "icon_config": json.loads(r[6]) if r[6] else {},
+         "trigger_type": r[7], "discord_role_id": r[8]}
+        for r in rows
+    ]
+
+
+async def g_count_user_achievements(guild_id: int, user_discord_id: int) -> int:
+    """Сколько активных ачивок у юзера."""
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_ua} WHERE user_discord_id = ? AND is_active = 1",
+            (user_discord_id,)
+        ) as cur:
+            return (await cur.fetchone())[0]
+
+
+async def g_has_achievement(guild_id: int, achievement_id: int, user_discord_id: int) -> bool:
+    """Проверить, есть ли у юзера активная ачивка."""
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT 1 FROM {table_ua} WHERE achievement_id = ? AND user_discord_id = ? AND is_active = 1",
+            (achievement_id, user_discord_id)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+
+async def g_get_users_with_achievement(guild_id: int, achievement_id: int) -> list[dict]:
+    """Список юзеров с данной ачивкой (для страницы управления)."""
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT ua.user_discord_id, ua.granted_at, ua.granted_by, ua.is_active, "
+            f"u.username, u.display_name, u.avatar_url "
+            f"FROM {table_ua} ua LEFT JOIN users u ON ua.user_discord_id = u.discord_id "
+            f"WHERE ua.achievement_id = ? ORDER BY ua.granted_at DESC",
+            (achievement_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"user_discord_id": r[0], "granted_at": r[1], "granted_by": r[2],
+         "is_active": bool(r[3]), "username": r[4], "display_name": r[5], "avatar_url": r[6]}
+        for r in rows
+    ]
+
+
+# --- Auto-trigger checking ---
+
+async def g_get_user_trigger_count(guild_id: int, user_discord_id: int, trigger_type: str) -> int:
+    """Получить счётчик для конкретного триггера юзера."""
+    table_r = _guild.guild_table(guild_id, "ratings")
+    table_q = _guild.guild_table(guild_id, "quotes")
+    table_wl = _guild.guild_table(guild_id, "watchlist")
+    table_w = _guild.guild_table(guild_id, "winners")
+    table_wheel = _guild.guild_table(guild_id, "wheel_items")
+    table_c = _guild.guild_table(guild_id, "collections")
+    table_sp = _guild.guild_table(guild_id, "santa_participants")
+    async with _connect() as db:
+        if trigger_type == "ratings_count" or trigger_type == "first_rating":
+            sql = f"SELECT COUNT(*) FROM {table_r} WHERE user_discord_id = ?"
+        elif trigger_type == "quotes_count" or trigger_type == "first_quote":
+            sql = f"SELECT COUNT(*) FROM {table_q} WHERE recorded_by = ? OR author_user_id = ?"
+            row = await (await db.execute(sql, (user_discord_id, user_discord_id))).fetchone()
+            return row[0]
+        elif trigger_type == "watchlist_count":
+            sql = f"SELECT COUNT(*) FROM {table_wl} WHERE user_discord_id = ?"
+        elif trigger_type == "wheel_wins":
+            # Победитель, добавленный юзером, и winner создан
+            sql = (f"SELECT COUNT(*) FROM {table_w} w "
+                   f"JOIN {table_wheel} wi ON lower(wi.name) = lower(w.lot_name) "
+                   f"WHERE wi.added_by = ?")
+            row = await (await db.execute(sql, (user_discord_id,))).fetchone()
+            return row[0]
+        elif trigger_type == "collections_started":
+            sql = f"SELECT COUNT(*) FROM {table_c} WHERE started_by = ?"
+        elif trigger_type == "santa_participations":
+            sql = f"SELECT COUNT(*) FROM {table_sp} WHERE user_discord_id = ?"
+        elif trigger_type == "watched_count":
+            table_watched = _guild.guild_table(guild_id, "watched")
+            sql = f"SELECT COUNT(*) FROM {table_watched}"
+            row = await (await db.execute(sql, ())).fetchone()
+            return row[0]
+        else:
+            return 0
+        row = await (await db.execute(sql, (user_discord_id,))).fetchone()
+        return row[0] if row else 0
+
+
+async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_type: str, bot_obj=None) -> list[dict]:
+    """Проверить все авто-ачивки данного триггера и выдать если порог пройден.
+
+    trigger_type: 'ratings_count', 'quotes_count', и т.д.
+    bot_obj: экземпляр бота для выдачи Discord роли (опционально).
+
+    Возвращает список выданных ачивок [{achievement_id, name, discord_role_id}, ...].
+    """
+    # 'manual' не обрабатываем — только авто-триггеры
+    if trigger_type == "manual":
+        return []
+    # 'first_rating' / 'first_quote' — особый случай: всегда проверяем threshold=1
+    check_type = trigger_type
+    if trigger_type == "first_rating":
+        check_type = "ratings_count"
+    elif trigger_type == "first_quote":
+        check_type = "quotes_count"
+
+    # Текущее значение счётчика
+    count = await g_get_user_trigger_count(guild_id, user_discord_id, check_type)
+
+    # Все активные ачивки этого триггера
+    table_a = _guild.guild_table(guild_id, "achievements")
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    import json
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, name, description, icon_config, trigger_threshold, discord_role_id "
+            f"FROM {table_a} WHERE trigger_type = ? AND is_active = 1",
+            (trigger_type,)
+        ) as cur:
+            achievements = await cur.fetchall()
+
+    granted = []
+    for ach_id, name, desc, icon_cfg, threshold, role_id in achievements:
+        # Для first_* триггеров threshold игнорируем, считаем что порог=1
+        if trigger_type in ("first_rating", "first_quote"):
+            should_grant = count >= 1
+        else:
+            should_grant = count >= threshold
+        if not should_grant:
+            continue
+        # Проверяем, нет ли уже активной выдачи
+        async with _connect() as db:
+            async with db.execute(
+                f"SELECT 1 FROM {table_ua} WHERE achievement_id = ? AND user_discord_id = ? AND is_active = 1",
+                (ach_id, user_discord_id)
+            ) as cur:
+                if await cur.fetchone():
+                    continue  # уже есть
+        # Выдаём
+        ok = await g_grant_achievement(guild_id, ach_id, user_discord_id, granted_by=None)
+        if ok:
+            granted.append({
+                "achievement_id": ach_id,
+                "name": name,
+                "description": desc,
+                "icon_config": json.loads(icon_cfg) if icon_cfg else {},
+                "discord_role_id": role_id,
+            })
+            # Если есть Discord роль и передан bot_obj — выдаём роль
+            if role_id and bot_obj is not None:
+                try:
+                    import bot as bot_module
+                    await bot_module.assign_role_to_member(guild_id, user_discord_id, role_id)
+                except Exception as e:
+                    log.warning("Failed to assign role %s to user %s: %s", role_id, user_discord_id, e)
+    return granted
+
+
 # --- g_wheel_items ---
 
 async def g_add_wheel_item(guild_id: int, name: str, tmdb_id: int | None, added_by: int) -> int:
