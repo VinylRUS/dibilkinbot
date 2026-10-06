@@ -1576,6 +1576,25 @@ async def public_profile_page(
 
     is_self = (current_discord_id == target_discord_id)
 
+    # v2.0: Discord data — статус, игра, войс
+    discord_info = None
+    voice_stats = None
+    voice_co = None
+    top_games = None
+    try:
+        import bot as bot_module
+        discord_info = await bot_module.get_member_discord_info(target_discord_id, int(guild_id))
+    except Exception:
+        pass
+    # Voice stats
+    try:
+        voice_stats = await db.g_get_voice_stats(guild_id, target_discord_id)
+        if voice_stats["total_seconds"] > 0:
+            voice_co = await db.g_get_voice_co_occurrence(guild_id, target_discord_id, limit=3)
+            top_games = await db.g_get_top_games(guild_id, target_discord_id, limit=3)
+    except Exception:
+        pass
+
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
         "target": {
@@ -1599,6 +1618,10 @@ async def public_profile_page(
         "watched_together": watched_together,
         "is_self": is_self,
         "not_found": False,
+        "discord_info": discord_info,
+        "voice_stats": voice_stats,
+        "voice_co": voice_co,
+        "top_games": top_games,
     })
 
 

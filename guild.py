@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -287,6 +287,40 @@ GUILD_SCHEMA_TEMPLATES = {
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_achievement ON {table}(achievement_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_active ON {table}(is_active);
+    """,
+    # === v2.0: Discord integration ===
+    "voice_sessions": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_discord_id INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER,
+            channel_name TEXT,
+            joined_at TEXT NOT NULL,
+            left_at TEXT,
+            duration_seconds INTEGER DEFAULT 0,
+            was_solo INTEGER DEFAULT 0,
+            games_played TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_guild ON {table}(guild_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_channel ON {table}(channel_id);
+    """,
+    "member_activities": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_discord_id INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL,
+            activity_type TEXT NOT NULL,
+            activity_name TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            duration_seconds INTEGER DEFAULT 0,
+            UNIQUE(user_discord_id, guild_id, activity_type, activity_name, started_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_type ON {table}(activity_type);
+        CREATE INDEX IF NOT EXISTS idx_{table}_name ON {table}(activity_name);
     """,
 }
 

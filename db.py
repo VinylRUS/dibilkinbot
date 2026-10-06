@@ -2137,6 +2137,11 @@ ACHIEVEMENT_TRIGGERS = {
     "watched_count",          # в бэклоге N фильмов
     "first_rating",           # первая оценка (threshold=1, особый)
     "first_quote",            # первая цитата
+    # v2.0: Discord triggers
+    "voice_time",             # N секунд в войс-чатах (любых)
+    "voice_time_solo",        # N секунд в войс-чатах (одиночных)
+    "voice_time_with_others", # N секунд в войс-чатах (с другими людьми)
+    "game_play_time",         # N секунд играя в любые игры
 }
 
 
@@ -2405,6 +2410,13 @@ async def g_get_user_trigger_count(guild_id: int, user_discord_id: int, trigger_
             sql = f"SELECT COUNT(*) FROM {table_watched}"
             row = await (await db.execute(sql, ())).fetchone()
             return row[0]
+        elif trigger_type in ("voice_time", "voice_time_solo", "voice_time_with_others"):
+            # Возвращаем секунды, не количество
+            solo = trigger_type == "voice_time_solo"
+            with_others = trigger_type == "voice_time_with_others"
+            return await g_get_voice_time(guild_id, user_discord_id, solo_only=solo, with_others_only=with_others)
+        elif trigger_type == "game_play_time":
+            return await g_get_game_play_time(guild_id, user_discord_id)
         else:
             return 0
         row = await (await db.execute(sql, (user_discord_id,))).fetchone()
@@ -2479,6 +2491,180 @@ async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_ty
                 except Exception as e:
                     log.warning("Failed to assign role %s to user %s: %s", role_id, user_discord_id, e)
     return granted
+
+
+# --- Voice sessions & activities (v2.0) ---
+
+async def g_get_voice_stats(guild_id: int, user_discord_id: int) -> dict:
+    """Статистика юзера в войс-чатах.
+
+    Возвращает:
+    - total_seconds: общее время в войсе
+    - total_sessions: количество сессий
+    - solo_seconds: время в одиночку
+    - with_others_seconds: время с другими людьми
+    - avg_session_seconds: средняя длительность сессии
+    """
+    table = _guild.guild_table(guild_id, "voice_sessions")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COALESCE(SUM(duration_seconds), 0), COUNT(*), "
+            f"COALESCE(SUM(CASE WHEN was_solo = 1 THEN duration_seconds ELSE 0 END), 0), "
+            f"COALESCE(SUM(CASE WHEN was_solo = 0 THEN duration_seconds ELSE 0 END), 0) "
+            f"FROM {table} WHERE user_discord_id = ? AND left_at IS NOT NULL",
+            (user_discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    total = row[0] or 0
+    sessions = row[1] or 0
+    solo = row[2] or 0
+    with_others = row[3] or 0
+    return {
+        "total_seconds": total,
+        "total_sessions": sessions,
+        "solo_seconds": solo,
+        "with_others_seconds": with_others,
+        "avg_session_seconds": round(total / sessions) if sessions > 0 else 0,
+    }
+
+
+async def g_get_voice_co_occurrence(guild_id: int, user_discord_id: int, limit: int = 5) -> list[dict]:
+    """С какими юзерами чаще всего сидели в войсе одновременно.
+
+    Берёт сессии юзера где was_solo=0, находит другие сессии в том же
+    канале с пересечением по времени. Возвращает топ-N.
+
+    Возвращает [{other_user_id, other_display_name, other_avatar_url,
+                 co_seconds, top_games}, ...]
+    """
+    import json
+    table = _guild.guild_table(guild_id, "voice_sessions")
+    async with _connect() as db:
+        # Все сессии юзера где был с другими
+        async with db.execute(
+            f"SELECT channel_id, joined_at, left_at, games_played "
+            f"FROM {table} WHERE user_discord_id = ? AND was_solo = 0 AND left_at IS NOT NULL "
+            f"ORDER BY joined_at DESC LIMIT 200",
+            (user_discord_id,)
+        ) as cur:
+            my_sessions = await cur.fetchall()
+
+    if not my_sessions:
+        return []
+
+    # Для каждой сессии ищем другие сессии в том же канале с пересечением времени
+    co_occurrence = {}  # {other_user_id: {seconds: 0, games: set()}}
+    async with _connect() as db:
+        for ch_id, j_at, l_at, games in my_sessions:
+            if not ch_id or not j_at or not l_at:
+                continue
+            async with db.execute(
+                f"SELECT user_discord_id, joined_at, left_at, games_played "
+                f"FROM {table} WHERE channel_id = ? AND user_discord_id != ? "
+                f"AND left_at IS NOT NULL "
+                f"AND joined_at < ? AND left_at > ?",
+                (ch_id, user_discord_id, l_at, j_at)
+            ) as cur:
+                others = await cur.fetchall()
+            for other_id, o_joined, o_left, o_games in others:
+                if other_id not in co_occurrence:
+                    co_occurrence[other_id] = {"seconds": 0, "games": set()}
+                # Считаем пересечение
+                try:
+                    start = max(datetime.fromisoformat(j_at), datetime.fromisoformat(o_joined))
+                    end = min(datetime.fromisoformat(l_at), datetime.fromisoformat(o_left))
+                    overlap = int((end - start).total_seconds())
+                    if overlap > 0:
+                        co_occurrence[other_id]["seconds"] += overlap
+                        if games:
+                            for g in json.loads(games):
+                                co_occurrence[other_id]["games"].add(g)
+                        if o_games:
+                            for g in json.loads(o_games):
+                                co_occurrence[other_id]["games"].add(g)
+                except Exception:
+                    pass
+
+    # Сортируем по убыванию времени, берём топ-N
+    sorted_co = sorted(co_occurrence.items(), key=lambda x: x[1]["seconds"], reverse=True)[:limit]
+
+    # Достаём имена юзеров
+    result = []
+    for other_id, data in sorted_co:
+        async with _connect() as db:
+            async with db.execute(
+                "SELECT display_name, username, avatar_url FROM users WHERE discord_id = ?",
+                (other_id,)
+            ) as cur:
+                u = await cur.fetchone()
+        result.append({
+            "other_user_id": other_id,
+            "display_name": u[0] or u[1] if u else f"User#{other_id}",
+            "avatar_url": u[2] if u else None,
+            "co_seconds": data["seconds"],
+            "top_games": list(data["games"])[:3],
+        })
+    return result
+
+
+async def g_get_top_games(guild_id: int, user_discord_id: int, limit: int = 5) -> list[dict]:
+    """Топ игр юзера по времени игры.
+
+    Возвращает [{game_name, total_seconds, sessions}, ...]
+    """
+    table = _guild.guild_table(guild_id, "member_activities")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT activity_name, COALESCE(SUM(duration_seconds), 0), COUNT(*) "
+            f"FROM {table} WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL "
+            f"GROUP BY activity_name ORDER BY SUM(duration_seconds) DESC LIMIT ?",
+            (user_discord_id, limit)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"game_name": r[0], "total_seconds": r[1], "sessions": r[2]}
+        for r in rows
+    ]
+
+
+async def g_get_voice_time(guild_id: int, user_discord_id: int, solo_only: bool = False, with_others_only: bool = False) -> int:
+    """Получить общее время в войсе (секунды). Для триггеров ачивок.
+
+    solo_only: только одиночные сессии
+    with_others_only: только сессии с другими людьми
+    """
+    table = _guild.guild_table(guild_id, "voice_sessions")
+    where = f"WHERE user_discord_id = ? AND left_at IS NOT NULL"
+    if solo_only:
+        where += " AND was_solo = 1"
+    elif with_others_only:
+        where += " AND was_solo = 0"
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COALESCE(SUM(duration_seconds), 0) FROM {table} {where}",
+            (user_discord_id,)
+        ) as cur:
+            return (await cur.fetchone())[0] or 0
+
+
+async def g_get_game_play_time(guild_id: int, user_discord_id: int, game_name: str = "") -> int:
+    """Получить время игры (секунды). Если game_name пустой — суммарно во все игры."""
+    table = _guild.guild_table(guild_id, "member_activities")
+    async with _connect() as db:
+        if game_name:
+            async with db.execute(
+                f"SELECT COALESCE(SUM(duration_seconds), 0) FROM {table} "
+                f"WHERE user_discord_id = ? AND activity_type = 'playing' AND activity_name = ? AND ended_at IS NOT NULL",
+                (user_discord_id, game_name)
+            ) as cur:
+                return (await cur.fetchone())[0] or 0
+        else:
+            async with db.execute(
+                f"SELECT COALESCE(SUM(duration_seconds), 0) FROM {table} "
+                f"WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL",
+                (user_discord_id,)
+            ) as cur:
+                return (await cur.fetchone())[0] or 0
 
 
 # --- g_wheel_items ---

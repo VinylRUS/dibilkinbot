@@ -34,6 +34,8 @@ intents.message_content = True  # нужен для авто-захвата ци
 intents.guilds = True
 intents.members = True
 intents.reactions = True  # нужен для on_raw_reaction_add (захват цитат реакцией)
+intents.presences = True   # v2.0: статус + игры (для профиля и ачивок)
+intents.voice_states = True  # v2.0: трекинг войс-чатов
 
 
 # === Проверка member сервера ===
@@ -399,6 +401,45 @@ class KinovecherBot(commands.Bot):
 
         # === Запуск cron-задачи: еженедельный бэкап БД в Telegram ===
         asyncio.create_task(_db_backup_loop())
+
+        # === v2.0: Автосоздание профилей для всех НЕ-ботов сервера ===
+        await _auto_create_member_profiles()
+
+    async def on_voice_state_update(self, member, before, after):
+        """v2.0: Трекинг войс-сессий. Записывает join/leave в БД."""
+        if member.bot:
+            return
+        try:
+            await _handle_voice_state_change(member, before, after)
+        except Exception as e:
+            log.warning("voice_state_update error for %s: %s", member.id, e)
+
+    async def on_presence_update(self, before, after):
+        """v2.0: Трекинг игровых активностей. Записывает начало/конец игры."""
+        if after.bot:
+            return
+        try:
+            await _handle_presence_change(before, after)
+        except Exception as e:
+            log.warning("presence_update error for %s: %s", after.id, e)
+
+    async def on_member_join(self, member):
+        """v2.0: Автосоздание профиля при входе на сервер."""
+        if member.bot:
+            return
+        try:
+            await db.upsert_user(
+                member.id,
+                username=str(member),
+                display_name=member.display_name,
+                avatar_url=str(member.display_avatar.url) if member.display_avatar else None,
+                roles=[r.name for r in member.roles if r.name != "@everyone"],
+                top_role=member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None,
+                guild_name=member.guild.name,
+            )
+            log.info("Auto-created profile for new member: %s (id=%s)", member.display_name, member.id)
+        except Exception as e:
+            log.warning("Failed to auto-create profile for %s: %s", member.id, e)
 
     async def on_message(self, message: discord.Message) -> None:
         """Авто-захват цитат: если сообщение в канале #цитатник от человека —
@@ -1442,6 +1483,243 @@ class LinkCog(commands.Cog):
             "После привязки вы будете получать персональные уведомления в TG.",
             ephemeral=True,
         )
+
+
+# === v2.0: Discord integration — auto-profiles, voice tracking, presence ===
+
+async def _auto_create_member_profiles():
+    """Создать профили в БД для всех НЕ-ботов на всех серверах бота."""
+    bot = _get_bot()
+    if not bot:
+        return
+    total = 0
+    for guild in bot.guilds:
+        for member in guild.members:
+            if member.bot:
+                continue
+            try:
+                existing = await db.get_user(member.id)
+                if not existing:
+                    await db.upsert_user(
+                        member.id,
+                        username=str(member),
+                        display_name=member.display_name,
+                        avatar_url=str(member.display_avatar.url) if member.display_avatar else None,
+                        roles=[r.name for r in member.roles if r.name != "@everyone"],
+                        top_role=member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None,
+                        guild_name=guild.name,
+                    )
+                    total += 1
+            except Exception as e:
+                log.warning("Auto-create profile failed for %s: %s", member.id, e)
+    if total > 0:
+        log.info("v2.0: Auto-created %d member profiles", total)
+
+
+async def _handle_voice_state_change(member, before, after):
+    """Обработать изменение voice state — записать join/leave в БД."""
+    guild_id = member.guild.id
+    table = _guild.guild_table(guild_id, "voice_sessions")
+    now = datetime.utcnow().isoformat()
+
+    # Зашёл в voice channel
+    if before.channel is None and after.channel is not None:
+        # Проверяем, есть ли другие люди в канале (не боты)
+        others = [m for m in after.channel.members if not m.bot and m.id != member.id]
+        was_solo = len(others) == 0
+        # Какие игры играл юзер в этот момент
+        games = _get_member_games(member)
+        async with db._connect() as conn:
+            await conn.execute(
+                f"INSERT INTO {table} (user_discord_id, guild_id, channel_id, channel_name, joined_at, was_solo, games_played) "
+                f"VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (member.id, guild_id, after.channel.id, after.channel.name, now, 1 if was_solo else 0, games),
+            )
+            await conn.commit()
+
+    # Вышел из voice channel
+    elif before.channel is not None and after.channel is None:
+        # Найти последнюю незакрытую сессию
+        async with db._connect() as conn:
+            async with conn.execute(
+                f"SELECT id, joined_at FROM {table} WHERE user_discord_id = ? AND guild_id = ? AND left_at IS NULL "
+                f"ORDER BY id DESC LIMIT 1",
+                (member.id, guild_id)
+            ) as cur:
+                row = await cur.fetchone()
+            if row:
+                session_id = row[0]
+                joined_at = row[1]
+                # Считаем duration
+                try:
+                    joined_dt = datetime.fromisoformat(joined_at)
+                    duration = int((datetime.utcnow() - joined_dt).total_seconds())
+                except Exception:
+                    duration = 0
+                await conn.execute(
+                    f"UPDATE {table} SET left_at = ?, duration_seconds = ? WHERE id = ?",
+                    (now, duration, session_id),
+                )
+                await conn.commit()
+
+
+async def _handle_presence_change(before, after):
+    """Обработать изменение активности — записать начало/конец игры в БД."""
+    guild_id = after.guild.id if after.guild else None
+    if not guild_id:
+        return
+    table = _guild.guild_table(guild_id, "member_activities")
+    now = datetime.utcnow().isoformat()
+
+    # Текущие игры (только playing, не listening/streaming/custom)
+    before_games = set()
+    after_games = set()
+    for act in before.activities:
+        if act.type == discord.ActivityType.playing:
+            before_games.add(act.name)
+    for act in after.activities:
+        if act.type == discord.ActivityType.playing:
+            after_games.add(act.name)
+
+    # Новые игры (появились)
+    new_games = after_games - before_games
+    for game in new_games:
+        try:
+            async with db._connect() as conn:
+                await conn.execute(
+                    f"INSERT OR IGNORE INTO {table} (user_discord_id, guild_id, activity_type, activity_name, started_at) "
+                    f"VALUES (?, ?, 'playing', ?, ?)",
+                    (after.id, guild_id, game, now),
+                )
+                await conn.commit()
+        except Exception as e:
+            log.warning("Failed to log game start %s for %s: %s", game, after.id, e)
+
+    # Завершённые игры (исчезли)
+    ended_games = before_games - after_games
+    for game in ended_games:
+        try:
+            async with db._connect() as conn:
+                async with conn.execute(
+                    f"SELECT id, started_at FROM {table} WHERE user_discord_id = ? AND guild_id = ? "
+                    f"AND activity_type = 'playing' AND activity_name = ? AND ended_at IS NULL "
+                    f"ORDER BY id DESC LIMIT 1",
+                    (after.id, guild_id, game)
+                ) as cur:
+                    row = await cur.fetchone()
+                if row:
+                    act_id = row[0]
+                    started_at = row[1]
+                    try:
+                        started_dt = datetime.fromisoformat(started_at)
+                        duration = int((datetime.utcnow() - started_dt).total_seconds())
+                    except Exception:
+                        duration = 0
+                    await conn.execute(
+                        f"UPDATE {table} SET ended_at = ?, duration_seconds = ? WHERE id = ?",
+                        (now, duration, act_id),
+                    )
+                    await conn.commit()
+        except Exception as e:
+            log.warning("Failed to log game end %s for %s: %s", game, after.id, e)
+
+
+def _get_member_games(member):
+    """Получить список текущих игр юзера (JSON array как строка)."""
+    import json
+    games = []
+    for act in member.activities:
+        if act.type == discord.ActivityType.playing and act.name:
+            games.append(act.name)
+    return json.dumps(games, ensure_ascii=False) if games else None
+
+
+async def get_member_discord_info(discord_id: int, guild_id: int = 0) -> dict | None:
+    """Получить актуальную Discord информацию о юзере: статус, игра, войс.
+
+    Возвращает dict с ключами:
+    - status: 'online' | 'idle' | 'dnd' | 'offline'
+    - status_emoji: '🟢' | '🟡' | '🔴' | '⚫'
+    - activities: [{type, name, details, state}]
+    - current_game: str | None
+    - voice_channel: str | None (название канала где сидит)
+    - voice_with: list[str] (имена других юзеров в том же канале)
+    - joined_at: str | None (когда зашёл на сервер)
+    - is_boosting: bool
+    """
+    if not _bot_running:
+        return None
+    bot = _get_bot()
+    if not bot:
+        return None
+
+    # Найти юзера в каком-то guild
+    guild = None
+    member = None
+    if guild_id:
+        guild = bot.get_guild(int(guild_id))
+        if guild:
+            member = guild.get_member(discord_id)
+    if not member:
+        for g in bot.guilds:
+            m = g.get_member(discord_id)
+            if m:
+                member = m
+                guild = g
+                break
+    if not member or not guild:
+        return None
+
+    # Статус
+    status_map = {
+        discord.Status.online: ('online', '🟢'),
+        discord.Status.idle: ('idle', '🟡'),
+        discord.Status.dnd: ('dnd', '🔴'),
+        discord.Status.offline: ('offline', '⚫'),
+        discord.Status.invisible: ('offline', '⚫'),
+    }
+    status, status_emoji = status_map.get(member.status, ('offline', '⚫'))
+
+    # Активности (только playing — игры, не стримы/Spotify)
+    activities = []
+    current_game = None
+    for act in member.activities:
+        if act.type == discord.ActivityType.playing:
+            game_name = act.name or 'Unknown'
+            activities.append({
+                'type': 'playing',
+                'name': game_name,
+                'details': getattr(act, 'details', None),
+                'state': getattr(act, 'state', None),
+            })
+            if not current_game:
+                current_game = game_name
+
+    # Voice state
+    voice_channel = None
+    voice_with = []
+    if member.voice and member.voice.channel:
+        voice_channel = member.voice.channel.name
+        for m in member.voice.channel.members:
+            if not m.bot and m.id != discord_id:
+                voice_with.append(m.display_name or str(m))
+
+    # joined_at
+    joined_at = member.joined_at.isoformat() if member.joined_at else None
+
+    # Boosting
+    is_boosting = bool(member.premium_since)
+
+    return {
+        'status': status,
+        'status_emoji': status_emoji,
+        'activities': activities,
+        'current_game': current_game,
+        'voice_channel': voice_channel,
+        'voice_with': voice_with,
+        'joined_at': joined_at,
+        'is_boosting': is_boosting,
+    }
 
 
 # === Еженедельный бэкап БД в Telegram (v1.8.0) ===
