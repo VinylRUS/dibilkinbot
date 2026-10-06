@@ -98,10 +98,23 @@ async def require_user(request: Request) -> dict:
 
 
 async def require_admin(request: Request) -> dict:
-    """Зависимость: юзер обязан быть админом. Иначе 403."""
+    """Зависимость: юзер обязан быть админом (superuser ИЛИ junior-admin).
+    Используется для роутов доступных любому админу: ачивки, удаление
+    фильмов из бэклога/победителей, и т.д.
+    """
     user = await require_user(request)
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Доступ только для администратора")
+    return user
+
+
+async def require_superuser(request: Request) -> dict:
+    """Зависимость: юзер обязан быть superuser (Матка).
+    Используется для sensitive роутов: токены, серверы, управление ролями.
+    """
+    user = await require_user(request)
+    if not user.get("is_superuser"):
+        raise HTTPException(status_code=403, detail="Доступ только для суперпользователя")
     return user
 
 
@@ -287,6 +300,8 @@ async def login_submit(
             "discord_id": 0,
             "username": login,
             "is_admin": True,
+            "is_superuser": True,
+            "role": "superuser",
             "avatar_url": None,
             "current_guild_id": admin_guild_id,
         }
@@ -316,12 +331,16 @@ async def login_submit(
 
         # Проверка прав
         is_admin = await db.is_admin(discord_id)
+        is_superuser = await db.is_superuser(discord_id)
+        user_role = await db.get_user_role(discord_id)
 
         # Если это Discord ID админа (env ADMIN_DISCORD_ID) — проверяем env ADMIN_PASSWORD
         if settings.admin_discord_id is not None and discord_id == settings.admin_discord_id:
             if not is_env_admin_pass:
                 return RedirectResponse(url="/login?error=admin_password", status_code=303)
             is_admin = True
+            is_superuser = True
+            user_role = "superuser"
 
         # Авто-создание/обновление юзера в БД
         await db.upsert_user(
@@ -387,6 +406,8 @@ async def login_submit(
             "discord_id": discord_id,
             "username": display_name,
             "is_admin": is_admin,
+            "is_superuser": is_superuser,
+            "role": user_role,
             "avatar_url": avatar_url,
             "roles": roles,
             "top_role": top_role,
@@ -702,7 +723,7 @@ KNOWN_TOKENS = [
 
 
 @app.get("/tokens", response_class=HTMLResponse)
-async def tokens_form(request: Request, _user: dict = Depends(require_admin)):
+async def tokens_form(request: Request, _user: dict = Depends(require_superuser)):
     saved = {}
     for key, _label in KNOWN_TOKENS:
         v = await db.get_setting(key)
@@ -717,7 +738,7 @@ async def tokens_form(request: Request, _user: dict = Depends(require_admin)):
 @app.post("/tokens")
 async def tokens_save(
     request: Request,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
     discord_token: str = Form(""),
     telegram_token: str = Form(""),
     kinopoisk_token: str = Form(""),
@@ -753,7 +774,7 @@ KNOWN_CHANNELS = [
 
 
 @app.get("/channels", response_class=HTMLResponse)
-async def channels_form(request: Request, _user: dict = Depends(require_admin)):
+async def channels_form(request: Request, _user: dict = Depends(require_superuser)):
     values = {key: (await db.get_setting(key) or "") for key, _label in KNOWN_CHANNELS}
     return templates.TemplateResponse(request, "channels.html", {
         "user": _user,
@@ -765,7 +786,7 @@ async def channels_form(request: Request, _user: dict = Depends(require_admin)):
 @app.post("/channels")
 async def channels_save(
     request: Request,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
     panel_base_url: str = Form(""),
     channel_quotes_id: str = Form(""),
     channel_announce_id: str = Form(""),
@@ -821,7 +842,7 @@ async def features_form(request: Request, _user: dict = Depends(require_user)):
 @app.post("/features")
 async def features_save(
     request: Request,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
     tg_crosspost_quotes: bool = Form(False),
     tg_crosspost_announce: bool = Form(False),
     santa_enabled: bool = Form(False),
@@ -1162,7 +1183,7 @@ async def users_page(request: Request, _user: dict = Depends(require_admin)):
 # === Guilds admin page ===
 
 @app.get("/guilds", response_class=HTMLResponse)
-async def guilds_page(request: Request, _user: dict = Depends(require_admin)):
+async def guilds_page(request: Request, _user: dict = Depends(require_superuser)):
     """Админ-страница управления серверами: approve/reject."""
     import guild as guild_module
     guilds = await guild_module.list_guilds(approved_only=False)
@@ -1175,7 +1196,7 @@ async def guilds_page(request: Request, _user: dict = Depends(require_admin)):
 @app.post("/guilds/{guild_id}/approve")
 async def approve_guild_endpoint(
     guild_id: int,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
 ):
     """Одобрить сервер."""
     import guild as guild_module
@@ -1186,7 +1207,7 @@ async def approve_guild_endpoint(
 @app.post("/guilds/{guild_id}/reject")
 async def reject_guild_endpoint(
     guild_id: int,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
 ):
     """Отклонить сервер."""
     import guild as guild_module
@@ -1197,7 +1218,7 @@ async def reject_guild_endpoint(
 @app.post("/guilds/{guild_id}/delete")
 async def delete_guild_endpoint(
     guild_id: int,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
 ):
     """Удалить сервер и все его данные (irreversible)."""
     import guild as guild_module
@@ -1215,10 +1236,12 @@ async def delete_guild_endpoint(
 async def toggle_admin(
     request: Request,
     discord_id: int,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
     make_admin: bool = Form(False),
 ):
-    await db.set_admin(discord_id, make_admin)
+    # Toggle переводит между 'junior-admin' и 'user'
+    # 'superuser' нельзя установить через toggle (только через env)
+    await db.set_user_role(discord_id, 'junior-admin' if make_admin else 'user')
     return RedirectResponse(url="/users?saved=1", status_code=303)
 
 
@@ -1515,6 +1538,8 @@ async def public_profile_page(
     top_role = target[6]
     guild_name = target[7]
     last_login_at = target[8]
+    target_role = target[9] if len(target) > 9 else 'user'  # role column (v1.9.6)
+    target_role_label = db.ROLE_LABELS.get(target_role, 'Пчела')
 
     # Статистика
     stats = await db.g_get_user_stats(guild_id, target_discord_id)
@@ -1543,6 +1568,9 @@ async def public_profile_page(
             "display_name": display_name or username,
             "avatar_url": avatar_url,
             "is_admin": is_target_admin,
+            "is_superuser": target_role == 'superuser',
+            "role": target_role,
+            "role_label": target_role_label,
             "top_role": top_role,
             "guild_name": guild_name,
             "last_login_at": last_login_at,
@@ -2979,7 +3007,7 @@ async def api_revoke_achievement(
 
 
 @app.get("/api/achievements/discord_roles")
-async def api_get_discord_roles(_user: dict = Depends(require_admin)):
+async def api_get_discord_roles(_user: dict = Depends(require_superuser)):
     """Получить список ролей Discord-сервера для выпадающего списка."""
     guild_id = get_current_guild_id(_user)
     try:

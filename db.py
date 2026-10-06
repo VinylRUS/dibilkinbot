@@ -188,12 +188,39 @@ async def init_db() -> None:
                 # v1.8.2: пароль юзера (sha256 + salt)
                 "password_hash": "TEXT",
                 "password_salt": "TEXT",
+                # v1.9.6: роль юзера ('superuser' | 'junior-admin' | 'user')
+                "role": "TEXT DEFAULT 'user'",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in existing_cols:
                     log.info("Migrating users: adding column %s", col_name)
                     await db.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
             await db.commit()
+
+            # === Миграция v1.9.6: заполнить role для существующих юзеров ===
+            # is_admin=1 → 'superuser' если discord_id == env ADMIN_DISCORD_ID
+            # is_admin=1 → 'junior-admin' для остальных админов
+            # is_admin=0 → 'user' (дефолт, ничего не делаем)
+            async with db.execute("SELECT COUNT(*) FROM users WHERE role IS NULL OR role = 'user' AND is_admin = 1") as cur:
+                needs_migration = (await cur.fetchone())[0]
+            if needs_migration > 0:
+                log.info("v1.9.6 migration: converting is_admin → role")
+                env_admin = settings.admin_discord_id
+                if env_admin:
+                    await db.execute(
+                        "UPDATE users SET role = 'superuser' WHERE is_admin = 1 AND discord_id = ?",
+                        (env_admin,)
+                    )
+                    await db.execute(
+                        "UPDATE users SET role = 'junior-admin' WHERE is_admin = 1 AND discord_id != ? AND (role IS NULL OR role = 'user')",
+                        (env_admin,)
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE users SET role = 'junior-admin' WHERE is_admin = 1 AND (role IS NULL OR role = 'user')"
+                    )
+                await db.commit()
+                log.info("v1.9.6 migration done: roles assigned")
 
             # Миграция v0.9.0: quotes — добавляем author_avatar_url и message_link
             async with db.execute("PRAGMA table_info(quotes)") as cur:
@@ -573,47 +600,100 @@ async def upsert_user(
 async def get_user(discord_id: int) -> tuple | None:
     async with _connect() as db:
         async with db.execute(
-            "SELECT discord_id, username, display_name, is_admin, avatar_url, roles, top_role, guild_name, last_login_at "
+            "SELECT discord_id, username, display_name, is_admin, avatar_url, roles, top_role, guild_name, last_login_at, role "
             "FROM users WHERE discord_id = ?",
             (discord_id,)
         ) as cur:
             return await cur.fetchone()
 
 
-async def is_admin(discord_id: int) -> bool:
-    """Админ — если:
-    1. discord_id совпадает с env ADMIN_DISCORD_ID (высший приоритет), ИЛИ
-    2. discord_id совпадает с env ADMIN_LOGIN (если ADMIN_LOGIN — это число), ИЛИ
-    3. is_admin=1 в БД для этого юзера.
-    """
-    # 1. env ADMIN_DISCORD_ID (новая, приоритетная)
+# === Roles (v1.9.6) ===
+# 3 уровня: 'superuser' (Матка), 'junior-admin' (Трутень), 'user' (Пчела)
+# superuser: env ADMIN_DISCORD_ID или role='superuser' в БД
+# junior-admin: role='junior-admin' в БД
+# user: role='user' (или NULL/любое другое значение)
+
+ROLE_LABELS = {
+    'superuser': 'Матка',
+    'junior-admin': 'Трутень',
+    'user': 'Пчела',
+}
+
+
+async def get_user_role(discord_id: int) -> str:
+    """Получить роль юзера. Возвращает 'superuser', 'junior-admin' или 'user'."""
+    # Env admin — всегда superuser
     if settings.admin_discord_id is not None and settings.admin_discord_id == discord_id:
-        return True
-    # 2. env ADMIN_LOGIN если это число (legacy-поддержка)
+        return 'superuser'
     env_admin = settings.admin_login
     if env_admin.isdigit() and int(env_admin) == discord_id:
-        return True
-    # 3. is_admin флаг в БД
-    user = await get_user(discord_id)
-    return bool(user and user[3] == 1)
+        return 'superuser'
+    # БД
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT role FROM users WHERE discord_id = ?", (discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row or not row[0]:
+        return 'user'
+    return row[0] if row[0] in ('superuser', 'junior-admin', 'user') else 'user'
+
+
+async def is_superuser(discord_id: int) -> bool:
+    """True только для superuser (env admin или role='superuser')."""
+    return await get_user_role(discord_id) == 'superuser'
+
+
+async def is_admin(discord_id: int) -> bool:
+    """True для superuser ИЛИ junior-admin (any admin).
+    Обратная совместимость — используется в шаблонах и роутах где нужен 'any admin'.
+    """
+    role = await get_user_role(discord_id)
+    return role in ('superuser', 'junior-admin')
+
+
+async def is_admin_or_above(discord_id: int) -> bool:
+    """Alias для is_admin — обратная совместимость."""
+    return await is_admin(discord_id)
+
+
+async def set_user_role(discord_id: int, role: str) -> bool:
+    """Установить роль юзера. Только superuser может вызывать.
+    Нельзя понизить env-admin (superuser через env).
+    Возвращает True если обновлено, False если отклонено.
+    """
+    if role not in ('superuser', 'junior-admin', 'user'):
+        return False
+    # Env admin нельзя понижать
+    if settings.admin_discord_id is not None and settings.admin_discord_id == discord_id:
+        return False
+    env_admin = settings.admin_login
+    if env_admin.isdigit() and int(env_admin) == discord_id:
+        return False
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE users SET role = ?, is_admin = ? WHERE discord_id = ?",
+            (role, 1 if role in ('superuser', 'junior-admin') else 0, discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def set_admin(discord_id: int, is_admin_flag: bool) -> None:
+    """Legacy: установить is_admin флаг. Конвертирует в role.
+    True → 'junior-admin' (не 'superuser' — тот только через env)
+    False → 'user'
+    """
+    await set_user_role(discord_id, 'junior-admin' if is_admin_flag else 'user')
 
 
 async def list_users() -> list[tuple]:
     async with _connect() as db:
         async with db.execute(
-            "SELECT discord_id, username, display_name, is_admin, last_login_at, avatar_url, top_role, guild_name "
+            "SELECT discord_id, username, display_name, is_admin, last_login_at, avatar_url, top_role, guild_name, role "
             "FROM users ORDER BY created_at DESC"
         ) as cur:
             return await cur.fetchall()
-
-
-async def set_admin(discord_id: int, is_admin_flag: bool) -> None:
-    async with _connect() as db:
-        await db.execute(
-            "UPDATE users SET is_admin = ? WHERE discord_id = ?",
-            (1 if is_admin_flag else 0, discord_id),
-        )
-        await db.commit()
 
 
 # === TG Links ===
@@ -746,7 +826,7 @@ async def get_notification_recipients(setting_key: str, organizer_discord_id: in
         async with db.execute(
             f"SELECT u.discord_id, t.tg_user_id, t.tg_username "
             f"FROM users u JOIN tg_links t ON u.discord_id = t.discord_id "
-            f"WHERE u.is_admin = 1 AND u.{setting_key} = 1 AND t.tg_user_id IS NOT NULL"
+            f"WHERE u.role IN ('superuser', 'junior-admin') AND u.{setting_key} = 1 AND t.tg_user_id IS NOT NULL"
         ) as cur:
             for row in await cur.fetchall():
                 if row[0] not in seen_discord_ids:

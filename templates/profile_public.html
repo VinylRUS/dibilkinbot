@@ -258,7 +258,7 @@
         <div>
           <div class="profile-name">
             {{ target.display_name }}
-            {% if target.is_admin %}<span class="profile-badge-admin">ADMIN</span>{% endif %}
+            {% if target.is_superuser %}<span class="profile-badge-admin"> Матка</span>{% elif target.is_admin %}<span class="profile-badge-admin" style="background: var(--green); color: #fff;">Трутень</span>{% endif %}
             {% if is_self %}<span style="font-size:0.7rem; color: var(--text-muted); font-weight: 500; margin-left: 6px;">(это вы)</span>{% endif %}
           </div>
           <div class="profile-meta">

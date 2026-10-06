@@ -1,5 +1,23 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.9.6
+### Новое
+- 3-уровневая система ролей (пчелиная тематика): Матка (superuser, все возможности), Трутень (junior-admin, может создавать ачивки, удалять фильмы из бэклога и победителей, но НЕ может лезть в настройки бота), Пчела (обычный юзер). Роли видны в sidebar, профиле и списке юзеров
+
+### Техническое
+- db.py: миграция v1.9.6 — добавлена колонка role TEXT DEFAULT 'user' в таблицу users. Существующие is_admin=1 → 'superuser' (если env ADMIN_DISCORD_ID) или 'junior-admin'. is_admin=0 → 'user'
+- db.py: get_user_role(discord_id) — возвращает 'superuser'/'junior-admin'/'user'. Env admin всегда superuser. ROLE_LABELS = {'superuser': 'Матка', 'junior-admin': 'Трутень', 'user': 'Пчела'}
+- db.py: is_superuser(discord_id) — только superuser. is_admin(discord_id) — superuser ИЛИ junior-admin (backward compat). set_user_role(discord_id, role) — устанавливает роль, нельзя понизить env-admin
+- db.py: set_admin() — legacy wrapper, конвертирует в set_user_role. get_user() и list_users() — добавлен role в SELECT
+- db.py: get_notification_recipients() — SQL изменён с is_admin=1 на role IN ('superuser','junior-admin')
+- web.py: require_superuser(request) — новая dependency для sensitive роутов. require_admin остаётся для junior-admin-доступных роутов
+- web.py: session payload теперь содержит is_superuser, role, role_label рядом с is_admin
+- web.py: роуты разделены: require_superuser = /tokens, /channels, /features, /guilds (approve/reject/delete), /users/{id}/admin (toggle), /api/achievements/discord_roles. require_admin = /achievements (create/delete/grant/revoke), /watched/{id}/delete, /winners/{id}/delete, /users (view), /api/wheel/clear, santa reveal/close, reset-password
+- web.py: toggle_admin теперь использует set_user_role('junior-admin'/'user'). Superuser нельзя понизить через toggle
+- sidebar.html: Токены/Каналы/Фичи/Серверы скрыты для junior-admin ({% if user.is_superuser %}). Ачивки/Юзеры видны любому админу. Badge: Матка (accent) / Трутень (green) / ничего
+- users.html: распаковка 9-tuple (добавлен role). Badge: Матка/Трутень/Пчела. Toggle отключён для superuser (нельзя понизить env-admin)
+- profile_public.html: badge показывает Матка (superuser) или Трутень (junior-admin)
+
 ## v1.9.5
 ### Новое
 - Liquid glass иконки: sidebar навигация теперь использует полупрозрачные стеклянные иконки в стиле liquid-glass с icons8. При наведении — нежный тёплый glow (drop-shadow 3px rgba(255,183,3,0.25) + brightness 1.12), плавный переход 0.25s. Иконки ачивок в конструкторе тоже liquid glass
