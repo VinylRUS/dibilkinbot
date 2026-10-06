@@ -192,6 +192,44 @@
       margin-bottom: 16px;
     }
     .back-link:hover { color: var(--accent); }
+    /* Достижения в профиле */
+    .achievements-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .user-achievement {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 10px 8px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      min-width: 80px;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .user-achievement:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--glass-shadow);
+    }
+    .user-achievement-icon {
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .user-achievement-icon svg { width: 48px; height: 48px; }
+    .user-achievement-name {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text);
+      text-align: center;
+      line-height: 1.2;
+    }
   </style>
 </head>
 <body>
@@ -271,6 +309,26 @@
           <div class="stat-label">В вишлисте</div>
         </div>
       </div>
+
+      {# Achievements #}
+      {% if user_achievements %}
+        <h3 class="section-title">🏅 Достижения</h3>
+        <div class="achievements-row">
+          {% for ach in user_achievements %}
+            <div class="user-achievement" title="{{ ach.description or ach.name }}">
+              <div class="user-achievement-icon" id="ua-icon-{{ ach.achievement_id }}"></div>
+              <div class="user-achievement-name">{{ ach.name }}</div>
+            </div>
+            <script>
+              (function() {
+                const config = {{ ach.icon_config | tojson }};
+                const el = document.getElementById('ua-icon-{{ ach.achievement_id }}');
+                if (el) el.innerHTML = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
+              })();
+            </script>
+          {% endfor %}
+        </div>
+      {% endif %}
 
       {# Recent ratings #}
       {% if recent_ratings %}
