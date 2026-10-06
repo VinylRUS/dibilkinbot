@@ -433,18 +433,13 @@
       if (svg && window.renderAchievementSVG) svg.innerHTML = window.renderAchievementSVG(builderConfig);
     }
 
-    // Иконки preset (SVG из библиотеки) — рендерим в кнопки
+    // Иконки preset (SVG path из библиотеки) — рендерим в кнопки
+    // preset icons теперь содержат только path, без <svg> обёртки.
+    // Оборачиваем в <svg viewBox="0 0 24 24" width="18" height="18">.
     document.querySelectorAll('.preset-icon-wrapper').forEach(el => {
       const key = el.dataset.key;
       if (window.ACHIEVEMENT_PRESET_ICONS && window.ACHIEVEMENT_PRESET_ICONS[key]) {
-        el.innerHTML = window.ACHIEVEMENT_PRESET_ICONS[key];
-        // Делаем SVG 18px, белый цвет
-        const svg = el.querySelector('svg');
-        if (svg) {
-          svg.setAttribute('width', '18');
-          svg.setAttribute('height', '18');
-          svg.style.color = 'currentColor';
-        }
+        el.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="color:currentColor;">${window.ACHIEVEMENT_PRESET_ICONS[key]}</svg>`;
       }
     });
 
