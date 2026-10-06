@@ -402,6 +402,57 @@ textarea:focus {
   background: var(--input-bg-focus);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
+/* === Кастомные select (v1.9.2) ===
+   Native <select> в браузерах рендерит выпадающий список с системными цветами,
+   что приводит к белому фону на option. Решение: appearance: none убирает
+   нативный стиль, кастомная стрелка через background-image, а для option
+   задаём явные цвета через color-scheme. */
+select {
+  width: 100%;
+  padding: 10px 36px 10px 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-family: inherit;
+  transition: all 0.2s;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  /* SVG-стрелка через background, цвет через currentColor */
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px;
+  cursor: pointer;
+  /* color-scheme: dark — браузер рендерит option в тёмной теме */
+  color-scheme: dark light;
+}
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background-color: var(--input-bg-focus);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+select:hover:not(:focus) {
+  border-color: var(--accent);
+}
+/* Явные цвета для option — перебивают системные */
+select option {
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 8px;
+}
+select option:checked {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+select option:hover {
+  background: var(--accent-soft);
+}
 .hint {
   font-size: 0.78rem;
   color: var(--text-muted);

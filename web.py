@@ -2874,8 +2874,8 @@ async def api_create_achievement(
     _user: dict = Depends(require_admin),
     name: str = Form(...),
     description: str = Form(""),
-    icon_shape: str = Form(...),
-    icon_emoji: str = Form(...),
+    icon_key: str = Form(""),
+    icon_url: str = Form(""),
     icon_color: str = Form(...),
     icon_glow: str = Form("none"),
     trigger_type: str = Form(...),
@@ -2888,9 +2888,14 @@ async def api_create_achievement(
         return JSONResponse({"error": "name required (1-64 chars)"}, status_code=400)
     if trigger_type not in db.ACHIEVEMENT_TRIGGERS:
         return JSONResponse({"error": f"invalid trigger_type: {trigger_type}"}, status_code=400)
+    # icon_url или icon_key — что-то одно должно быть
+    icon_url = icon_url.strip() if icon_url else ""
+    icon_key = icon_key.strip() if icon_key else ""
+    if not icon_url and not icon_key:
+        icon_key = "trophy"  # дефолт
     icon_config = {
-        "shape": icon_shape,
-        "emoji": icon_emoji,
+        "icon_key": icon_key,
+        "icon_url": icon_url,
         "color": icon_color,
         "glow": icon_glow,
     }
