@@ -696,6 +696,27 @@ async def list_users() -> list[tuple]:
             return await cur.fetchall()
 
 
+async def list_active_members(limit: int = 12) -> list[dict]:
+    """Список последних активных участников для дашборда (виден всем юзерам).
+
+    Возвращает [{discord_id, display_name, username, avatar_url, last_login_at, role}, ...]
+    Сортировка по last_login_at DESC (кто недавно заходил — те сверху).
+    """
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT discord_id, username, display_name, avatar_url, last_login_at, role "
+            "FROM users WHERE last_login_at IS NOT NULL "
+            "ORDER BY last_login_at DESC LIMIT ?",
+            (limit,)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"discord_id": r[0], "username": r[1], "display_name": r[2] or r[1],
+         "avatar_url": r[3], "last_login_at": r[4], "role": r[5] or 'user'}
+        for r in rows
+    ]
+
+
 # === TG Links ===
 
 async def create_tg_link_code(discord_id: int, code: str, expires_at: datetime) -> None:
@@ -1776,7 +1797,12 @@ async def g_delete_winner(guild_id: int, winner_id: int) -> bool:
 
 
 async def g_get_winners_with_ratings(guild_id: int, limit: int = 50, offset: int = 0, search: str | None = None) -> list[dict]:
-    """Победители с агрегированными рейтингами + пагинация + поиск."""
+    """Победители колеса с агрегированными рейтингами + пагинация + поиск.
+
+    v1.9.7: Показывает ТОЛЬКО confirmed победителей (реально выбранные колесом).
+    Виртуальные winners (confidence='unconfirmed', созданные при оценке фильма
+    из бэклога) НЕ показываются — они нужны только как контейнер для оценок.
+    """
     table_w = _guild.guild_table(guild_id, "winners")
     table_r = _guild.guild_table(guild_id, "ratings")
     async with _connect() as db:
@@ -1785,7 +1811,7 @@ async def g_get_winners_with_ratings(guild_id: int, limit: int = 50, offset: int
                 f"SELECT w.id, w.lot_name, w.tmdb_id, w.confidence, w.detected_at, w.confirmed_at, "
                 f"  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
                 f"FROM {table_w} w LEFT JOIN {table_r} r ON r.winner_id = w.id "
-                f"WHERE w.lot_name LIKE ? "
+                f"WHERE w.confidence = 'confirmed' AND w.lot_name LIKE ? "
                 f"GROUP BY w.id ORDER BY w.detected_at DESC LIMIT ? OFFSET ?"
             )
             params = (f"%{search}%", limit, offset)
@@ -1794,6 +1820,7 @@ async def g_get_winners_with_ratings(guild_id: int, limit: int = 50, offset: int
                 f"SELECT w.id, w.lot_name, w.tmdb_id, w.confidence, w.detected_at, w.confirmed_at, "
                 f"  COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as ratings_count "
                 f"FROM {table_w} w LEFT JOIN {table_r} r ON r.winner_id = w.id "
+                f"WHERE w.confidence = 'confirmed' "
                 f"GROUP BY w.id ORDER BY w.detected_at DESC LIMIT ? OFFSET ?"
             )
             params = (limit, offset)
@@ -1808,14 +1835,22 @@ async def g_get_winners_with_ratings(guild_id: int, limit: int = 50, offset: int
 
 
 async def g_count_winners(guild_id: int, search: str | None = None) -> int:
-    """Подсчёт количества победителей (с опциональным поиском)."""
+    """Подсчёт количества confirmed победителей колеса (с опциональным поиском).
+
+    v1.9.7: Считает только confidence='confirmed'.
+    """
     table_w = _guild.guild_table(guild_id, "winners")
     async with _connect() as db:
         if search:
-            async with db.execute(f"SELECT COUNT(*) FROM {table_w} WHERE lot_name LIKE ?", (f"%{search}%",)) as cur:
+            async with db.execute(
+                f"SELECT COUNT(*) FROM {table_w} WHERE confidence = 'confirmed' AND lot_name LIKE ?",
+                (f"%{search}%",)
+            ) as cur:
                 row = await cur.fetchone()
         else:
-            async with db.execute(f"SELECT COUNT(*) FROM {table_w}") as cur:
+            async with db.execute(
+                f"SELECT COUNT(*) FROM {table_w} WHERE confidence = 'confirmed'"
+            ) as cur:
                 row = await cur.fetchone()
         return row[0] if row else 0
 

@@ -693,6 +693,9 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
             "active_week": active_week,
         }
 
+    # Активные участники (виден всем юзерам, не только админ)
+    active_members = await db.list_active_members(limit=12)
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
         "current_guild_id": guild_id,
@@ -711,6 +714,7 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         "admin_activity": admin_activity,
         "unrated_winners": unrated_winners,
         "stats": stats,
+        "active_members": active_members,
     })
 
 
