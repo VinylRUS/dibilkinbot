@@ -3032,6 +3032,8 @@ async def api_create_achievement(
     role_id = int(discord_role_id) if discord_role_id and discord_role_id.isdigit() else None
     guild_id = get_current_guild_id(_user)
     admin_id = _user.get("discord_id", 0)
+    import logging
+    ach_logger = logging.getLogger("achievements")
     try:
         ach_id = await db.g_create_achievement(
             guild_id, name, description.strip() or None,
@@ -3039,7 +3041,17 @@ async def api_create_achievement(
             role_id, created_by=admin_id,
         )
     except ValueError as e:
+        ach_logger.warning("Achievement create (ValueError): %s", e)
         return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        # v2.0.4: Любая другая ошибка (например, БД недоступна, нет таблицы, диск read-only)
+        # — возвращаем понятный JSON с типом исключения и сообщением.
+        # Раньше FastAPI возвращал голый 500 + HTML, фронт показывал «Ошибка создания».
+        ach_logger.error("Achievement create failed: %s: %s", type(e).__name__, e, exc_info=True)
+        return JSONResponse(
+            {"error": f"{type(e).__name__}: {e}", "error_type": type(e).__name__},
+            status_code=500,
+        )
 
     # Ретроспективная выдача: проверить всех юзеров кто уже выполнил условия
     retro_count = 0
