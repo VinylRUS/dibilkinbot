@@ -559,7 +559,8 @@
           data.games.forEach(g => {
             const opt = document.createElement('option');
             opt.value = g.game_name;
-            opt.textContent = g.game_name + ' (' + Math.round(g.total_seconds / 3600) + ' ч, ' + g.players_count + ' игр.)';
+            opt.textContent = g.game_name;
+            // v2.0.5: только название игры — без часов/игроков в dropdown
             select.appendChild(opt);
           });
         } else {
@@ -606,6 +607,27 @@
     document.getElementById('create-achievement-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
+
+      // v2.0.5: читаем trigger_type напрямую из DOM select.value, а не только из FormData.
+      // Кастомный dropdown (upgradeSelects) меняет select.value через JS property,
+      // и в некоторых случаях FormData(form) может не подхватить это (race condition
+      // или если select скрыт через display:none + перенесён в DOM). Поэтому берём
+      // значение из самого select элемента и подменяем в formData.
+      const triggerSelect = document.getElementById('ach-trigger');
+      const triggerValue = triggerSelect ? triggerSelect.value : '';
+      if (triggerValue) {
+        formData.set('trigger_type', triggerValue);
+      }
+      // То же для game_name и discord_role_id — на всякий случай
+      const gameSelect = document.getElementById('ach-game-select');
+      if (gameSelect && gameSelect.value) {
+        formData.set('game_name', gameSelect.value);
+      }
+      const roleSelect = document.getElementById('ach-discord-role');
+      if (roleSelect && roleSelect.value) {
+        formData.set('discord_role_id', roleSelect.value);
+      }
+
       formData.set('icon_key', builderConfig.icon_key || '');
       formData.set('icon_url', builderConfig.icon_url || '');
       formData.set('icon_color', builderConfig.color || 'accent');
@@ -627,7 +649,8 @@
         return;
       }
       if (!formData.get('trigger_type')) {
-        showToast('Ошибка: поле "Триггер" обязательно', 'error');
+        showToast('Ошибка: поле "Триггер" обязательно (trigger_type пустой)', 'error');
+        console.error('trigger_type is empty. Select value:', triggerValue, 'Select element:', triggerSelect);
         return;
       }
       // Диагностика: выведем что отправляем
