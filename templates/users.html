@@ -88,7 +88,7 @@
           <th>Последний вход</th>
           <th>Сделать админом</th>
         </tr>
-        {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name in users %}
+        {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name, role in users %}
           <tr>
             <td>
               <a href="/u/{{ discord_id }}" class="user-row" style="border-bottom:none; padding:0; text-decoration:none; color:inherit;">
@@ -110,20 +110,26 @@
             </td>
             <td class="mono">{{ discord_id }}</td>
             <td>
-              {% if is_admin_flag %}
-                <span class="badge admin">admin</span>
+              {% if role == 'superuser' %}
+                <span class="badge admin" style="background: var(--accent); color: var(--accent-text);"> Матка</span>
+              {% elif role == 'junior-admin' %}
+                <span class="badge admin" style="background: var(--green); color: #fff;">Трутень</span>
               {% else %}
-                <span class="badge user">viewer</span>
+                <span class="badge user">Пчела</span>
               {% endif %}
             </td>
             <td class="mono">{{ format_msk(last_login_at) if last_login_at else "—" }}</td>
             <td>
-              <form method="post" action="/users/{{ discord_id }}/admin" style="margin:0; display:inline;">
-                <label class="switch">
-                  <input type="checkbox" name="make_admin" value="true" {% if is_admin_flag %}checked{% endif %} onchange="this.form.submit()">
-                  <span class="slider"></span>
-                </label>
-              </form>
+              {% if role == 'superuser' %}
+                <span style="color: var(--text-muted); font-size: 0.78rem;">—</span>
+              {% else %}
+                <form method="post" action="/users/{{ discord_id }}/admin" style="margin:0; display:inline;">
+                  <label class="switch">
+                    <input type="checkbox" name="make_admin" value="true" {% if is_admin_flag %}checked{% endif %} onchange="this.form.submit()">
+                    <span class="slider"></span>
+                  </label>
+                </form>
+              {% endif %}
               <button type="button" onclick="resetPassword({{ discord_id }})"
                       style="background: transparent; border: 1px solid var(--red); color: var(--red); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; margin: 0 0 0 6px;"
                       title="Сбросить пароль">🔑</button>
