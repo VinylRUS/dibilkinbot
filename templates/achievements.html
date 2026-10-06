@@ -368,9 +368,9 @@
           </select>
 
           <label for="ach-threshold" id="threshold-label">Порог</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <input type="number" id="ach-threshold" name="trigger_threshold" min="1" value="1" style="flex: 1;">
-            <select id="ach-threshold-unit" name="threshold_unit" style="max-width: 100px;">
+          <div style="display: flex; gap: 8px; align-items: stretch;">
+            <input type="number" id="ach-threshold" name="trigger_threshold" min="1" value="1" style="flex: 1; min-width: 0;">
+            <select id="ach-threshold-unit" name="threshold_unit" style="flex-shrink: 0; width: auto; min-width: 110px;">
               <option value="seconds">секунд</option>
               <option value="minutes">минут</option>
               <option value="hours" selected>часов</option>
