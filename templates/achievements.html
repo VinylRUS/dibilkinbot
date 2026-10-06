@@ -608,16 +608,40 @@
       const formData = new FormData(e.target);
       formData.set('icon_key', builderConfig.icon_key || '');
       formData.set('icon_url', builderConfig.icon_url || '');
-      formData.set('icon_color', builderConfig.color);
-      formData.set('icon_glow', builderConfig.glow);
+      formData.set('icon_color', builderConfig.color || 'accent');
+      formData.set('icon_glow', builderConfig.glow || 'none');
       // v2.0.1: Конвертация порога в секунды
-      const threshold = parseInt(formData.get('trigger_threshold') || '0');
+      // v2.0.4: защита от NaN — если поле threshold пустое или не-число, берём 0
+      const rawThreshold = formData.get('trigger_threshold');
+      let threshold = parseInt(rawThreshold);
+      if (isNaN(threshold) || threshold < 0) threshold = 0;
       const unit = formData.get('threshold_unit') || 'hours';
       let thresholdSeconds = threshold;
       if (unit === 'minutes') thresholdSeconds = threshold * 60;
       else if (unit === 'hours') thresholdSeconds = threshold * 3600;
-      formData.set('trigger_threshold', thresholdSeconds);
+      formData.set('trigger_threshold', String(thresholdSeconds));  // String() — строго строка, не NaN
       formData.delete('threshold_unit');
+      // v2.0.4: убеждаемся что все обязательные поля не пустые
+      if (!formData.get('name') || !formData.get('name').trim()) {
+        showToast('Ошибка: поле "Название" обязательно', 'error');
+        return;
+      }
+      if (!formData.get('trigger_type')) {
+        showToast('Ошибка: поле "Триггер" обязательно', 'error');
+        return;
+      }
+      // Диагностика: выведем что отправляем
+      console.log('Achievement create formData:', {
+        name: formData.get('name'),
+        trigger_type: formData.get('trigger_type'),
+        trigger_threshold: formData.get('trigger_threshold'),
+        icon_key: formData.get('icon_key'),
+        icon_url: formData.get('icon_url') ? '(url set)' : '(empty)',
+        icon_color: formData.get('icon_color'),
+        icon_glow: formData.get('icon_glow'),
+        game_name: formData.get('game_name') || '(empty)',
+        discord_role_id: formData.get('discord_role_id') || '(empty)',
+      });
       try {
         const r = await fetch('/api/achievements/create', { method: 'POST', body: formData });
         // v2.0.4: пытаемся распарсить JSON всегда, даже на 500 — чтобы показать реальную ошибку
