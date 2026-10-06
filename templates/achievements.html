@@ -283,7 +283,7 @@
                   <div class="ach-name">{{ ach.name }}</div>
                   {% if ach.description %}<div class="ach-desc">{{ ach.description }}{% endif %}</div>
                   <div class="ach-meta">
-                    <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' %} ≥ {{ ach.trigger_threshold }}{% endif %}</span>
+                    <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' and ach.trigger_type not in ('first_rating', 'first_quote') %} ≥ {% if ach.trigger_threshold >= 3600 %}{{ (ach.trigger_threshold / 3600) | round(1) }} ч{% elif ach.trigger_threshold >= 60 %}{{ (ach.trigger_threshold / 60) | round(0) }} мин{% else %}{{ ach.trigger_threshold }} сек{% endif %}{% endif %}</span>
                     {% if ach.discord_role_id %}<span class="ach-tag role">Discord роль</span>{% endif %}
                     {% if ach.trigger_type == 'manual' %}<span class="ach-tag manual">Только manual</span>{% endif %}
                     <span class="ach-tag">👤 {{ ach.granted_count }}</span>
@@ -361,14 +361,21 @@
             <option value="watched_count">В бэклоге N фильмов (гильдия)</option>
             <option value="first_rating">Первая оценка</option>
             <option value="first_quote">Первая цитата</option>
-            <option value="voice_time">N сек в войсе (любых)</option>
-            <option value="voice_time_solo">N сек в войсе (одиночных)</option>
-            <option value="voice_time_with_others">N сек в войсе (с другими)</option>
-            <option value="game_play_time">N сек играя в игры</option>
+            <option value="voice_time">Войс-чат (любое время)</option>
+            <option value="voice_time_solo">Войс-чат (одиночные)</option>
+            <option value="voice_time_with_others">Войс-чат (с другими)</option>
+            <option value="game_play_time">Игры (время игры)</option>
           </select>
 
-          <label for="ach-threshold" id="threshold-label">Порог (секунд)</label>
-          <input type="number" id="ach-threshold" name="trigger_threshold" min="1" value="3600">
+          <label for="ach-threshold" id="threshold-label">Порог</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="number" id="ach-threshold" name="trigger_threshold" min="1" value="1" style="flex: 1;">
+            <select id="ach-threshold-unit" name="threshold_unit" style="max-width: 100px;">
+              <option value="seconds">секунд</option>
+              <option value="minutes">минут</option>
+              <option value="hours" selected>часов</option>
+            </select>
+          </div>
 
           {# v2.0.1: Dropdown с играми — показывается только при game_play_time #}
           <div id="game-select-row" style="display:none;">
@@ -578,6 +585,14 @@
       formData.set('icon_url', builderConfig.icon_url || '');
       formData.set('icon_color', builderConfig.color);
       formData.set('icon_glow', builderConfig.glow);
+      // v2.0.1: Конвертация порога в секунды
+      const threshold = parseInt(formData.get('trigger_threshold') || '0');
+      const unit = formData.get('threshold_unit') || 'hours';
+      let thresholdSeconds = threshold;
+      if (unit === 'minutes') thresholdSeconds = threshold * 60;
+      else if (unit === 'hours') thresholdSeconds = threshold * 3600;
+      formData.set('trigger_threshold', thresholdSeconds);
+      formData.delete('threshold_unit');
       try {
         const r = await fetch('/api/achievements/create', { method: 'POST', body: formData });
         const data = await r.json();

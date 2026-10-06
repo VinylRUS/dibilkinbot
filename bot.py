@@ -1518,6 +1518,7 @@ async def _auto_create_member_profiles():
 
 async def _handle_voice_state_change(member, before, after):
     """Обработать изменение voice state — записать join/leave в БД."""
+    import guild as _guild
     guild_id = member.guild.id
     table = _guild.guild_table(guild_id, "voice_sessions")
     now = datetime.utcnow().isoformat()
@@ -1565,6 +1566,7 @@ async def _handle_voice_state_change(member, before, after):
 
 async def _handle_presence_change(before, after):
     """Обработать изменение активности — записать начало/конец игры в БД."""
+    import guild as _guild
     guild_id = after.guild.id if after.guild else None
     if not guild_id:
         return
