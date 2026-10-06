@@ -547,22 +547,41 @@
     }
 
     async function loadServerGames() {
+      const select = document.getElementById('ach-game-select');
+      if (!select) return;
+      const btn = event?.target || document.querySelector('button[onclick="loadServerGames()"]');
+      if (btn) { btn.innerHTML = '<span class="spinner-inline"></span>'; btn.disabled = true; }
       try {
         const r = await fetch('/api/achievements/server_games');
         const data = await r.json();
-        const select = document.getElementById('ach-game-select');
-        if (!select) return;
         select.innerHTML = '<option value="">Любая игра</option>';
-        if (data.games) {
+        if (data.games && data.games.length > 0) {
           data.games.forEach(g => {
             const opt = document.createElement('option');
             opt.value = g.game_name;
             opt.textContent = g.game_name + ' (' + Math.round(g.total_seconds / 3600) + ' ч, ' + g.players_count + ' игр.)';
             select.appendChild(opt);
           });
+        } else {
+          // Нет данных — покажем подсказку
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'Игры появятся когда юзеры начнут играть';
+          select.appendChild(opt);
+          showToast('Игр пока нет. Данные появятся автоматически.', 'info');
         }
+        // Обновляем кастомный dropdown (upgradeSelects создаёт копию)
+        select.removeAttribute('data-upgraded');
+        select.style.display = 'none';
+        const oldWrapper = select.nextElementSibling;
+        if (oldWrapper && oldWrapper.classList.contains('custom-select-wrapper')) {
+          oldWrapper.remove();
+        }
+        if (window.upgradeSelects) window.upgradeSelects();
       } catch (e) {
-        console.error('Failed to load games:', e);
+        showToast('Ошибка загрузки игр: ' + e.message, 'error');
+      } finally {
+        if (btn) { btn.innerHTML = '🔄 Загрузить список игр'; btn.disabled = false; }
       }
     }
 
