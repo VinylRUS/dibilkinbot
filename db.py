@@ -2639,20 +2639,25 @@ async def g_list_server_games(guild_id: int) -> list[dict]:
     """Список всех игр в которые играли на сервере (для ачивок и дашборда).
 
     Возвращает [{game_name, total_seconds, players_count}, ...] отсортированный по популярности.
+    Возвращает [] если таблица не существует или нет данных.
     """
-    table = _guild.guild_table(guild_id, "member_activities")
-    async with _connect() as db:
-        async with db.execute(
-            f"SELECT activity_name, COALESCE(SUM(duration_seconds), 0), COUNT(DISTINCT user_discord_id) "
-            f"FROM {table} WHERE activity_type = 'playing' AND ended_at IS NOT NULL "
-            f"GROUP BY activity_name ORDER BY SUM(duration_seconds) DESC",
-            ()
-        ) as cur:
-            rows = await cur.fetchall()
-    return [
-        {"game_name": r[0], "total_seconds": r[1], "players_count": r[2]}
-        for r in rows
-    ]
+    try:
+        table = _guild.guild_table(guild_id, "member_activities")
+        async with _connect() as db:
+            async with db.execute(
+                f"SELECT activity_name, COALESCE(SUM(duration_seconds), 0), COUNT(DISTINCT user_discord_id) "
+                f"FROM {table} WHERE activity_type = 'playing' AND ended_at IS NOT NULL "
+                f"GROUP BY activity_name ORDER BY SUM(duration_seconds) DESC",
+                ()
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            {"game_name": r[0], "total_seconds": r[1], "players_count": r[2]}
+            for r in rows
+        ]
+    except Exception as e:
+        log.warning("g_list_server_games failed (table may not exist yet): %s", e)
+        return []
 
 
 async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, game_name: str) -> int:
