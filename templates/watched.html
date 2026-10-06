@@ -391,6 +391,10 @@
           }
 
           showToast('✓ Оценка сохранена', 'success');
+          // v2.0.3: показать toast о новых ачивках если есть
+          if (data.new_achievements && data.new_achievements.length > 0) {
+            window.notifyNewAchievements(data.new_achievements);
+          }
         } else {
           showToast(data.error || 'Ошибка сохранения оценки', 'error');
         }
