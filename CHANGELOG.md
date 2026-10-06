@@ -1,5 +1,23 @@
 # DeeBeelkin Bot — Changelog
 
+## v1.9.4
+### Новое
+- Исправлены 4 критических бага в конструкторе ачивок, обнаруженные при ревью через браузер: иконки рендерились чёрными (SVG fill не поддерживал CSS-переменные), inline-скрипты не выполнялись, JSON обрезался в data-атрибутах, поле порога было видимо для ручных ачивок
+
+### Техническое
+- sidebar.html ACHIEVEMENT_COLORS: var(--accent) заменён на hex #FFB703 (SVG fill не поддерживает CSS-переменные — computed value был rgb(0,0,0)). Аналогично для red→#E55A4E, green→#6FAE5A. ACHIEVEMENT_GLOW_COLORS тоже переведены на hex
+- achievements.html: убран inline <script>renderAchievementIcon(...)</script> после каждой ачивки (вызывался до определения функции). Заменён на data-icon-config атрибут + рендеринг через querySelectorAll в конце <script>. Тот же фикс в profile_public.html
+- achievements.html + profile_public.html: data-icon-config использует одинарные кавычки (data-icon-config='...') — двойные кавычки JSON конфликтовали с HTML-атрибутом и обрезались до '{'. Добавлен |safe
+- achievements.html: onTriggerChange() вызывается при инициализации — поле порога теперь скрывается для manual/first_rating/first_quote при загрузке страницы
+
+## v1.9.3
+### Новое
+- Иконки ачивок больше не вылезают за границы круга: preset SVG хранят только <path> элементы (без <svg> обёртки), что корректно масштабируется через transform внутри родительского SVG
+
+### Техническое
+- sidebar.html ACHIEVEMENT_PRESET_ICONS: изменён формат хранения с полного '<svg viewBox=...><path/></svg>' на только '<path d=.../>'. renderAchievementSVG оборачивает path в <g transform='translate(20,20) scale(0.9)' fill='white'>. scale(0.9) даёт запас чтобы иконка не прилипала к краю круга
+- achievements.html: preset-icon-wrapper рендерит path через <svg viewBox='0 0 24 24' width='20' height='20' fill='currentColor'> — корректное масштабирование в кнопке конструктора
+
 ## v1.9.2
 ### Новое
 - Конструктор ачивок переработан: убраны формы (круг/щит/звезда/...) — теперь всегда кружок. Иконки выбираются из встроенной библиотеки SVG (20 пресетов: movie, star, trophy, film, popcorn, camera, crown, fire, diamond, heart, rocket, lightning, eye, check, users, quote, gift, santa, medal, target) или по URL (например с icons8). Все выпадающие списки (select) получили кастомный стиль под glassmorphism тему — больше нет белого-на-белом
