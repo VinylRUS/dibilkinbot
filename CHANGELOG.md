@@ -1,5 +1,27 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.0.0
+### Новое
+- Discord интеграция: автосоздание профилей для всех НЕ-ботов сервера при старте бота. При первом логине — предложение установить пароль (как и раньше)
+- Live статус в профиле: 🟢/🟡/🔴/⚫ онлайн/нет на месте/DND/офлайн + текущая игра 🎮 + в каком войсе 🎤 + с кем
+- Войс-статистика в профиле: общее время в войсе, количество сессий, время с другими и в одиночку
+- «Чаще сидел в войсе с»: топ-3 юзера по времени совместного пребывания в войс-каналах + в какие игры при этом играли
+- Топ игр: 3 любимые игры по времени игры
+- Трекинг игр: on_presence_update записывает начало/конец игры (только playing, не Spotify/стримы/кастомный статус)
+- Новые триггеры ачивок: N секунд в войсе (любых/одиночных/с другими), N секунд играя в игры
+
+### Техническое
+- bot.py: intents.presences + intents.voice_states включены. on_voice_state_update → voice_sessions. on_presence_update → member_activities. on_member_join → автосоздание профиля
+- bot.py: _auto_create_member_profiles() при on_ready — перебирает все серверы, создаёт записи в users для НЕ-ботов
+- bot.py: get_member_discord_info(discord_id, guild_id) — возвращает status, status_emoji, current_game, voice_channel, voice_with, joined_at, is_boosting
+- guild.py: новые таблицы voice_sessions (user, guild, channel, joined_at, left_at, duration, was_solo, games_played) и member_activities (user, guild, activity_type, activity_name, started_at, ended_at, duration)
+- db.py: g_get_voice_stats — total/solo/with_others/avg. g_get_voice_co_occurrence — топ-N юзеров по пересечению времени в войсе + игры. g_get_top_games — топ игр по времени. g_get_voice_time / g_get_game_play_time — для триггеров ачивок
+- db.py: ACHIEVEMENT_TRIGGERS добавлены voice_time, voice_time_solo, voice_time_with_others, game_play_time
+- db.py: g_get_user_trigger_count обновлён для новых триггеров (возвращает секунды, не количество)
+- web.py: /u/{id} — discord_info, voice_stats, voice_co, top_games в контексте
+- profile_public.html: блок Discord live (статус+игра+войс), блок войс-статистики, «чаще сидел с», топ игр
+- achievements.html: 4 новых option в dropdown триггеров
+
 ## v1.9.7
 ### Новое
 - /winners теперь показывает только реальные победители колеса (confirmed). Фильмы добавленные вручную в бэклог больше не появляются в победителях — они остаются в /watched с оценками, но не засоряют список победителей

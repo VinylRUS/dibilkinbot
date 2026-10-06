@@ -313,6 +313,89 @@
         </div>
       </div>
 
+      {# Discord live info (v2.0) #}
+      {% if discord_info %}
+      <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 16px; margin-bottom: 24px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <span style="font-size: 1.5rem;">{{ discord_info.status_emoji }}</span>
+          {% if discord_info.current_game %}
+            <span style="color: var(--text); font-size: 0.88rem;">🎮 Играет в <strong>{{ discord_info.current_game }}</strong></span>
+          {% endif %}
+          {% if discord_info.voice_channel %}
+            <span style="color: var(--accent); font-size: 0.88rem;">🎤 В войсе: {{ discord_info.voice_channel }}</span>
+            {% if discord_info.voice_with %}
+              <span style="color: var(--text-muted); font-size: 0.8rem;">с: {{ discord_info.voice_with | join(', ') }}</span>
+            {% endif %}
+          {% endif %}
+          {% if not discord_info.current_game and not discord_info.voice_channel %}
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Статус: {{ discord_info.status }}</span>
+          {% endif %}
+          {% if discord_info.is_boosting %}
+            <span style="color: var(--accent); font-size: 0.78rem;">💎 Бустит сервер</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Voice stats (v2.0) #}
+      {% if voice_stats and voice_stats.total_seconds > 0 %}
+      <h3 class="section-title">🎤 Войс-статистика</h3>
+      <div class="stats-grid" style="margin-bottom: 16px;">
+        <div class="stat-card">
+          <div class="stat-value">{{ (voice_stats.total_seconds / 3600) | round(1) }}</div>
+          <div class="stat-label">часов в войсе</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ voice_stats.total_sessions }}</div>
+          <div class="stat-label">сессий</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ (voice_stats.with_others_seconds / 3600) | round(1) }}</div>
+          <div class="stat-label">с другими</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ (voice_stats.solo_seconds / 3600) | round(1) }}</div>
+          <div class="stat-label">в одиночку</div>
+        </div>
+      </div>
+
+      {# Чаще сидел с... (v2.0) #}
+      {% if voice_co %}
+      <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 16px; margin-bottom: 24px;">
+        <div style="font-weight: 700; color: var(--text); margin-bottom: 10px; font-size: 0.92rem;">🤝 Чаще сидел в войсе с:</div>
+        {% for co in voice_co %}
+          <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border);">
+            <a href="/u/{{ co.other_user_id }}" style="text-decoration: none;">
+              {% if co.avatar_url %}
+                <img src="{{ co.avatar_url }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+              {% else %}
+                <div style="width:28px;height:28px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;font-size:0.8rem;">{{ co.display_name[:1]|upper }}</div>
+              {% endif %}
+            </a>
+            <a href="/u/{{ co.other_user_id }}" style="color: var(--text); text-decoration: none; font-weight: 600; flex: 1;">{{ co.display_name }}</a>
+            <span style="color: var(--text-muted); font-size: 0.82rem;">{{ (co.co_seconds / 3600) | round(1) }} ч</span>
+            {% if co.top_games %}
+              <span style="color: var(--accent); font-size: 0.75rem;">🎮 {{ co.top_games | join(', ') }}</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# Топ игр (v2.0) #}
+      {% if top_games %}
+      <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 16px; margin-bottom: 24px;">
+        <div style="font-weight: 700; color: var(--text); margin-bottom: 10px; font-size: 0.92rem;">🎮 Топ игр:</div>
+        {% for g in top_games %}
+          <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border);">
+            <span style="flex: 1; color: var(--text); font-weight: 600;">{{ g.game_name }}</span>
+            <span style="color: var(--text-muted); font-size: 0.82rem;">{{ (g.total_seconds / 3600) | round(1) }} ч · {{ g.sessions }} сессий</span>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endif %}
+
       {# Achievements #}
       {% if user_achievements %}
         <h3 class="section-title">🏅 Достижения</h3>
