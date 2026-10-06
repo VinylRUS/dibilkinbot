@@ -142,20 +142,20 @@
     {% if active_members %}
     <h2>🐝 Участники <span style="font-size:0.75rem; color:var(--text-soft); font-weight:400;">{{ active_members|length }}</span></h2>
     <article class="card">
-      <div style="display: grid; grid-template-columns: repeat(11, 1fr); gap: 14px; justify-items: center; max-width: 100%; overflow-x: auto;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 16px; justify-items: center;">
         {% for m in active_members %}
-          <a href="/u/{{ m.discord_id }}" style="text-decoration:none; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:56px;" title="{{ m.display_name }}{% if m.current_game %} — 🎮 {{ m.current_game }}{% endif %}{% if m.voice_channel %} — 🎤 {{ m.voice_channel }}{% endif %}">
-            <div class="avatar-wrap sm" style="width:48px; height:48px;">
+          <a href="/u/{{ m.discord_id }}" style="text-decoration:none; display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0;" title="{{ m.display_name }}{% if m.current_game %} — 🎮 {{ m.current_game }}{% endif %}{% if m.voice_channel %} — 🎤 {{ m.voice_channel }}{% endif %}">
+            <div class="avatar-wrap sm" style="width:56px; height:56px;">
               {% if m.avatar_url %}
-                <img src="{{ m.avatar_url }}" alt="" style="width:48px; height:48px; border-radius:50%; object-fit:cover; border: 2px solid {% if m.role == 'superuser' %}var(--accent){% elif m.role == 'junior-admin' %}var(--green){% else %}var(--border){% endif %};">
+                <img src="{{ m.avatar_url }}" alt="" style="width:56px; height:56px; border-radius:50%; object-fit:cover; border: 2px solid {% if m.role == 'superuser' %}var(--accent){% elif m.role == 'junior-admin' %}var(--green){% else %}var(--border){% endif %};">
               {% else %}
-                <div style="width:48px; height:48px; border-radius:50%; background:var(--accent-soft); display:flex; align-items:center; justify-content:center; color:var(--accent); font-weight:700; font-size:1.2rem; border: 2px solid {% if m.role == 'superuser' %}var(--accent){% elif m.role == 'junior-admin' %}var(--green){% else %}var(--border){% endif %};">
+                <div style="width:56px; height:56px; border-radius:50%; background:var(--accent-soft); display:flex; align-items:center; justify-content:center; color:var(--accent); font-weight:700; font-size:1.4rem; border: 2px solid {% if m.role == 'superuser' %}var(--accent){% elif m.role == 'junior-admin' %}var(--green){% else %}var(--border){% endif %};">
                   {{ m.display_name[:1]|upper if m.display_name else '?' }}
                 </div>
               {% endif %}
               <span class="status-dot {{ m.status or 'offline' }}"></span>
             </div>
-            <span style="font-size:0.68rem; color:var(--text); font-weight:600; text-align:center; max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            <span style="font-size:0.72rem; color:var(--text); font-weight:600; text-align:center; max-width:72px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
               {{ m.display_name }}
             </span>
           </a>
