@@ -831,7 +831,7 @@ KNOWN_FEATURES = [
 
 
 @app.get("/features", response_class=HTMLResponse)
-async def features_form(request: Request, _user: dict = Depends(require_user)):
+async def features_form(request: Request, _user: dict = Depends(require_superuser)):
     values = {key: (await db.get_setting(key) or default) for key, _label, default in KNOWN_FEATURES}
     return templates.TemplateResponse(request, "features.html", {
         "user": _user,
@@ -1284,7 +1284,7 @@ async def quotes_page(
 
 
 @app.post("/api/quotes/import-from-discord")
-async def api_import_quotes_from_discord(_user: dict = Depends(require_user)):
+async def api_import_quotes_from_discord(_user: dict = Depends(require_admin)):
     """Импортировать существующие сообщения из Discord-канала #цитатник в БД.
 
     Логика:
