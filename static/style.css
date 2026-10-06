@@ -453,6 +453,108 @@ select option:checked {
 select option:hover {
   background: var(--accent-soft);
 }
+
+/* === Кастомный dropdown (v1.9.5) ===
+   Заменяет нативный <select> на div-based компонент.
+   Нативный select скрывается (display:none), но остаётся в DOM для форм.
+   Кастомный dropdown полностью управляется JS, стилизован под glassmorphism. */
+.custom-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+.custom-select-trigger {
+  width: 100%;
+  padding: 10px 36px 10px 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-family: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+.custom-select-trigger::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.6;
+  transition: transform 0.2s;
+}
+.custom-select-wrapper.open .custom-select-trigger::after {
+  transform: translateY(-50%) rotate(180deg);
+}
+.custom-select-trigger:hover {
+  border-color: var(--accent);
+}
+.custom-select-wrapper.open .custom-select-trigger {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.custom-select-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--card-solid);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow-hover);
+  z-index: 1000;
+  padding: 4px;
+  display: none;
+  animation: custom-select-slide 0.15s ease-out;
+}
+.custom-select-wrapper.open .custom-select-options {
+  display: block;
+}
+@keyframes custom-select-slide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.custom-select-option {
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+}
+.custom-select-option:hover {
+  background: var(--accent-soft);
+}
+.custom-select-option.selected {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.custom-select-option .option-color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
 .hint {
   font-size: 0.78rem;
   color: var(--text-muted);
@@ -1206,6 +1308,20 @@ body.has-sidebar.sidebar-open {
 }
 .sb-item svg { flex-shrink: 0; opacity: 0.7; transition: opacity 0.2s; }
 .sb-item:hover svg, .sb-item.active svg { opacity: 1; }
+/* Liquid glass иконки (v1.9.5) — нежный тёплый glow при hover.
+   НЕ агрессивный: чуть-чуть drop-shadow + brightness.
+   transition делает «тепление» плавным. */
+.sb-liquid-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+  filter: drop-shadow(0 0 0px transparent);
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+.sb-item:hover .sb-liquid-icon,
+.sb-item.active .sb-liquid-icon {
+  opacity: 1;
+  filter: drop-shadow(0 0 3px rgba(255, 183, 3, 0.25)) brightness(1.12);
+}
 .sb-item-label { opacity: 0; transition: opacity 0.15s 0.1s; }
 .sidebar.open .sb-item-label { opacity: 1; }
 
