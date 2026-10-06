@@ -1365,12 +1365,12 @@ body.has-sidebar.sidebar-open {
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.2s;
+  width: 100%;
   justify-content: center;
 }
 .sidebar.open .sb-user {
   justify-content: flex-start;
   padding: 8px 12px;
-  width: 100%;
 }
 .sb-user:hover { background: var(--accent-soft); }
 .sb-user-avatar {
