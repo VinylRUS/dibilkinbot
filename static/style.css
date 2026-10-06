@@ -1086,7 +1086,7 @@ input:checked + .slider:before {
 .status-dot.dnd    { background: #F04747; }
 .status-dot.offline { background: #747F8D; }
 /* Маленький размер для дашборда (48px аватары) */
-.avatar-wrap.sm .status-dot { width: 10px; height: 10px; border-width: 2px; }
+.avatar-wrap.sm .status-dot { width: 14px; height: 14px; border-width: 2px; }
 .avatar-wrap.lg .status-dot { width: 16px; height: 16px; border-width: 3px; }
 
 /* ===== Spinner (для кнопок при отправке) ===== */
@@ -1184,10 +1184,6 @@ input:checked + .slider:before {
 
 /* ===== Мобильная адаптивность карточек списков (winners, watched, quotes) ===== */
 @media (max-width: 640px) {
-  /* Дашборд: участники — меньше колонок на мобиле */
-  .card > div[style*="grid-template-columns: repeat(11"] {
-    grid-template-columns: repeat(5, 1fr) !important;
-  }
   /* winners.html: .winner-card — grid 2 колонки → 1 колонка на мобиле */
   .winner-card {
     grid-template-columns: 1fr !important;
