@@ -493,7 +493,7 @@ async def set_password_submit(
 @app.post("/api/users/{discord_id}/reset-password")
 async def api_reset_password(
     discord_id: int,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_superuser),
 ):
     """Сбросить пароль юзера (только админ).
     Юзер получит DM в Discord с уведомлением.
@@ -1174,7 +1174,7 @@ async def api_movie_poster(
 # === Users management (admin only) ===
 
 @app.get("/users", response_class=HTMLResponse)
-async def users_page(request: Request, _user: dict = Depends(require_admin)):
+async def users_page(request: Request, _user: dict = Depends(require_superuser)):
     users = await db.list_users()
     return templates.TemplateResponse(request, "users.html", {
         "user": _user,

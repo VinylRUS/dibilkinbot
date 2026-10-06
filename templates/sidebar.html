@@ -102,10 +102,12 @@
       <span class="sb-item-label">Фичи</span>
     </a>
     {% endif %}
+    {% if user.is_superuser %}
     <a href="/users" class="sb-item {% if active == 'users' %}active{% endif %}">
       {{ sb_icon('users') }}
       <span class="sb-item-label">Юзеры</span>
     </a>
+    {% endif %}
     <a href="/achievements" class="sb-item {% if active == 'achievements' %}active{% endif %}">
       {{ sb_icon('achievements') }}
       <span class="sb-item-label">Ачивки</span>
