@@ -214,6 +214,16 @@ window.upgradeSelects = function() {
 
     const wrapper = document.createElement('div');
     wrapper.className = 'custom-select-wrapper';
+    // Наследуем стили ширины от оригинального select (если был max-width/min-width)
+    const compStyle = window.getComputedStyle(original);
+    if (compStyle.maxWidth && compStyle.maxWidth !== 'none') {
+      wrapper.style.maxWidth = compStyle.maxWidth;
+    }
+    // Если select внутри flex контейнера — не даём wrapper'у раздуться
+    const parent = original.parentElement;
+    if (parent && window.getComputedStyle(parent).display === 'flex') {
+      wrapper.style.width = 'auto';
+    }
 
     const trigger = document.createElement('div');
     trigger.className = 'custom-select-trigger';

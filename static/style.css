@@ -461,6 +461,7 @@ select option:hover {
 .custom-select-wrapper {
   position: relative;
   width: 100%;
+  flex-shrink: 0;
 }
 .custom-select-trigger {
   width: 100%;
