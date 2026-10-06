@@ -31,7 +31,9 @@ SESSION_TTL = 60 * 60 * 24 * 7  # 7 дней
 
 # v1.8.2: сменили salt чтобы инвалидировать все старые сессии
 # Старые сессии (с salt="panel-session") станут невалидными → всех разлогинит
-serializer = URLSafeTimedSerializer(settings.app_secret, salt="panel-session-v2")
+# v1.9.6: сменили salt чтобы инвалидировать все старые сессии
+# (старые session cookie не содержали is_superuser → кнопки пропадали)
+serializer = URLSafeTimedSerializer(settings.app_secret, salt="panel-session-v3")
 
 app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_url=None)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -1237,11 +1239,16 @@ async def toggle_admin(
     request: Request,
     discord_id: int,
     _user: dict = Depends(require_superuser),
-    make_admin: bool = Form(False),
+    role: str = Form("user"),
 ):
-    # Toggle переводит между 'junior-admin' и 'user'
-    # 'superuser' нельзя установить через toggle (только через env)
-    await db.set_user_role(discord_id, 'junior-admin' if make_admin else 'user')
+    """Изменить роль юзера. Только superuser (Матка).
+    Принимает role='user' (Пчела) или role='junior-admin' (Трутень).
+    Superuser нельзя установить или изменить через эту форму — только через env.
+    """
+    # Валидация: принимаем только user и junior-admin
+    if role not in ('user', 'junior-admin'):
+        role = 'user'
+    await db.set_user_role(discord_id, role)
     return RedirectResponse(url="/users?saved=1", status_code=303)
 
 

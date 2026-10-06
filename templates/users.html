@@ -84,9 +84,9 @@
         <tr>
           <th>Юзер</th>
           <th>Discord ID</th>
-          <th>Роль</th>
+          <th>Статус</th>
           <th>Последний вход</th>
-          <th>Сделать админом</th>
+          <th>Управление</th>
         </tr>
         {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name, role in users %}
           <tr>
@@ -121,13 +121,13 @@
             <td class="mono">{{ format_msk(last_login_at) if last_login_at else "—" }}</td>
             <td>
               {% if role == 'superuser' %}
-                <span style="color: var(--text-muted); font-size: 0.78rem;">—</span>
+                <span style="color: var(--text-muted); font-size: 0.78rem;">Матка (env)</span>
               {% else %}
                 <form method="post" action="/users/{{ discord_id }}/admin" style="margin:0; display:inline;">
-                  <label class="switch">
-                    <input type="checkbox" name="make_admin" value="true" {% if is_admin_flag %}checked{% endif %} onchange="this.form.submit()">
-                    <span class="slider"></span>
-                  </label>
+                  <select name="role" onchange="this.form.submit()" style="padding: 4px 8px; font-size: 0.8rem;">
+                    <option value="user" {% if role == 'user' or not role %}selected{% endif %}>Пчела</option>
+                    <option value="junior-admin" {% if role == 'junior-admin' %}selected{% endif %}>Трутень</option>
+                  </select>
                 </form>
               {% endif %}
               <button type="button" onclick="resetPassword({{ discord_id }})"
