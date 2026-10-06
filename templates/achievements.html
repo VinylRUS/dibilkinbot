@@ -319,13 +319,13 @@
             {% set preset_keys = ['movie', 'star', 'trophy', 'film', 'popcorn', 'camera', 'crown', 'fire', 'diamond', 'heart', 'rocket', 'lightning', 'eye', 'check', 'users', 'quote', 'gift', 'santa', 'medal', 'target'] %}
             {% for key in preset_keys %}
               <button type="button" class="option-btn {% if loop.first %}active{% endif %}" data-icon-key="{{ key }}" title="{{ key }}" style="display:flex;align-items:center;justify-content:center;padding:6px;">
-                <img src="https://img.icons8.com/liquid-glass/24/FFFFFF/{{ key }}.png" alt="{{ key }}" width="20" height="20" loading="lazy" style="opacity:0.8;" onerror="this.style.display='none'; this.parentElement.innerHTML='{{ key[:2] }}';">
+                <img src="/static/icons/{{ key }}.png" alt="{{ key }}" width="20" height="20" style="opacity:0.8;" onerror="this.style.display='none'; this.parentElement.innerHTML='{{ key[:2] }}';">
               </button>
             {% endfor %}
           </div>
 
           <label>Или URL иконки <span style="font-weight:400;color:var(--text-soft);font-size:0.72rem;">(напр. с icons8)</span></label>
-          <input type="text" id="ach-icon-url" name="icon_url" placeholder="https://img.icons8.com/ios-filled/50/FFFFFF/movie.png" style="font-size:0.78rem;">
+          <input type="text" id="ach-icon-url" name="icon_url" placeholder="https://img.icons8.com/liquid-glass/50/FFFFFF/your-icon.png" style="font-size:0.78rem;">
           <p style="font-size:0.72rem;color:var(--text-soft);margin-top:4px;line-height:1.4;">
             💡 На <a href="https://icons8.ru/" target="_blank" rel="noopener" style="color:var(--accent);">icons8.ru</a> выбери иконку → скопируй «Link to this image» → вставь сюда. Цвет в URL можно менять (hex-код без #).
           </p>

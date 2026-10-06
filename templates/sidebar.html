@@ -25,7 +25,7 @@
   'menu': 'menu'
 } -%}
 {%- set icon_name = icon_map.get(name, name) -%}
-<img src="https://img.icons8.com/liquid-glass/24/FFFFFF/{{ icon_name }}.png" alt="{{ name }}" width="18" height="18" loading="lazy" class="sb-liquid-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+<img src="/static/icons/{{ icon_name }}.png" alt="{{ name }}" width="18" height="18" class="sb-liquid-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
 <span style="display:none; width:18px; height:18px;">{% if name == 'dashboard' %}🏠{% elif name == 'movie' %}🎬{% elif name == 'wheel' %}🎡{% elif name == 'trophy' %}🏆{% elif name == 'backlog' %}📋{% elif name == 'quote' %}💬{% elif name == 'santa' %}🎅{% elif name == 'key' %}🔑{% elif name == 'channels' %}📺{% elif name == 'features' %}⚙️{% elif name == 'users' %}👥{% elif name == 'guilds' %}🏰{% elif name == 'achievements' %}🏆{% elif name == 'profile' %}👤{% elif name == 'logout' %}🚪{% elif name == 'menu' %}☰{% endif %}</span>
 {%- endmacro -%}
 
