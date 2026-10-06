@@ -367,8 +367,17 @@
             <option value="game_play_time">N сек играя в игры</option>
           </select>
 
-          <label for="ach-threshold" id="threshold-label">Порог</label>
-          <input type="number" id="ach-threshold" name="trigger_threshold" min="1" value="1">
+          <label for="ach-threshold" id="threshold-label">Порог (секунд)</label>
+          <input type="number" id="ach-threshold" name="trigger_threshold" min="1" value="3600">
+
+          {# v2.0.1: Dropdown с играми — показывается только при game_play_time #}
+          <div id="game-select-row" style="display:none;">
+            <label>Игра</label>
+            <select id="ach-game-select" name="game_name">
+              <option value="">Любая игра</option>
+            </select>
+            <button type="button" class="btn-ghost" onclick="loadServerGames()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Загрузить список игр</button>
+          </div>
 
           <label>Discord роль (опционально)</label>
           <select id="ach-discord-role" name="discord_role_id">
@@ -519,6 +528,34 @@
       } else {
         thresholdInput.style.display = '';
         thresholdLabel.style.display = '';
+      }
+      // v2.0.1: Показать dropdown с играми при выборе game_play_time
+      const gameRow = document.getElementById('game-select-row');
+      if (trigger === 'game_play_time') {
+        gameRow.style.display = '';
+        loadServerGames();
+      } else {
+        gameRow.style.display = 'none';
+      }
+    }
+
+    async function loadServerGames() {
+      try {
+        const r = await fetch('/api/achievements/server_games');
+        const data = await r.json();
+        const select = document.getElementById('ach-game-select');
+        if (!select) return;
+        select.innerHTML = '<option value="">Любая игра</option>';
+        if (data.games) {
+          data.games.forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g.game_name;
+            opt.textContent = g.game_name + ' (' + Math.round(g.total_seconds / 3600) + ' ч, ' + g.players_count + ' игр.)';
+            select.appendChild(opt);
+          });
+        }
+      } catch (e) {
+        console.error('Failed to load games:', e);
       }
     }
 

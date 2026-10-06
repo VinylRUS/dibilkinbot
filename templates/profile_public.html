@@ -317,7 +317,11 @@
       {% if discord_info %}
       <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 16px; margin-bottom: 24px;">
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <span style="font-size: 1.5rem;">{{ discord_info.status_emoji }}</span>
+          {# Status indicator — кружок как в Discord #}
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 10px; height: 10px; border-radius: 50%; background: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %}; box-shadow: 0 0 6px currentColor; color: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %};"></div>
+            <span style="color: var(--text-muted); font-size: 0.82rem; text-transform: capitalize;">{{ discord_info.status }}</span>
+          </div>
           {% if discord_info.current_game %}
             <span style="color: var(--text); font-size: 0.88rem;">🎮 Играет в <strong>{{ discord_info.current_game }}</strong></span>
           {% endif %}
@@ -326,9 +330,6 @@
             {% if discord_info.voice_with %}
               <span style="color: var(--text-muted); font-size: 0.8rem;">с: {{ discord_info.voice_with | join(', ') }}</span>
             {% endif %}
-          {% endif %}
-          {% if not discord_info.current_game and not discord_info.voice_channel %}
-            <span style="color: var(--text-muted); font-size: 0.85rem;">Статус: {{ discord_info.status }}</span>
           {% endif %}
           {% if discord_info.is_boosting %}
             <span style="color: var(--accent); font-size: 0.78rem;">💎 Бустит сервер</span>

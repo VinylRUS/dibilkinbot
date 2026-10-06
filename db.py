@@ -2458,6 +2458,14 @@ async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_ty
 
     granted = []
     for ach_id, name, desc, icon_cfg, threshold, role_id in achievements:
+        # v2.0.1: Для game_play_time — проверяем конкретную игру из icon_config
+        if trigger_type == "game_play_time":
+            cfg = json.loads(icon_cfg) if icon_cfg else {}
+            specific_game = cfg.get("game_name", "")
+            if specific_game:
+                count = await g_get_game_play_time_specific(guild_id, user_discord_id, specific_game)
+            else:
+                count = await g_get_game_play_time(guild_id, user_discord_id)
         # Для first_* триггеров threshold игнорируем, считаем что порог=1
         if trigger_type in ("first_rating", "first_quote"):
             should_grant = count >= 1
@@ -2625,6 +2633,63 @@ async def g_get_top_games(guild_id: int, user_discord_id: int, limit: int = 5) -
         {"game_name": r[0], "total_seconds": r[1], "sessions": r[2]}
         for r in rows
     ]
+
+
+async def g_list_server_games(guild_id: int) -> list[dict]:
+    """Список всех игр в которые играли на сервере (для ачивок и дашборда).
+
+    Возвращает [{game_name, total_seconds, players_count}, ...] отсортированный по популярности.
+    """
+    table = _guild.guild_table(guild_id, "member_activities")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT activity_name, COALESCE(SUM(duration_seconds), 0), COUNT(DISTINCT user_discord_id) "
+            f"FROM {table} WHERE activity_type = 'playing' AND ended_at IS NOT NULL "
+            f"GROUP BY activity_name ORDER BY SUM(duration_seconds) DESC",
+            ()
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"game_name": r[0], "total_seconds": r[1], "players_count": r[2]}
+        for r in rows
+    ]
+
+
+async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, game_name: str) -> int:
+    """Время игры в конкретную игру (секунды). Для триггера ачивок с конкретной игрой."""
+    table = _guild.guild_table(guild_id, "member_activities")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COALESCE(SUM(duration_seconds), 0) FROM {table} "
+            f"WHERE user_discord_id = ? AND activity_type = 'playing' AND activity_name = ? AND ended_at IS NOT NULL",
+            (user_discord_id, game_name)
+        ) as cur:
+            return (await cur.fetchone())[0] or 0
+
+
+async def list_active_members_with_discord(limit: int = 22) -> list[dict]:
+    """Список активных участников + их Discord статус.
+
+    v2.0.1: Сортировка по статусу (online → idle → dnd → offline).
+    Возвращает [{discord_id, display_name, username, avatar_url, last_login_at, role, status}, ...]
+    """
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT discord_id, username, display_name, avatar_url, last_login_at, role "
+            "FROM users WHERE last_login_at IS NOT NULL "
+            "ORDER BY last_login_at DESC LIMIT ?",
+            (limit * 2,)  # берём больше, потом отфильтруем по Discord статусу
+        ) as cur:
+            rows = await cur.fetchall()
+    members = []
+    for r in rows:
+        members.append({
+            "discord_id": r[0], "username": r[1], "display_name": r[2] or r[1],
+            "avatar_url": r[3], "last_login_at": r[4], "role": r[5] or 'user',
+            "status": "offline", "status_emoji": "⚫", "current_game": None,
+            "voice_channel": None,
+        })
+    return members
 
 
 async def g_get_voice_time(guild_id: int, user_discord_id: int, solo_only: bool = False, with_others_only: bool = False) -> int:

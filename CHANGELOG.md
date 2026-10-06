@@ -1,5 +1,23 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.0.1
+### Новое
+- Индикатор статуса Discord на аватарках в дашборде — маленький кружок в правом нижнем углу (как в самом Discord): 🟢 онлайн, 🟡 AFK, 🔴 DND, ⚫ оффлайн
+- Дашборд: 22 участника (2 ряда × 11), отсортированы по статусу — онлайн первыми, потом AFK, DND, оффлайн
+- Профиль: статус показывает цветной кружок + текст вместо эмодзи. Стиль как индикаторы подключений на дашборде
+- Ачивки: при выборе триггера «N сек играя в игры» появляется dropdown со списком игр с сервера (название + часы + сколько игроков). Можно выбрать конкретную игру или «Любая игра»
+- API /api/achievements/server_games — список всех игр в которые играли на сервере
+
+### Техническое
+- style.css: .avatar-wrap (position relative), .status-dot (absolute bottom-right, 10px круг, border 2px), .status-dot.online #43B581 / .idle #FAA61A / .dnd #F04747 / .offline #747F8D. .avatar-wrap.sm для дашборда, .lg для профиля
+- db.list_active_members_with_discord(limit=22): берёт 44 из БД (для запаса), web.py обогащает Discord статусами через get_member_discord_info, сортирует online→idle→dnd→offline, обрезает до 22
+- db.g_list_server_games(guild_id): SELECT activity_name, SUM(duration), COUNT(DISTINCT user) FROM member_activities GROUP BY activity_name. Для dropdown в конструкторе ачивок
+- db.g_get_game_play_time_specific(guild_id, user_id, game_name): время в конкретной игре. g_check_and_grant_auto: для game_play_time читает icon_config.game_name, если задана — проверяет конкретную игру
+- web.py /api/achievements/create: принимает game_name, сохраняет в icon_config
+- achievements.html: #game-select-row (display:none по умолчанию), показывается при trigger=game_play_time через onTriggerChange(). loadServerGames() → fetch /api/achievements/server_games
+- panel.html: grid-template-columns: repeat(11, 1fr) для участников. avatar-wrap.sm с status-dot на каждой аватарке. title показывает игру/войс при hover
+- profile_public.html: статус — цветной кружок 10px + box-shadow glow + текст. Убран эмодзи
+
 ## v2.0.0
 ### Новое
 - Discord интеграция: автосоздание профилей для всех НЕ-ботов сервера при старте бота. При первом логине — предложение установить пароль (как и раньше)
