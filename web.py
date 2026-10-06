@@ -694,7 +694,27 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         }
 
     # Активные участники (виден всем юзерам, не только админ)
-    active_members = await db.list_active_members(limit=12)
+    # v2.0.1: берём 22, enriched Discord статусами, сортировка online→idle→dnd→offline
+    active_members = await db.list_active_members_with_discord(limit=22)
+    # Обогащаем Discord статусами
+    try:
+        import bot as bot_module
+        status_order = {'online': 0, 'idle': 1, 'dnd': 2, 'offline': 3}
+        for m in active_members:
+            try:
+                info = await bot_module.get_member_discord_info(m["discord_id"], int(guild_id))
+                if info:
+                    m["status"] = info["status"]
+                    m["status_emoji"] = info["status_emoji"]
+                    m["current_game"] = info["current_game"]
+                    m["voice_channel"] = info["voice_channel"]
+            except Exception:
+                pass
+        # Сортировка: online → idle → dnd → offline
+        active_members.sort(key=lambda m: status_order.get(m.get("status", "offline"), 3))
+        active_members = active_members[:22]  # максимум 22
+    except Exception:
+        pass
 
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
@@ -2948,6 +2968,7 @@ async def api_create_achievement(
     trigger_type: str = Form(...),
     trigger_threshold: int = Form(0),
     discord_role_id: str = Form(""),
+    game_name: str = Form(""),
 ):
     """Создать ачивку."""
     name = name.strip()
@@ -2965,6 +2986,7 @@ async def api_create_achievement(
         "icon_url": icon_url,
         "color": icon_color,
         "glow": icon_glow,
+        "game_name": game_name.strip() if game_name else "",
     }
     role_id = int(discord_role_id) if discord_role_id and discord_role_id.isdigit() else None
     guild_id = get_current_guild_id(_user)
@@ -3120,6 +3142,14 @@ async def api_get_discord_roles(_user: dict = Depends(require_superuser)):
         return JSONResponse({"roles": roles})
     except Exception as e:
         return JSONResponse({"error": str(e), "roles": []}, status_code=500)
+
+
+@app.get("/api/achievements/server_games")
+async def api_get_server_games(_user: dict = Depends(require_admin)):
+    """Список всех игр в которые играли на сервере (для триггеров ачивок)."""
+    guild_id = get_current_guild_id(_user)
+    games = await db.g_list_server_games(guild_id)
+    return JSONResponse({"games": games})
 
 
 @app.get("/api/achievements/{ach_id}/users")
