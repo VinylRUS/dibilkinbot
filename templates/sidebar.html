@@ -19,14 +19,14 @@
   'features': 'settings',
   'users': 'groups',
   'guilds': 'parallel-tasks',
-  'achievements': 'trophy',
+  'achievements': 'medal',
   'profile': 'user',
   'logout': 'exit',
   'menu': 'menu'
 } -%}
 {%- set icon_name = icon_map.get(name, name) -%}
 <img src="/static/icons/{{ icon_name }}.png" alt="{{ name }}" width="18" height="18" class="sb-liquid-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
-<span style="display:none; width:18px; height:18px;">{% if name == 'dashboard' %}🏠{% elif name == 'movie' %}🎬{% elif name == 'wheel' %}🎡{% elif name == 'trophy' %}🏆{% elif name == 'backlog' %}📋{% elif name == 'quote' %}💬{% elif name == 'santa' %}🎅{% elif name == 'key' %}🔑{% elif name == 'channels' %}📺{% elif name == 'features' %}⚙️{% elif name == 'users' %}👥{% elif name == 'guilds' %}🏰{% elif name == 'achievements' %}🏆{% elif name == 'profile' %}👤{% elif name == 'logout' %}🚪{% elif name == 'menu' %}☰{% endif %}</span>
+<span style="display:none; width:18px; height:18px;">{% if name == 'dashboard' %}🏠{% elif name == 'movie' %}🎬{% elif name == 'wheel' %}🎡{% elif name == 'trophy' %}🏆{% elif name == 'backlog' %}📋{% elif name == 'quote' %}💬{% elif name == 'santa' %}🎅{% elif name == 'key' %}🔑{% elif name == 'channels' %}📺{% elif name == 'features' %}⚙️{% elif name == 'users' %}👥{% elif name == 'guilds' %}🏰{% elif name == 'achievements' %}🏅{% elif name == 'profile' %}👤{% elif name == 'logout' %}🚪{% elif name == 'menu' %}☰{% endif %}</span>
 {%- endmacro -%}
 
 <script>
@@ -49,6 +49,17 @@
       <img src="/static/bee.png" alt="DeeBeelkin">
     </div>
     <div class="sidebar-title">DeeBeelkin</div>
+    {# v2.0.3: Bell icon с бейджем непрочитанных ачивок #}
+    {% set unread_count = user.unread_achievements_count or 0 %}
+    <a href="/u/{{ user.discord_id }}#achievements"
+       class="sb-bell {% if unread_count == 0 %}sb-bell-empty{% endif %}"
+       title="{% if unread_count > 0 %}У вас {{ unread_count }} новых ачивок!{% else %}Нет новых ачивок{% endif %}"
+       onclick="return markAchievementsRead(this);">
+      <span class="sb-bell-icon">🔔</span>
+      {% if unread_count > 0 %}
+        <span class="sb-bell-badge">{{ unread_count if unread_count < 100 else '99+' }}</span>
+      {% endif %}
+    </a>
   </div>
 
   <nav class="sidebar-nav">
@@ -328,6 +339,27 @@ window.showToast = function(message, type = 'info', duration = 3500) {
     toast.classList.add('removing');
     setTimeout(() => toast.remove(), 200);
   }, duration);
+};
+
+// v2.0.3: Mark achievements as read — вызывается при клике на bell.
+// POST /api/achievements/mark_read, потом переходим по ссылке на профиль.
+window.markAchievementsRead = function(linkEl) {
+  // Не блокируем переход — выполняем POST в фоне, ссылка сработает сама
+  fetch('/api/achievements/mark_read', { method: 'POST' }).catch(() => {});
+  return true;  // позволить переход по ссылке
+};
+
+// v2.0.3: Показать toast о новых ачивках.
+// Вызывается из JS rate/quote форм после получения new_achievements из ответа.
+window.notifyNewAchievements = function(achievements) {
+  if (!achievements || !achievements.length) return;
+  achievements.forEach((ach, i) => {
+    setTimeout(() => {
+      const name = ach.name || 'Ачивка';
+      const msg = '🏆 Новая ачивка: ' + name;
+      window.showToast(msg, 'success', 5000);
+    }, i * 800);  // stagger toasts
+  });
 };
 
 // Глобальная замена alert() на toast для ВСЕХ страниц.

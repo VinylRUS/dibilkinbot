@@ -208,3 +208,46 @@ Stage Summary:
   3. Опционально через кнопку refresh — g_dedupe_games схлопнет существующие дубликаты
 - Совместимо со старыми данными: ничего не сломано, всё работает на свежих и существующих БД
 - Готово к коммиту и PR в main
+
+---
+Task ID: feature/v2.0.3-notif-icons-games
+Agent: main
+Task: v2.0.3 — оповещения о новых достижениях, смена иконки ачивок, последние игры + совместимость по играм
+
+Work Log:
+- Стянул с main последнюю версию (включает v2.0.2)
+- Создана ветка feature/v2.0.3-notif-icons-games из обновлённого main
+- Пункт 2 (легко): sidebar.html — 'achievements': 'trophy' → 'medal', эмодзи 🏆 → 🏅 в fallback
+- Пункт 3a (db.py): добавлены функции:
+  * g_get_user_recent_games(guild_id, user_id, limit=5) — последние игры по ended_at DESC
+  * g_get_game_compat(guild_id, user_a, user_b) — common / max(unique_a, unique_b) * 100
+- Пункт 3c (web.py): /u/{discord_id} — добавлены recent_games + game_compat в контекст
+- Пункт 3b (profile_public.html):
+  * taste-match-card уменьшен (padding 18→10, percent 2.2→1.5rem, sub 0.85→0.78rem)
+  * Убрана строка «Вместе посмотрели: N» + ветка elif watched_together (лишняя инфа)
+  * Добавлен .compat-card-mini для game_compat (компактная плашка, до 3 названий игр в tooltip)
+  * Добавлен блок «🎮 Последние игры» — список <ul> с game-name, duration, date
+- Пункт 1a (db.py):
+  * Миграция users — добавлена колонка last_viewed_achievements_at TEXT
+  * g_count_unread_achievements(guild_id, user_id) — COUNT WHERE granted_at > last_viewed_at
+  * g_mark_achievements_viewed(user_id) — UPDATE last_viewed_achievements_at = now
+- Пункт 1b (web.py):
+  * get_current_user обогащается полем unread_achievements_count (один SELECT COUNT на запрос)
+  * /api/winners/{id}/rate — возврат g_check_and_grant_auto попадает в new_achievements
+  * /api/watched/{id}/rate — то же самое
+  * /api/quotes — то же самое (для записавшего)
+  * Новый POST /api/achievements/mark_read — сброс бейджа
+  * /u/{discord_id} — если юзер смотрит свой профиль, автоматически mark_achievements_viewed
+- Пункт 1c (sidebar.html + style.css):
+  * Bell icon в sidebar-header: классы .sb-bell / .sb-bell-empty / .sb-bell-badge
+  * Бейдж с пульсацией (sb-bell-pulse keyframes) + тряска иконки (sb-bell-ring)
+  * JS: markAchievementsRead(link) — POST /api/achievements/mark_read + переход
+  * JS: notifyNewAchievements(list) — показывает toast «🏆 Новая ачивка: %s» с stagger
+- winners.html / watched.html / quotes.html: вызов notifyNewAchievements если data.new_achievements
+- Тесты: /home/z/my-project/scripts/test_v203.py — 4 теста (unread, recent_games, game_compat, dedup), все проходят
+
+Stage Summary:
+- Bell icon показывает счётчик непросмотренных ачивок. При оценке фильма / записи цитаты — toast о новой ачивке
+- Иконка ачивок в сайдбаре теперь 🏅 (medal), а не 🏆 (trophy) — отличается от победителей колеса
+- В профиле появился блок «🎮 Последние игры» (5 последних сыгранных, с временем) + компактная плашка совместимости по играм
+- Плашка совместимости фильмов уменьшена — убран лишний текст, уменьшены размеры

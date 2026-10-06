@@ -84,11 +84,28 @@ def read_session(token: str) -> dict | None:
 
 
 async def get_current_user(request: Request) -> dict | None:
-    """Возвращает user dict из сессии, или None если сессия невалидна/протухла/старого формата."""
+    """Возвращает user dict из сессии, или None если сессия невалидна/протухла/старого формата.
+
+    v2.0.3: также обогащает user dict количеством непрочитанных ачивок
+    (для бейджа в sidebar). SELECT COUNT(*) — быстрый, индекс есть.
+    """
     token = request.cookies.get("session")
     if not token:
         return None
-    return read_session(token)
+    user = read_session(token)
+    if not user:
+        return None
+    # v2.0.3: обогащаем unread_achievements_count
+    discord_id = user.get("discord_id")
+    guild_id = user.get("current_guild_id", 0)
+    if discord_id and guild_id:
+        try:
+            user["unread_achievements_count"] = await db.g_count_unread_achievements(guild_id, discord_id)
+        except Exception:
+            user["unread_achievements_count"] = 0
+    else:
+        user["unread_achievements_count"] = 0
+    return user
 
 
 async def require_user(request: Request) -> dict:
@@ -953,9 +970,10 @@ async def api_rate_winner(
         return JSONResponse({"error": "failed to save rating"}, status_code=500)
 
     # Авто-выдача ачивок по триггеру ratings_count
+    new_achievements = []
     try:
-        await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
-        await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
     except Exception as e:
         import logging
         logging.getLogger("achievements").warning("auto-grant check failed: %s", e)
@@ -967,6 +985,7 @@ async def api_rate_winner(
         "user_rating": rating,
         "avg_rating": avg,
         "ratings_count": count,
+        "new_achievements": new_achievements,
     })
 
 
@@ -1149,9 +1168,10 @@ async def api_rate_watched(
         return JSONResponse({"error": "failed to save rating"}, status_code=500)
 
     # Авто-выдача ачивок по триггеру ratings_count
+    new_achievements = []
     try:
-        await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
-        await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
     except Exception as e:
         import logging
         logging.getLogger("achievements").warning("auto-grant check failed: %s", e)
@@ -1164,6 +1184,7 @@ async def api_rate_watched(
         "user_rating": rating,
         "avg_rating": avg,
         "ratings_count": count,
+        "new_achievements": new_achievements,
     })
 
 
@@ -1440,13 +1461,14 @@ async def api_create_quote(
         guild_id, author, author_user_id, text, recorded_by, author_avatar_url, message_link,
     )
     # Авто-выдача ачивок по триггеру quotes_count (для записавшего)
+    new_achievements = []
     try:
-        await db.g_check_and_grant_auto(guild_id, recorded_by, "quotes_count")
-        await db.g_check_and_grant_auto(guild_id, recorded_by, "first_quote")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, recorded_by, "quotes_count")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, recorded_by, "first_quote")
     except Exception as e:
         import logging
         logging.getLogger("achievements").warning("auto-grant check failed: %s", e)
-    return JSONResponse({"ok": True, "id": quote_id})
+    return JSONResponse({"ok": True, "id": quote_id, "new_achievements": new_achievements})
 
 
 @app.get("/api/quotes/export")
@@ -1615,6 +1637,23 @@ async def public_profile_page(
     except Exception:
         pass
 
+    # v2.0.3: Последние игры + game_compat
+    recent_games = None
+    game_compat = None
+    try:
+        recent_games = await db.g_get_user_recent_games(guild_id, target_discord_id, limit=5)
+        if current_discord_id and current_discord_id != target_discord_id:
+            game_compat = await db.g_get_game_compat(guild_id, current_discord_id, target_discord_id)
+    except Exception:
+        pass
+
+    # v2.0.3: Если юзер смотрит свой профиль — отмечаем ачивки как просмотренные
+    if is_self and current_discord_id:
+        try:
+            await db.g_mark_achievements_viewed(current_discord_id)
+        except Exception:
+            pass
+
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
         "target": {
@@ -1642,6 +1681,8 @@ async def public_profile_page(
         "voice_stats": voice_stats,
         "voice_co": voice_co,
         "top_games": top_games,
+        "recent_games": recent_games,
+        "game_compat": game_compat,
     })
 
 
@@ -3176,6 +3217,19 @@ async def api_get_server_games(_user: dict = Depends(require_admin)):
     guild_id = get_current_guild_id(_user)
     games = await db.g_list_server_games(guild_id)
     return JSONResponse({"games": games})
+
+
+@app.post("/api/achievements/mark_read")
+async def api_mark_achievements_read(_user: dict = Depends(require_user)):
+    """Отметить что текущий юзер просмотрел свои ачивки — сбрасывает unread-бейдж.
+
+    v2.0.3: вызывается сайдбаром при клике на бейдж колокольчика.
+    """
+    discord_id = _user.get("discord_id")
+    if not discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+    await db.g_mark_achievements_viewed(discord_id)
+    return JSONResponse({"ok": True})
 
 
 @app.get("/api/achievements/{ach_id}/users")

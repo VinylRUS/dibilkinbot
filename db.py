@@ -190,6 +190,8 @@ async def init_db() -> None:
                 "password_salt": "TEXT",
                 # v1.9.6: роль юзера ('superuser' | 'junior-admin' | 'user')
                 "role": "TEXT DEFAULT 'user'",
+                # v2.0.3: timestamp последнего просмотра своих ачивок — для unread-бейджа
+                "last_viewed_achievements_at": "TEXT",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in existing_cols:
@@ -2344,6 +2346,52 @@ async def g_count_user_achievements(guild_id: int, user_discord_id: int) -> int:
             return (await cur.fetchone())[0]
 
 
+async def g_count_unread_achievements(guild_id: int, user_discord_id: int) -> int:
+    """Сколько новых (непросмотренных) ачивок у юзера.
+
+    Ачивка считается «новой» если её granted_at позже чем users.last_viewed_achievements_at.
+    Если last_viewed_achievements_at IS NULL (юзер ни разу не открывал свои ачивки) —
+    считаем все активные ачивки новыми.
+    """
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    async with _connect() as db:
+        # Берём last_viewed_achievements_at юзера
+        async with db.execute(
+            "SELECT last_viewed_achievements_at FROM users WHERE discord_id = ?",
+            (user_discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return 0
+        last_viewed = row[0]
+        if last_viewed:
+            sql = (
+                f"SELECT COUNT(*) FROM {table_ua} "
+                f"WHERE user_discord_id = ? AND is_active = 1 AND granted_at > ?"
+            )
+            params = (user_discord_id, last_viewed)
+        else:
+            # Юзер ни разу не открывал ачивки → все активные — «новые»
+            sql = (
+                f"SELECT COUNT(*) FROM {table_ua} "
+                f"WHERE user_discord_id = ? AND is_active = 1"
+            )
+            params = (user_discord_id,)
+        async with db.execute(sql, params) as cur:
+            return (await cur.fetchone())[0]
+
+
+async def g_mark_achievements_viewed(user_discord_id: int) -> None:
+    """Отметить что юзер просмотрел свои ачивки — обновить last_viewed_achievements_at."""
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        await db.execute(
+            "UPDATE users SET last_viewed_achievements_at = ? WHERE discord_id = ?",
+            (now, user_discord_id)
+        )
+        await db.commit()
+
+
 async def g_has_achievement(guild_id: int, achievement_id: int, user_discord_id: int) -> bool:
     """Проверить, есть ли у юзера активная ачивка."""
     table_ua = _guild.guild_table(guild_id, "user_achievements")
@@ -2633,6 +2681,84 @@ async def g_get_top_games(guild_id: int, user_discord_id: int, limit: int = 5) -
         {"game_name": r[0], "total_seconds": r[1], "sessions": r[2]}
         for r in rows
     ]
+
+
+async def g_get_user_recent_games(guild_id: int, user_discord_id: int, limit: int = 5) -> list[dict]:
+    """Последние игры юзера — отсортированы по времени окончания сессии (DESC).
+
+    В отличие от g_get_top_games (которая ранжирует по времени игры),
+    эта функция показывает «во что играл недавно» — без агрегации.
+
+    Возвращает [{game_name, total_seconds, ended_at}, ...]
+    """
+    table = _guild.guild_table(guild_id, "member_activities")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT activity_name, COALESCE(duration_seconds, 0), ended_at "
+            f"FROM {table} WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL "
+            f"ORDER BY ended_at DESC LIMIT ?",
+            (user_discord_id, limit)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {"game_name": r[0], "total_seconds": r[1], "ended_at": r[2]}
+        for r in rows
+    ]
+
+
+async def g_get_game_compat(guild_id: int, user_a: int, user_b: int) -> dict:
+    """Совместимость двух юзеров по играм.
+
+    Берём игры в которые играл каждый юзер (хотя бы 1 завершённая сессия).
+    Считаем количество общих игр.
+    compatibility = common / max(unique_a, unique_b) * 100  — насколько пересекаются библиотеки.
+
+    Возвращает:
+    - common_count: сколько общих игр
+    - unique_a: сколько уникальных игр у user_a
+    - unique_b: сколько уникальных игр у user_b
+    - compatibility: 0-100%
+    - common_games: list[str] — названия общих игр (для отображения)
+    """
+    if user_a == user_b:
+        return {"common_count": 0, "unique_a": 0, "unique_b": 0, "compatibility": 0, "common_games": []}
+    table = _guild.guild_table(guild_id, "member_activities")
+    async with _connect() as db:
+        # Уникальные нормализованные имена игр каждого юзера
+        async with db.execute(
+            f"SELECT DISTINCT {_NORM_GAME_SQL} AS norm, MAX(activity_name) AS display "
+            f"FROM {table} WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL "
+            f"GROUP BY norm",
+            (user_a,)
+        ) as cur:
+            rows_a = await cur.fetchall()
+        async with db.execute(
+            f"SELECT DISTINCT {_NORM_GAME_SQL} AS norm, MAX(activity_name) AS display "
+            f"FROM {table} WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL "
+            f"GROUP BY norm",
+            (user_b,)
+        ) as cur:
+            rows_b = await cur.fetchall()
+    games_a = {r[0]: r[1] for r in rows_a}
+    games_b = {r[0]: r[1] for r in rows_b}
+    unique_a = len(games_a)
+    unique_b = len(games_b)
+    common_norm = set(games_a.keys()) & set(games_b.keys())
+    common_count = len(common_norm)
+    common_games = sorted({games_a[n] or games_b[n] for n in common_norm})
+    if unique_a == 0 and unique_b == 0:
+        compatibility = 0
+    else:
+        # Jaccard-like: common / max(a, b) — показывает «насколько пересекаются библиотеки»
+        # Если у A 3 игры, у B 5, общих 2 → 2/5 = 40%
+        compatibility = round(common_count / max(unique_a, unique_b) * 100)
+    return {
+        "common_count": common_count,
+        "unique_a": unique_a,
+        "unique_b": unique_b,
+        "compatibility": compatibility,
+        "common_games": common_games,
+    }
 
 
 async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, game_name: str) -> int:

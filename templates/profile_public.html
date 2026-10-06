@@ -87,23 +87,81 @@
     .taste-match-card {
       background: linear-gradient(135deg, var(--accent-soft) 0%, transparent 100%);
       border: 1px solid var(--accent);
-      border-radius: 14px;
-      padding: 18px 20px;
-      margin-bottom: 24px;
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
       display: flex;
-      gap: 16px;
+      gap: 12px;
       align-items: center;
       flex-wrap: wrap;
     }
     .taste-match-percent {
-      font-size: 2.2rem;
+      font-size: 1.5rem;
       font-weight: 800;
       color: var(--accent);
       line-height: 1;
     }
-    .taste-match-text { flex: 1; min-width: 200px; }
-    .taste-match-title { font-weight: 700; color: var(--text); margin-bottom: 4px; }
-    .taste-match-sub { color: var(--text-muted); font-size: 0.85rem; }
+    .taste-match-text { flex: 1; min-width: 180px; }
+    .taste-match-title { font-weight: 700; color: var(--text); margin-bottom: 2px; font-size: 0.92rem; }
+    .taste-match-sub { color: var(--text-muted); font-size: 0.78rem; }
+    {# Compact compat card for games — smaller sibling of taste-match-card #}
+    .compat-card-mini {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      margin-bottom: 16px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .compat-card-mini .compat-percent {
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+    }
+    .compat-card-mini .compat-text {
+      flex: 1;
+      min-width: 160px;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+    }
+    .compat-card-mini .compat-text strong { color: var(--text); font-size: 0.85rem; }
+    .recent-games-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .recent-games-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .recent-games-list li:last-child { border-bottom: none; }
+    .recent-games-list .game-name {
+      flex: 1;
+      color: var(--text);
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .recent-games-list .game-duration {
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      flex-shrink: 0;
+    }
+    .recent-games-list .game-date {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      flex-shrink: 0;
+      min-width: 70px;
+      text-align: right;
+    }
     .section-title {
       font-size: 1.1rem;
       font-weight: 700;
@@ -272,23 +330,25 @@
         </div>
       </div>
 
-      {# Taste match #}
+      {# Compact taste match + game compat — v2.0.3: убрали лишнюю инфу, плашки стали меньше #}
       {% if taste_match and taste_match.common_count >= 3 %}
         <div class="taste-match-card">
           <div class="taste-match-percent">{{ taste_match.compatibility }}%</div>
           <div class="taste-match-text">
-            <div class="taste-match-title">🤝 Совпадение вкусов с вами</div>
-            <div class="taste-match-sub">
-              Вы с {{ target.display_name }} оценили {{ taste_match.common_count }} общих фильмов.
-              {% if watched_together > 0 %}Вместе посмотрели: {{ watched_together }}.{% endif %}
-            </div>
+            <div class="taste-match-title">🤝 Совпадение вкусов</div>
+            <div class="taste-match-sub">{{ taste_match.common_count }} общих фильмов</div>
           </div>
         </div>
-      {% elif watched_together > 0 %}
-        <div class="taste-match-card" style="background: var(--glass-bg); border-color: var(--glass-border);">
-          <div class="taste-match-text">
-            <div class="taste-match-title">🎬 Вместе посмотрели: {{ watched_together }}</div>
-            <div class="taste-match-sub">Фильмов, которые вы оба оценили.</div>
+      {% endif %}
+      {% if game_compat and game_compat.common_count > 0 %}
+        <div class="compat-card-mini">
+          <div class="compat-percent">{{ game_compat.compatibility }}%</div>
+          <div class="compat-text">
+            <strong>🎮 Игры совпадают</strong><br>
+            {{ game_compat.common_count }} общих игр
+            {% if game_compat.common_games %}
+              <span title="{{ game_compat.common_games | join(', ') }}">— {{ game_compat.common_games[:3] | join(', ') }}{% if game_compat.common_games | length > 3 %}…{% endif %}</span>
+            {% endif %}
           </div>
         </div>
       {% endif %}
@@ -394,6 +454,22 @@
           </div>
         {% endfor %}
       </div>
+      {% endif %}
+
+      {# Последние игры (v2.0.3) — во что играл недавно, без агрегации #}
+      {% if recent_games %}
+        <h3 class="section-title">🎮 Последние игры</h3>
+        <article class="card">
+          <ul class="recent-games-list">
+            {% for g in recent_games %}
+              <li>
+                <span class="game-name" title="{{ g.game_name }}">{{ g.game_name }}</span>
+                <span class="game-duration">{{ (g.total_seconds / 60) | round(0) | int }} мин</span>
+                <span class="game-date mono">{{ format_msk(g.ended_at) }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        </article>
       {% endif %}
       {% endif %}
 

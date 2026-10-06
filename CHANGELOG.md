@@ -1,5 +1,34 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.0.3
+### Новое
+- 🔔 Уведомления о новых достижениях: bell icon в шапке сайдбара показывает счётчик непросмотренных ачивок. При клике — переход в профиль + сброс бейджа. Анимированная тряска колокольчика + пульсация бейджа
+- Toast при получении ачивки: после оценки фильма или записи цитаты, если сработал авто-триггер ачивки — показывается toast «🏆 Новая ачивка: %название%» (поддержка нескольких одновременно)
+- Иконка ачивок в сайдбаре изменена с 🏆 (trophy) на 🏅 (medal) — раньше была одинаковая с «Победителями колеса»
+- 🎮 Раздел «Последние игры» в профиле: показывает 5 последних сыгранных игр с длительностью и временем окончания. В отличие от блока «Топ игр» (который ранжирует по общему времени), здесь — хронологический список без агрегации
+- 🎮 Совместимость по играм: плашка в профиле показывает % совпадения библиотек игр двух юзеров + список общих игр (до 3 названий). Считается как common / max(unique_a, unique_b) * 100
+- Плашка совместимости фильмов уменьшена: убрана дублирующая строка «Вместе посмотрели: N», убран ветка `elif watched_together` (лишняя инфа), процент уменьшен с 2.2rem до 1.5rem, padding сокращён
+
+### Техническое
+- db.py: миграция users — добавлена колонка `last_viewed_achievements_at TEXT` (v2.0.3)
+- db.py: g_count_unread_achievements(guild_id, user_discord_id) — COUNT user_achievements WHERE granted_at > users.last_viewed_achievements_at (или все активные если last_viewed IS NULL)
+- db.py: g_mark_achievements_viewed(user_discord_id) — UPDATE users SET last_viewed_achievements_at = now()
+- db.py: g_get_user_recent_games(guild_id, user_id, limit=5) — SELECT … ORDER BY ended_at DESC (без агрегации)
+- db.py: g_get_game_compat(guild_id, user_a, user_b) — уникальные нормализованные имена каждого юзера + common = intersection, compatibility = common / max(unique_a, unique_b) * 100
+- web.py: get_current_user обогащается полем `unread_achievements_count` (один быстрый SELECT COUNT на запрос)
+- web.py: /api/winners/{id}/rate и /api/watched/{id}/rate теперь возвращают `new_achievements: [...]` (захватывают возврат g_check_and_grant_auto)
+- web.py: /api/quotes теперь возвращает `new_achievements` (для записавшего цитату)
+- web.py: новый POST /api/achievements/mark_read — сбрасывает unread-бейдж
+- web.py: /u/{discord_id} — если юзер смотрит свой профиль, автоматически вызывается g_mark_achievements_viewed
+- sidebar.html: bell icon в sidebar-header с badge, классы .sb-bell / .sb-bell-empty / .sb-bell-badge
+- sidebar.html: JS window.markAchievementsRead(link) — POST /api/achievements/mark_read, window.notifyNewAchievements(list) — показывает toasts
+- sidebar.html: icon_map achievements → 'medal' (было 'trophy'), emoji fallback 🏆 → 🏅
+- style.css: .sb-bell (32px круг), .sb-bell-icon (1rem), .sb-bell-badge (абсолют, accent цвет, пульсация), @keyframes sb-bell-ring (тряска) и sb-bell-pulse (свечение бейджа)
+- profile_public.html: taste-match-card уменьшен (padding 18→10px, percent 2.2→1.5rem, font-size sub 0.85→0.78rem). Убран блок «Вместе посмотрели» (elif ветка)
+- profile_public.html: новый .compat-card-mini для game_compat (компактная плашка, 8px padding, 1.2rem percent)
+- profile_public.html: новый блок «🎮 Последние игры» — список <ul class="recent-games-list"> с game-name, duration (мин), date
+- winners.html / watched.html / quotes.html: вызов window.notifyNewAchievements(data.new_achievements) если в ответе есть массив
+
 ## v2.0.2
 ### Новое
 - Роли Discord автоматически синхронизируются с БД при старте бота и при любом изменении ролей (создание/редактирование/удаление). Раньше роли подтягивались только по кнопке — теперь список всегда свежий
