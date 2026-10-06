@@ -103,7 +103,8 @@ GUILD_SCHEMA_TEMPLATES = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             winner_id INTEGER NOT NULL,
             user_discord_id INTEGER NOT NULL,
-            rating INTEGER NOT NULL,
+            rating REAL NOT NULL,
+            review TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT,
             UNIQUE(winner_id, user_discord_id)

@@ -912,6 +912,7 @@ async def api_rate_winner(
     winner_id: int,
     _user: dict = Depends(require_user),
     rating: float = Form(...),
+    review: str = Form(""),
 ):
     """Поставить или обновить оценку победителю.
     Любой залогиненный юзер может оценивать. Один юзер = одна оценка (можно переголосовать).
@@ -927,7 +928,7 @@ async def api_rate_winner(
         return JSONResponse({"error": "user not identified"}, status_code=400)
 
     guild_id = get_current_guild_id(_user)
-    success = await db.g_upsert_rating(guild_id, winner_id, user_discord_id, rating)
+    success = await db.g_upsert_rating(guild_id, winner_id, user_discord_id, rating, review=review or None)
     if not success:
         return JSONResponse({"error": "failed to save rating"}, status_code=500)
 
@@ -986,6 +987,7 @@ async def watched_page(
     _user: dict = Depends(require_user),
     q: str = "",
     page: int = 1,
+    sort: str = "recent",
 ):
     guild_id = get_current_guild_id(_user)
     page = max(1, page)
@@ -996,12 +998,13 @@ async def watched_page(
     watched = await db.g_list_watched(
         guild_id, limit=per_page, offset=offset, search=search,
         user_discord_id=user_discord_id,
+        sort=sort,
     )
     total_count = await db.g_count_watched(guild_id, search)
     total_pages = max(1, (total_count + per_page - 1) // per_page)
 
     # Предзагрузка постеров из кеша movie_meta (0 запросов к API)
-    titles = [w[1] for w in watched]  # w = (id, title, watched_at, rating, avg, count, user_rating)
+    titles = [w[1] for w in watched]  # w = (id, title, watched_at, rating, avg, count, user_rating, winner_id)
     posters = await db.get_posters_for_titles(titles) if titles else {}
 
     return templates.TemplateResponse(request, "watched.html", {
@@ -1009,6 +1012,7 @@ async def watched_page(
         "watched": watched,
         "is_admin": _user.get("is_admin", False),
         "search": q,
+        "sort": sort,
         "page": page,
         "per_page": per_page,
         "total": total_count,
@@ -1085,6 +1089,7 @@ async def api_rate_watched(
     watched_id: int,
     _user: dict = Depends(require_user),
     rating: float = Form(...),
+    review: str = Form(""),
 ):
     """Поставить per-user оценку фильму в бэклоге (0.5-5 с половинками).
 
@@ -1119,7 +1124,7 @@ async def api_rate_watched(
     winner_id = await db.g_get_or_create_winner_by_title(guild_id, title)
 
     # 3. Per-user upsert оценки
-    success = await db.g_upsert_rating(guild_id, winner_id, user_discord_id, rating)
+    success = await db.g_upsert_rating(guild_id, winner_id, user_discord_id, rating, review=review or None)
     if not success:
         return JSONResponse({"error": "failed to save rating"}, status_code=500)
 
@@ -2949,7 +2954,49 @@ async def api_create_achievement(
         )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
-    return JSONResponse({"ok": True, "id": ach_id})
+
+    # Ретроспективная выдача: проверить всех юзеров кто уже выполнил условия
+    retro_count = 0
+    if trigger_type != "manual":
+        try:
+            all_users = await db.list_users()
+            for u in all_users:
+                user_did = u[0]
+                granted = await db.g_check_and_grant_auto(guild_id, user_did, trigger_type)
+                if granted:
+                    retro_count += len(granted)
+            if retro_count > 0:
+                import logging
+                logging.getLogger("achievements").info(
+                    "Retro-grant: achievement %s → %d users", ach_id, retro_count
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger("achievements").warning("Retro-grant failed: %s", e)
+
+    # Скачать иконку из URL в static/icons/ (если задан URL)
+    if icon_url:
+        try:
+            import httpx
+            import hashlib
+            # Генерируем уникальное имя файла из URL
+            url_hash = hashlib.md5(icon_url.encode()).hexdigest()[:12]
+            local_path = f"/home/z/my-project/kinovecher/static/icons/custom_{url_hash}.png"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(icon_url)
+                if resp.status_code == 200 and len(resp.content) > 100:
+                    with open(local_path, "wb") as f:
+                        f.write(resp.content)
+                    # Обновляем icon_config: заменяем URL на локальный путь
+                    icon_config["icon_url"] = f"/static/icons/custom_{url_hash}.png"
+                    await db.g_update_achievement_icon_config(guild_id, ach_id, icon_config)
+                    import logging
+                    logging.getLogger("achievements").info("Downloaded icon → %s", local_path)
+        except Exception as e:
+            import logging
+            logging.getLogger("achievements").warning("Icon download failed: %s", e)
+
+    return JSONResponse({"ok": True, "id": ach_id, "retro_granted": retro_count})
 
 
 @app.post("/api/achievements/{ach_id}/delete")
@@ -2961,6 +3008,24 @@ async def api_delete_achievement(
     guild_id = get_current_guild_id(_user)
     deleted = await db.g_delete_achievement(guild_id, ach_id)
     if not deleted:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/achievements/{ach_id}/edit")
+async def api_edit_achievement(
+    ach_id: int,
+    _user: dict = Depends(require_admin),
+    name: str = Form(""),
+    description: str = Form(""),
+):
+    """Редактировать название и описание ачивки."""
+    guild_id = get_current_guild_id(_user)
+    name = name.strip()
+    if not name or len(name) > 64:
+        return JSONResponse({"error": "name required (1-64 chars)"}, status_code=400)
+    updated = await db.g_update_achievement(guild_id, ach_id, name=name, description=description)
+    if not updated:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse({"ok": True})
 

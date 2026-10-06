@@ -221,12 +221,16 @@
     </form>
     <div id="add-result" class="add-result" style="display:none;"></div>
 
-    <!-- Поиск -->
+    <!-- Поиск + сортировка -->
     <form class="search-form" method="get" action="/watched">
       <input type="text" name="q" value="{{ search }}" placeholder="🔍 Поиск по бэклогу..." autocomplete="off">
+      <select name="sort" onchange="this.form.submit()" style="max-width: 140px;">
+        <option value="recent" {% if sort == 'recent' or not sort %}selected{% endif %}>↓ По дате</option>
+        <option value="rating" {% if sort == 'rating' %}selected{% endif %}>⭐ По оценке</option>
+      </select>
       <button type="submit">🔍 Найти</button>
       {% if search %}
-        <a href="/watched" class="page-btn clear-btn">✕ Сбросить</a>
+        <a href="/watched{% if sort and sort != 'recent' %}?sort={{ sort }}{% endif %}" class="page-btn clear-btn">✕ Сбросить</a>
       {% endif %}
     </form>
 
@@ -314,7 +318,7 @@
 
       const btn = e.target.querySelector('button');
       btn.disabled = true;
-      btn.textContent = '...';
+      btn.innerHTML = '<span class="spinner-inline"></span>';
       result.style.display = 'none';
 
       const formData = new FormData();

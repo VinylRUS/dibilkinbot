@@ -351,6 +351,26 @@ async def init_db() -> None:
                     total_migrated_ratings, total_migrated_watched
                 )
 
+            # === Миграция v1.9.7: добавить колонку review в guild_{id}_ratings ===
+            try:
+                async with db.execute("SELECT guild_id FROM guilds") as cur:
+                    guild_ids_migr = [row[0] for row in await cur.fetchall()]
+            except Exception:
+                guild_ids_migr = []
+            if 0 not in guild_ids_migr:
+                guild_ids_migr.append(0)
+            for gid in guild_ids_migr:
+                table_r_migr = guild_module.guild_table(gid, "ratings")
+                try:
+                    async with db.execute(f"PRAGMA table_info({table_r_migr})") as cur:
+                        cols = {row[1] for row in await cur.fetchall()}
+                    if "review" not in cols:
+                        await db.execute(f"ALTER TABLE {table_r_migr} ADD COLUMN review TEXT")
+                        log.info("v1.9.7 migration: added review column to %s", table_r_migr)
+                except Exception as e:
+                    log.warning("v1.9.7 migration: %s: %s", table_r_migr, e)
+            await db.commit()
+
         log.info("DB initialized at %s (size=%d bytes)",
                  settings.database_path, settings.database_path.stat().st_size)
     except Exception as e:
@@ -1534,14 +1554,11 @@ async def g_is_watched(guild_id: int, title: str) -> bool:
 
 
 async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search: str | None = None,
-                         user_discord_id: int = 0) -> list[tuple]:
+                         user_discord_id: int = 0, sort: str = "recent") -> list[tuple]:
     """Список просмотренных фильмов с пагинацией и опциональным поиском.
 
-    Возвращает кортежи (id, title, watched_at, rating, avg_rating, ratings_count, user_rating):
-      - rating: персональная оценка из watched.rating (legacy, может быть None)
-      - avg_rating: средняя оценка из ratings через JOIN с winners (0.0 если нет)
-      - ratings_count: количество per-user оценок (0 если нет)
-      - user_rating: оценка текущего юзера (int или None) — для подсветки звёзд
+    sort: 'recent' (по дате, дефолт) или 'rating' (по средней оценке, топ вниз).
+    Возвращает кортежи (id, title, watched_at, rating, avg_rating, ratings_count, user_rating, winner_id).
     """
     table_w = _guild.guild_table(guild_id, "watched")
     table_winners = _guild.guild_table(guild_id, "winners")
@@ -1569,12 +1586,14 @@ async def g_list_watched(guild_id: int, limit: int = 50, offset: int = 0, search
             f"FROM {table_w} w "
             f"LEFT JOIN {table_winners} win ON lower(win.lot_name) = lower(w.title) "
         )
+        # Сортировка: 'recent' → по дате DESC, 'rating' → по средней оценке DESC
+        order_clause = "ORDER BY avg_rating DESC, ratings_count DESC" if sort == "rating" else "ORDER BY w.watched_at DESC"
         if search:
-            sql = base_select + "WHERE w.title LIKE ? GROUP BY w.id ORDER BY w.watched_at DESC LIMIT ? OFFSET ?"
+            sql = base_select + f"WHERE w.title LIKE ? GROUP BY w.id {order_clause} LIMIT ? OFFSET ?"
             # user_discord_id сначала (для user_subq), затем search, limit, offset
             params = (user_discord_id or 0, f"%{search}%", limit, offset)
         else:
-            sql = base_select + "GROUP BY w.id ORDER BY w.watched_at DESC LIMIT ? OFFSET ?"
+            sql = base_select + f"GROUP BY w.id {order_clause} LIMIT ? OFFSET ?"
             params = (user_discord_id or 0, limit, offset)
         async with db.execute(sql, params) as cur:
             rows = await cur.fetchall()
@@ -1877,15 +1896,13 @@ def _is_valid_rating(rating) -> bool:
     return doubled == int(doubled) and 1 <= int(doubled) <= 10
 
 
-async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, rating: float) -> bool:
+async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, rating: float,
+                          review: str | None = None) -> bool:
     """Per-user upsert оценки + автоматический «переезд» в watched при первой оценке.
 
-    Атомарность через BEGIN IMMEDIATE: INSERT rating и check-then-insert watched
-    выполняются в одной транзакции, что устраняет race condition (раньше два
-    одновременных вызова могли оба вставить дубликат в watched, т.к. SELECT
-    и INSERT не были связаны).
-
+    Атомарность через BEGIN IMMEDIATE.
     Шкала: 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0 (с половинками).
+    review: необязательный текстовый отзыв (v1.9.7).
     """
     if not _is_valid_rating(rating):
         return False
@@ -1896,12 +1913,14 @@ async def g_upsert_rating(guild_id: int, winner_id: int, user_discord_id: int, r
         now = datetime.utcnow().isoformat()
         await db.execute("BEGIN IMMEDIATE")
         try:
-            # 1. Upsert оценки (per-user)
+            # 1. Upsert оценки (per-user) + review
+            review_val = review.strip()[:500] if review and review.strip() else None
             await db.execute(
-                f"INSERT INTO {table_r} (winner_id, user_discord_id, rating, created_at, updated_at) "
-                f"VALUES (?, ?, ?, ?, ?) "
-                f"ON CONFLICT(winner_id, user_discord_id) DO UPDATE SET rating = excluded.rating, updated_at = excluded.updated_at",
-                (winner_id, user_discord_id, rating, now, now),
+                f"INSERT INTO {table_r} (winner_id, user_discord_id, rating, review, created_at, updated_at) "
+                f"VALUES (?, ?, ?, ?, ?, ?) "
+                f"ON CONFLICT(winner_id, user_discord_id) DO UPDATE SET rating = excluded.rating, "
+                f"review = excluded.review, updated_at = excluded.updated_at",
+                (winner_id, user_discord_id, rating, review_val, now, now),
             )
             # 2. Найти lot_name победителя
             async with db.execute(f"SELECT lot_name FROM {table_winners} WHERE id = ?", (winner_id,)) as cur:
@@ -2197,6 +2216,43 @@ async def g_delete_achievement(guild_id: int, achievement_id: int) -> bool:
     async with _connect() as db:
         await db.execute(f"DELETE FROM {table_ua} WHERE achievement_id = ?", (achievement_id,))
         cur = await db.execute(f"DELETE FROM {table_a} WHERE id = ?", (achievement_id,))
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_update_achievement(guild_id: int, achievement_id: int,
+                               name: str | None = None, description: str | None = None) -> bool:
+    """Обновить название и/или описание ачивки. Возвращает True если обновлено."""
+    table = _guild.guild_table(guild_id, "achievements")
+    async with _connect() as db:
+        updates = []
+        params = []
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name.strip())
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description.strip() or None)
+        if not updates:
+            return False
+        params.append(achievement_id)
+        cur = await db.execute(
+            f"UPDATE {table} SET {', '.join(updates)} WHERE id = ?",
+            params,
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_update_achievement_icon_config(guild_id: int, achievement_id: int, icon_config: dict) -> bool:
+    """Обновить icon_config ачивки (после скачивания иконки в static/icons/)."""
+    import json
+    table = _guild.guild_table(guild_id, "achievements")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET icon_config = ? WHERE id = ?",
+            (json.dumps(icon_config, ensure_ascii=False), achievement_id),
+        )
         await db.commit()
         return cur.rowcount > 0
 

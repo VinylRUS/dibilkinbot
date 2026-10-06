@@ -209,7 +209,7 @@
       if (!title) return;
 
       const btn = e.target.querySelector('button');
-      btn.disabled = true; btn.textContent = '...';
+      btn.disabled = true; btn.innerHTML = '<span class="spinner-inline"></span>';
       result.style.display = 'none';
 
       const formData = new FormData();
