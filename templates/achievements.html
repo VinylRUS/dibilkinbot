@@ -291,6 +291,7 @@
                 </div>
                 <div class="ach-actions">
                   <button class="ach-grant-btn" onclick="openGrantModal({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Выдать</button>
+                  <button class="btn-icon" onclick="openEditModal({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}', '{{ ach.description | replace("'", "\\'") }}')" title="Редактировать" aria-label="Редактировать">✏️</button>
                   <button class="ach-delete-btn" onclick="deleteAchievement({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Удалить</button>
                 </div>
               </div>
@@ -403,6 +404,28 @@
           Юзеры с этой ачивкой появятся здесь после загрузки
         </div>
       </div>
+    </div>
+  </div>
+
+  {# Модалка редактирования ачивки #}
+  <div id="edit-modal" style="display:none;" class="grant-modal">
+    <div class="grant-modal-content">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+        <div>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">Редактирование ачивки</div>
+          <div id="edit-modal-title" style="font-size:1.1rem;font-weight:700;color:var(--text);"></div>
+        </div>
+        <button onclick="closeEditModal()" class="btn-icon" aria-label="Закрыть" style="font-size:1.2rem;">×</button>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Название</label>
+        <input type="text" id="edit-name" maxlength="64" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Описание</label>
+        <textarea id="edit-description" maxlength="200" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;min-height:60px;resize:vertical;"></textarea>
+      </div>
+      <button onclick="saveEdit()" class="btn-primary" style="width:100%;">💾 Сохранить</button>
     </div>
   </div>
 
@@ -585,6 +608,48 @@
       currentGrantAchId = null;
     }
 
+    // === Модалка редактирования ===
+    let currentEditAchId = null;
+
+    function openEditModal(achId, achName, achDescription) {
+      currentEditAchId = achId;
+      document.getElementById('edit-modal-title').textContent = achName;
+      document.getElementById('edit-name').value = achName;
+      document.getElementById('edit-description').value = achDescription || '';
+      document.getElementById('edit-modal').style.display = 'flex';
+    }
+
+    function closeEditModal() {
+      document.getElementById('edit-modal').style.display = 'none';
+      currentEditAchId = null;
+    }
+
+    async function saveEdit() {
+      if (!currentEditAchId) return;
+      const name = document.getElementById('edit-name').value.trim();
+      const description = document.getElementById('edit-description').value.trim();
+      if (!name) {
+        showToast('Название обязательно', 'error');
+        return;
+      }
+      const fd = new FormData();
+      fd.append('name', name);
+      fd.append('description', description);
+      try {
+        const r = await fetch(`/api/achievements/${currentEditAchId}/edit`, { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok) {
+          showToast('✓ Ачивка обновлена', 'success');
+          closeEditModal();
+          setTimeout(() => window.location.reload(), 600);
+        } else {
+          showToast(data.error || 'Ошибка', 'error');
+        }
+      } catch (e) {
+        showToast('Сетевая ошибка: ' + e.message, 'error');
+      }
+    }
+
     async function loadAchievementUsers(achId) {
       try {
         const r = await fetch(`/api/achievements/${achId}/users`);
@@ -670,7 +735,7 @@
     }
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeGrantModal();
+      if (e.key === 'Escape') { closeGrantModal(); closeEditModal(); }
     });
   </script>
 </body>

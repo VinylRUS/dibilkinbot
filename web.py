@@ -2981,14 +2981,19 @@ async def api_create_achievement(
             import hashlib
             # Генерируем уникальное имя файла из URL
             url_hash = hashlib.md5(icon_url.encode()).hexdigest()[:12]
-            local_path = f"/home/z/my-project/kinovecher/static/icons/custom_{url_hash}.png"
+            # Используем относительный путь от расположения web.py
+            import os
+            icons_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "icons")
+            os.makedirs(icons_dir, exist_ok=True)
+            local_filename = f"custom_{url_hash}.png"
+            local_path = os.path.join(icons_dir, local_filename)
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(icon_url)
                 if resp.status_code == 200 and len(resp.content) > 100:
                     with open(local_path, "wb") as f:
                         f.write(resp.content)
                     # Обновляем icon_config: заменяем URL на локальный путь
-                    icon_config["icon_url"] = f"/static/icons/custom_{url_hash}.png"
+                    icon_config["icon_url"] = f"/static/icons/{local_filename}"
                     await db.g_update_achievement_icon_config(guild_id, ach_id, icon_config)
                     import logging
                     logging.getLogger("achievements").info("Downloaded icon → %s", local_path)

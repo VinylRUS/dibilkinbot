@@ -1349,7 +1349,7 @@ body.has-sidebar.sidebar-open {
 .sidebar.open .sb-section-label { opacity: 1; }
 
 .sidebar-footer {
-  padding: 8px 8px 12px;
+  padding: 8px 0 12px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
   display: flex;
@@ -1365,12 +1365,12 @@ body.has-sidebar.sidebar-open {
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.2s;
-  width: 100%;
   justify-content: center;
 }
 .sidebar.open .sb-user {
   justify-content: flex-start;
   padding: 8px 12px;
+  width: 100%;
 }
 .sb-user:hover { background: var(--accent-soft); }
 .sb-user-avatar {
