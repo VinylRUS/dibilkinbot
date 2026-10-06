@@ -1,5 +1,26 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.0.2
+### Новое
+- Роли Discord автоматически синхронизируются с БД при старте бота и при любом изменении ролей (создание/редактирование/удаление). Раньше роли подтягивались только по кнопке — теперь список всегда свежий
+- Конструктор ачивок: роли подгружаются мгновенно при открытии страницы (из кеша БД). Кнопка «🔄 Обновить роли» теперь делает принудительную синхронизацию с Discord
+- Дедупликация игр: «CS2», «CS2 » (с пробелом) и «cs2» теперь считаются одной игрой. При сохранении в БД имя нормализуется (strip + схлопывание множественных пробелов). В списке игр показывается самое длинное оригинальное написание
+- Кнопка «🔄 Обновить роли» также запускает дедупликацию существующих записей игр в БД — покажет сколько дубликатов было схлопнуто
+- g_get_game_play_time_specific теперь сравнивает по нормализованному имени — ачивки корректно срабатывают даже если юзер играл с другим написанием имени игры
+
+### Техническое
+- guild.py: новая таблица `guild_{id}_discord_roles` (role_id PK, name, color, position, hoisted, mentionable, permissions, synced_at). Индекс по position DESC
+- db.py: g_sync_discord_roles(guild_id, roles) — INSERT OR REPLACE + удаление stale ролей. g_list_discord_roles(guild_id) — SELECT FROM cache
+- db.py: g_dedupe_games(guild_id) — находит дубликаты игр по LOWER(TRIM(...)), приводит к каноническому виду (MAX(activity_name))
+- db.py: _normalize_game_name(name) — strip + collapse whitespace, без смены регистра
+- db.py: g_list_server_games — GROUP BY нормализованного имени, отображает MAX(activity_name) как «лучшее» написание
+- bot.py: fetch_guild_roles теперь возвращает permissions.value. sync_guild_roles_to_db(guild_id) — обёртка над fetch + g_sync_discord_roles
+- bot.py: on_ready вызывает sync_guild_roles_to_db для каждого guild после init_guild_tables. on_guild_join — тоже
+- bot.py: новые обработчики on_guild_role_create / on_guild_role_update / on_guild_role_delete — пересинхронизируют кеш ролей
+- bot.py: _handle_presence_change нормализует имена игр через db._normalize_game_name перед сохранением
+- web.py: /api/achievements/discord_roles теперь читает из БД-кеша (мгновенно). Новый POST /api/achievements/discord_roles/refresh — принудительная синхронизация с Discord + дедупликация игр
+- achievements.html: loadDiscordRoles() вызывается автоматически при открытии страницы. Кнопка «🔄 Обновить роли» дёргает refreshDiscordRoles() (POST /refresh). Кнопка игр переименована в «🔄 Обновить список игр» для консистентности
+
 ## v2.0.1
 ### Новое
 - Индикатор статуса Discord на аватарках в дашборде — маленький кружок в правом нижнем углу (как в самом Discord): 🟢 онлайн, 🟡 AFK, 🔴 DND, ⚫ оффлайн

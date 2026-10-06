@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -321,6 +321,20 @@ GUILD_SCHEMA_TEMPLATES = {
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_type ON {table}(activity_type);
         CREATE INDEX IF NOT EXISTS idx_{table}_name ON {table}(activity_name);
+    """,
+    # === v2.0.2: Discord roles cache (auto-synced from Discord) ===
+    "discord_roles": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            role_id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            color TEXT,
+            position INTEGER NOT NULL DEFAULT 0,
+            hoisted INTEGER DEFAULT 0,
+            mentionable INTEGER DEFAULT 0,
+            permissions INTEGER DEFAULT 0,
+            synced_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_position ON {table}(position DESC);
     """,
 }
 

@@ -2635,19 +2635,72 @@ async def g_get_top_games(guild_id: int, user_discord_id: int, limit: int = 5) -
     ]
 
 
+async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, game_name: str) -> int:
+    """Время игры в конкретную игру (секунды). Для триггера ачивок с конкретной игрой.
+
+    v2.0.2: сравнение по нормализованному имени — ловит дубликаты типа
+    «CS2», «CS2 », «cs2».
+    """
+    table = _guild.guild_table(guild_id, "member_activities")
+    norm = _normalize_game_name(game_name).lower()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COALESCE(SUM(duration_seconds), 0) FROM {table} "
+            f"WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL "
+            f"AND {_NORM_GAME_SQL} = ?",
+            (user_discord_id, norm)
+        ) as cur:
+            return (await cur.fetchone())[0] or 0
+
+
+def _normalize_game_name(name: str) -> str:
+    """Нормализовать имя игры для дедупликации.
+
+    - strip начальные/конечные пробелы
+    - схлопнуть множественные пробелы/табы/переносы в один пробел
+    - регистр НЕ меняется (для отображения сохраняем оригинальный вид)
+    """
+    if not name:
+        return ""
+    import re
+    return re.sub(r'\s+', ' ', name).strip()
+
+
+# SQL-выражение для нормализации имени игры внутри SQL-запроса.
+# Заменяет табы/CR/LF на пробелы, затем 5 итераций REPLACE('X','  ',' ')
+# схлопывают множественные пробелы (до 32 подряд). LOWER + TRIM для сравнения без регистра.
+_NORM_GAME_SQL = (
+    "LOWER(TRIM("
+    "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE("
+    "REPLACE(REPLACE(REPLACE(activity_name, char(9), ' '), char(10), ' '), char(13), ' '),"
+    "  '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')"
+    "))"
+)
+
+
 async def g_list_server_games(guild_id: int) -> list[dict]:
     """Список всех игр в которые играли на сервере (для ачивок и дашборда).
 
     Возвращает [{game_name, total_seconds, players_count}, ...] отсортированный по популярности.
+    Дедупликация: группировка по нормализованному имени (TRIM + lowercase + collapse whitespace),
+    но отображается «лучшее» (MAX) оригинальное написание.
     Возвращает [] если таблица не существует или нет данных.
+
+    v2.0.2: дедупликация игр — раньше «CS2», «CS2 » и «cs2» считались разными играми.
     """
     try:
         table = _guild.guild_table(guild_id, "member_activities")
         async with _connect() as db:
+            # Группируем по нормализованному имени, отображаем MAX(activity_name)
             async with db.execute(
-                f"SELECT activity_name, COALESCE(SUM(duration_seconds), 0), COUNT(DISTINCT user_discord_id) "
+                f"SELECT "
+                f"  MAX(activity_name) AS display_name, "
+                f"  COALESCE(SUM(duration_seconds), 0) AS total_seconds, "
+                f"  COUNT(DISTINCT user_discord_id) AS players_count, "
+                f"  {_NORM_GAME_SQL} AS norm_name "
                 f"FROM {table} WHERE activity_type = 'playing' AND ended_at IS NOT NULL "
-                f"GROUP BY activity_name ORDER BY SUM(duration_seconds) DESC",
+                f"GROUP BY norm_name "
+                f"ORDER BY total_seconds DESC",
                 ()
             ) as cur:
                 rows = await cur.fetchall()
@@ -2660,16 +2713,128 @@ async def g_list_server_games(guild_id: int) -> list[dict]:
         return []
 
 
-async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, game_name: str) -> int:
-    """Время игры в конкретную игру (секунды). Для триггера ачивок с конкретной игрой."""
+async def g_dedupe_games(guild_id: int) -> int:
+    """Схлопнуть дубликаты игр в member_activities.
+
+    Для каждого (user, canonical_name) с несколькими записями:
+    - удаляем все строки группы
+    - вставляем одну каноническую строку с суммарной длительностью
+
+    Каноническое имя = MAX(activity_name) — лексикографически наибольшее
+    (обычно это самое «полное» написание). Возвращает количество схлопнутых
+    дубликатов (удалённых строк).
+
+    Это безопасно для UNIQUE constraint (user, guild, type, name, started_at),
+    т.к. мы сначала DELETE потом INSERT — конфликтовать не с чем.
+    """
     table = _guild.guild_table(guild_id, "member_activities")
+    merged = 0
     async with _connect() as db:
+        # Найти группы дубликатов (один юзер + одно каноническое имя, но >1 строки)
         async with db.execute(
-            f"SELECT COALESCE(SUM(duration_seconds), 0) FROM {table} "
-            f"WHERE user_discord_id = ? AND activity_type = 'playing' AND activity_name = ? AND ended_at IS NOT NULL",
-            (user_discord_id, game_name)
+            f"SELECT user_discord_id, guild_id, "
+            f"       {_NORM_GAME_SQL} AS norm, "
+            f"       MAX(activity_name) AS canonical, "
+            f"       MAX(started_at) AS keep_started, "
+            f"       MAX(ended_at) AS keep_ended, "
+            f"       COALESCE(SUM(duration_seconds), 0) AS total_dur, "
+            f"       COUNT(*) AS cnt "
+            f"FROM {table} WHERE activity_type = 'playing' AND ended_at IS NOT NULL "
+            f"GROUP BY user_discord_id, guild_id, norm HAVING cnt > 1"
         ) as cur:
-            return (await cur.fetchone())[0] or 0
+            groups = await cur.fetchall()
+        if not groups:
+            return 0
+        for user_id, gid, norm, canonical, keep_started, keep_ended, total_dur, cnt in groups:
+            # Удалить все строки в группе
+            cur = await db.execute(
+                f"DELETE FROM {table} WHERE user_discord_id = ? AND guild_id = ? "
+                f"AND activity_type = 'playing' AND {_NORM_GAME_SQL} = ?",
+                (user_id, gid, norm)
+            )
+            deleted = cur.rowcount or 0
+            # Вставить одну каноническую строку с суммарной длительностью
+            await db.execute(
+                f"INSERT INTO {table} "
+                f"(user_discord_id, guild_id, activity_type, activity_name, started_at, ended_at, duration_seconds) "
+                f"VALUES (?, ?, 'playing', ?, ?, ?, ?)",
+                (user_id, gid, canonical or "Unknown", keep_started, keep_ended, total_dur)
+            )
+            # Схлопнуто = удалено - 1 (одна строка осталась)
+            merged += max(0, deleted - 1)
+        await db.commit()
+    if merged:
+        log.info("Merged %d duplicate game activity rows in guild %s", merged, guild_id)
+    return merged
+
+
+# === v2.0.2: Discord roles cache (auto-synced from Discord) ===
+
+async def g_sync_discord_roles(guild_id: int, roles: list[dict]) -> int:
+    """Сохранить/обновить закешированный список ролей Discord-сервера.
+
+    roles: [{id, name, color, position, hoisted, mentionable, permissions}, ...]
+    Полностью заменяет кеш (delete + insert) — чтобы удалённые роли тоже пропали.
+    Возвращает количество записанных ролей.
+    """
+    if not roles:
+        return 0
+    table = _guild.guild_table(guild_id, "discord_roles")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        # Берём текущие role_id, чтобы вычислить удалённые
+        async with db.execute(f"SELECT role_id FROM {table}") as cur:
+            existing_ids = {row[0] for row in await cur.fetchall()}
+        new_ids = {int(r["id"]) for r in roles}
+        # Удалить роли которых больше нет
+        deleted_ids = existing_ids - new_ids
+        if deleted_ids:
+            placeholders = ",".join("?" * len(deleted_ids))
+            await db.execute(
+                f"DELETE FROM {table} WHERE role_id IN ({placeholders})",
+                tuple(deleted_ids)
+            )
+        # Upsert оставшихся
+        for r in roles:
+            await db.execute(
+                f"INSERT INTO {table} (role_id, name, color, position, hoisted, mentionable, permissions, synced_at) "
+                f"VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                f"ON CONFLICT(role_id) DO UPDATE SET "
+                f"name = excluded.name, color = excluded.color, position = excluded.position, "
+                f"hoisted = excluded.hoisted, mentionable = excluded.mentionable, "
+                f"permissions = excluded.permissions, synced_at = excluded.synced_at",
+                (int(r["id"]), r["name"], r.get("color"),
+                 int(r.get("position", 0)), 1 if r.get("hoisted") else 0,
+                 1 if r.get("mentionable") else 0, int(r.get("permissions", 0)), now)
+            )
+        await db.commit()
+    log.info("Synced %d Discord roles for guild %s (deleted %d stale)", len(roles), guild_id, len(deleted_ids))
+    return len(roles)
+
+
+async def g_list_discord_roles(guild_id: int) -> list[dict]:
+    """Получить закешированный список ролей Discord-сервера.
+    Возвращает [] если кеш пуст (нужно вызвать sync).
+    """
+    try:
+        table = _guild.guild_table(guild_id, "discord_roles")
+        async with _connect() as db:
+            async with db.execute(
+                f"SELECT role_id, name, color, position, hoisted, mentionable, synced_at "
+                f"FROM {table} ORDER BY position DESC, name"
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            {
+                "id": str(r[0]), "name": r[1], "color": r[2],
+                "position": r[3], "hoisted": bool(r[4]),
+                "mentionable": bool(r[5]), "synced_at": r[6],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        log.warning("g_list_discord_roles failed: %s", e)
+        return []
 
 
 async def list_active_members_with_discord(limit: int = 22) -> list[dict]:

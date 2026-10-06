@@ -157,7 +157,7 @@ async def remove_role_from_member(guild_id: int, user_discord_id: int, role_id: 
 async def fetch_guild_roles(guild_id: int) -> list[dict]:
     """Получить список ролей Discord-сервера для конструктора ачивок.
 
-    Возвращает [{id, name, color, position, permissions}, ...].
+    Возвращает [{id, name, color, position, hoisted, mentionable, permissions}, ...].
     Фильтрует @everyone (id = guild_id) и роль бота.
     """
     if not _bot_running:
@@ -181,9 +181,32 @@ async def fetch_guild_roles(guild_id: int) -> list[dict]:
             "position": role.position,
             "hoisted": role.hoist,
             "mentionable": role.mentionable,
+            "permissions": role.permissions.value if role.permissions else 0,
         })
     roles.sort(key=lambda r: -r["position"])  # сверху более высокие
     return roles
+
+
+async def sync_guild_roles_to_db(guild_id: int) -> int:
+    """Синхронизировать роли Discord-сервера с БД (кеш для веб-панели).
+
+    Вызывается:
+    - на on_ready (после init_guild_tables)
+    - на on_guild_role_create / on_guild_role_update / on_guild_role_delete
+    - по кнопке «🔄 Обновить роли» в achievements.html
+
+    Возвращает количество синхронизированных ролей.
+    """
+    try:
+        roles = await fetch_guild_roles(guild_id)
+        if not roles:
+            return 0
+        count = await db.g_sync_discord_roles(guild_id, roles)
+        log.info("Synced %d roles for guild %s", count, guild_id)
+        return count
+    except Exception as e:
+        log.warning("sync_guild_roles_to_db failed for guild %s: %s", guild_id, e)
+        return 0
 
 
 # Глобальные ссылки для доступа из web.py
@@ -295,6 +318,8 @@ class KinovecherBot(commands.Bot):
                     log.info("New guild: %s (id=%s) — approved", g.name, g.id)
                 else:
                     log.info("Existing guild: %s (id=%s) — re-approved", g.name, g.id)
+                # v2.0.2: синхронизируем роли сервера с БД (для конструктора ачивок)
+                await sync_guild_roles_to_db(g.id)
             except Exception as e:
                 log.error("Failed to register guild %s: %s", g.id, e)
 
@@ -632,6 +657,8 @@ class KinovecherBot(commands.Bot):
                 log.info("New guild registered: %s (id=%s)", guild.name, guild.id)
             else:
                 log.info("Re-approved existing guild: %s (id=%s)", guild.name, guild.id)
+            # v2.0.2: сразу синхронизируем роли нового сервера в БД
+            await sync_guild_roles_to_db(guild.id)
         except Exception as e:
             log.error("Failed to register new guild %s: %s", guild.id, e)
 
@@ -647,6 +674,31 @@ class KinovecherBot(commands.Bot):
             log.info("Guild %s marked as not approved (data preserved)", guild.id)
         except Exception as e:
             log.error("Failed to mark guild %s as removed: %s", guild.id, e)
+
+    # === v2.0.2: Auto-sync roles when roles change in Discord ===
+
+    async def on_guild_role_create(self, role: discord.Role) -> None:
+        """Когда роль создана на сервере — обновляем кеш ролей в БД."""
+        try:
+            await sync_guild_roles_to_db(role.guild.id)
+            log.info("Role created in guild %s, synced to DB", role.guild.id)
+        except Exception as e:
+            log.warning("on_guild_role_create sync failed: %s", e)
+
+    async def on_guild_role_update(self, before: discord.Role, after: discord.Role) -> None:
+        """Когда роль изменена — обновляем кеш ролей в БД."""
+        try:
+            await sync_guild_roles_to_db(after.guild.id)
+        except Exception as e:
+            log.warning("on_guild_role_update sync failed: %s", e)
+
+    async def on_guild_role_delete(self, role: discord.Role) -> None:
+        """Когда роль удалена — обновляем кеш ролей в БД (удаляем stale)."""
+        try:
+            await sync_guild_roles_to_db(role.guild.id)
+            log.info("Role deleted in guild %s, synced to DB", role.guild.id)
+        except Exception as e:
+            log.warning("on_guild_role_delete sync failed: %s", e)
 
     async def on_wheel_spin_completed(self, winner: dict) -> None:
         """Вызывается из web.py после завершения спина колеса.
@@ -1574,14 +1626,15 @@ async def _handle_presence_change(before, after):
     now = datetime.utcnow().isoformat()
 
     # Текущие игры (только playing, не listening/streaming/custom)
+    # v2.0.2: нормализуем имя игры (strip + collapse whitespace) для дедупликации
     before_games = set()
     after_games = set()
     for act in before.activities:
         if act.type == discord.ActivityType.playing:
-            before_games.add(act.name)
+            before_games.add(db._normalize_game_name(act.name))
     for act in after.activities:
         if act.type == discord.ActivityType.playing:
-            after_games.add(act.name)
+            after_games.add(db._normalize_game_name(act.name))
 
     # Новые игры (появились)
     new_games = after_games - before_games
