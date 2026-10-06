@@ -250,22 +250,22 @@ window.showToast = function(message, type = 'info', duration = 3500) {
 })();
 
 // === SVG-рендеринг иконки ачивки (общая для всех страниц) ===
-// v1.9.2: упрощено — только кружок. Иконка может быть:
-//   - Из встроенной библиотеки SVG (icon_key из preset)
-//   - По URL (например с icons8: https://img.icons8.com/ios-filled/50/FFB703/movie.png)
+// v1.9.4: Используем hex-цвета напрямую (не var(--accent)) — SVG fill="var(--accent)"
+// не работает в большинстве браузеров (computed style = rgb(0,0,0)).
+// Hex-значения берём из style.css :root для dark темы.
 window.ACHIEVEMENT_COLORS = {
-  accent: { svg: 'var(--accent)', hex: 'FFB703' },
-  gold:   { svg: '#FFD700',       hex: 'FFD700' },
-  red:    { svg: 'var(--red)',    hex: 'C44536' },
-  green:  { svg: 'var(--green)',  hex: '4F7942' },
-  purple: { svg: '#9B59B6',       hex: '9B59B6' },
-  blue:   { svg: '#3498DB',       hex: '3498DB' },
+  accent: { svg: '#FFB703', hex: 'FFB703' },  // var(--accent) в dark теме
+  gold:   { svg: '#FFD700', hex: 'FFD700' },
+  red:    { svg: '#E55A4E', hex: 'E55A4E' },  // var(--red) в dark теме
+  green:  { svg: '#6FAE5A', hex: '6FAE5A' },  // var(--green) в dark теме
+  purple: { svg: '#9B59B6', hex: '9B59B6' },
+  blue:   { svg: '#3498DB', hex: '3498DB' },
 };
 window.ACHIEVEMENT_GLOW_COLORS = {
   none: 'none',
-  accent: 'var(--accent)',
+  accent: '#FFB703',
   gold: '#FFD700',
-  pulse: 'var(--accent)',
+  pulse: '#FFB703',
 };
 // Встроенная библиотека SVG-иконок (как в sidebar) — используется если icon_key задан.
 // Хранит ТОЛЬКО path/g элементы (без обёртки <svg>), чтобы корректно

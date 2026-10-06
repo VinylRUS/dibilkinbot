@@ -278,7 +278,7 @@
           {% else %}
             {% for ach in achievements %}
               <div class="achievement-card">
-                <div class="ach-icon" id="ach-icon-{{ ach.id }}"></div>
+                <div class="ach-icon" id="ach-icon-{{ ach.id }}" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
                 <div class="ach-info">
                   <div class="ach-name">{{ ach.name }}</div>
                   {% if ach.description %}<div class="ach-desc">{{ ach.description }}{% endif %}</div>
@@ -294,7 +294,6 @@
                   <button class="ach-delete-btn" onclick="deleteAchievement({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Удалить</button>
                 </div>
               </div>
-              <script>renderAchievementIcon({{ ach.id }}, {{ ach.icon_config | tojson }});</script>
             {% endfor %}
           {% endif %}
         </div>
@@ -503,8 +502,16 @@
       }
     }
 
-    // Initial preview
+    // Initial preview + trigger state
     updatePreview();
+    onTriggerChange();
+
+    // Render existing achievement icons (data-icon-config attributes)
+    document.querySelectorAll('.ach-icon[data-icon-config]').forEach(el => {
+      const config = JSON.parse(el.dataset.iconConfig);
+      const svg = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
+      el.innerHTML = `<svg viewBox="0 0 64 64" width="56" height="56" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+    });
 
     // === Создание ачивки ===
     document.getElementById('create-achievement-form').addEventListener('submit', async (e) => {

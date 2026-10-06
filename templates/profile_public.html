@@ -316,16 +316,9 @@
         <div class="achievements-row">
           {% for ach in user_achievements %}
             <div class="user-achievement" title="{{ ach.description or ach.name }}">
-              <div class="user-achievement-icon" id="ua-icon-{{ ach.achievement_id }}"></div>
+              <div class="user-achievement-icon" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
               <div class="user-achievement-name">{{ ach.name }}</div>
             </div>
-            <script>
-              (function() {
-                const config = {{ ach.icon_config | tojson }};
-                const el = document.getElementById('ua-icon-{{ ach.achievement_id }}');
-                if (el) el.innerHTML = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
-              })();
-            </script>
           {% endfor %}
         </div>
       {% endif %}
@@ -370,5 +363,13 @@
       {% endif %}
     {% endif %}
   </main>
+  <script>
+    // Render achievement icons via global renderAchievementSVG
+    document.querySelectorAll('.user-achievement-icon[data-icon-config]').forEach(el => {
+      const config = JSON.parse(el.dataset.iconConfig);
+      const svg = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
+      el.innerHTML = `<svg viewBox="0 0 64 64" width="48" height="48" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+    });
+  </script>
 </body>
 </html>
