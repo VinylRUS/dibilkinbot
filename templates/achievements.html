@@ -620,12 +620,23 @@
       formData.delete('threshold_unit');
       try {
         const r = await fetch('/api/achievements/create', { method: 'POST', body: formData });
-        const data = await r.json();
+        // v2.0.4: пытаемся распарсить JSON всегда, даже на 500 — чтобы показать реальную ошибку
+        let data = null;
+        const text = await r.text();
+        try { data = JSON.parse(text); } catch (_) {
+          // Сервер вернул HTML (FastAPI 500 page) — показываем голый текст
+          showToast('Ошибка сервера: ' + r.status + ' ' + r.statusText, 'error');
+          console.error('Achievement create response:', text);
+          return;
+        }
         if (r.ok) {
           showToast('✓ Ачивка создана', 'success');
           setTimeout(() => window.location.reload(), 600);
         } else {
-          showToast(data.error || 'Ошибка создания', 'error');
+          // Показываем реальную ошибку с сервера (data.error / data.detail / полный JSON)
+          const errMsg = data.error || data.detail || JSON.stringify(data);
+          showToast('Ошибка: ' + errMsg, 'error', 6000);
+          console.error('Achievement create error:', data);
         }
       } catch (err) {
         showToast('Сетевая ошибка: ' + err.message, 'error');
