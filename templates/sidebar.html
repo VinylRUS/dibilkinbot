@@ -167,14 +167,7 @@
       {{ sb_icon('logout') }}
     </a>
   </div>
-  </aside>
-
-{# v2.1.2: Глобальный футер страницы — version + commit ID.
-   Fixed внизу страницы, поверх всего. Включается через sidebar.html
-   который include'ится во всех шаблонах. Формат: v2.1.0(61a8e44) #}
-<footer class="page-footer-version" style="position:fixed;bottom:0;left:0;right:0;text-align:center;font-size:0.68rem;color:var(--text-muted);padding:4px 8px;background:var(--bg-base);border-top:1px solid var(--border);opacity:0.6;z-index:1000;pointer-events:none;letter-spacing:0.02em;">
-  {{ bot_version_with_commit | default('v?(unknown)') }}
-</footer>
+</aside>
 
 <script>
 function toggleSidebar() {
