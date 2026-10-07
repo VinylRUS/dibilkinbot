@@ -350,7 +350,7 @@
           </select>
 
           <label for="ach-trigger">Триггер</label>
-          <select id="ach-trigger" name="trigger_type" onchange="onTriggerChange()">
+          <select id="ach-trigger" name="trigger_type" data-native-select onchange="onTriggerChange()">
             <option value="manual">Только ручная выдача</option>
             <option value="ratings_count">Поставил N оценок</option>
             <option value="quotes_count">Добавил N цитат</option>
@@ -380,14 +380,14 @@
           {# v2.0.1: Dropdown с играми — показывается только при game_play_time #}
           <div id="game-select-row" style="display:none;">
             <label>Игра</label>
-            <select id="ach-game-select" name="game_name">
+            <select id="ach-game-select" name="game_name" data-native-select>
               <option value="">Любая игра</option>
             </select>
             <button type="button" class="btn-ghost" onclick="loadServerGames()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Обновить список игр</button>
           </div>
 
           <label>Discord роль (опционально)</label>
-          <select id="ach-discord-role" name="discord_role_id">
+          <select id="ach-discord-role" name="discord_role_id" data-native-select>
             <option value="">— без роли —</option>
           </select>
           <button type="button" class="btn-ghost" onclick="refreshDiscordRoles()" style="margin-top: 6px; width: 100%; padding: 6px;">🔄 Обновить роли</button>
