@@ -132,11 +132,11 @@ async def get_recently_played_games(steam_id64: str, api_key: str, count: int = 
     Endpoint: IPlayerService/GetRecentlyPlayedGames/v1/
     Требует публичный профиль (communityvisibilitystate=3).
 
-    Возвращает список dict'ов:
+    Возвращает список dict'ов (имена полей с _min суффиксом, чтобы совпадать с кешем в БД):
     - appid: int — Steam app ID
     - name: str — название игры
-    - playtime_2weeks: int — минуты за последние 2 недели
-    - playtime_forever: int — общее время в минутах
+    - playtime_2weeks_min: int — минуты за последние 2 недели
+    - playtime_forever_min: int — общее время в минутах
     - img_icon_url: str — hash иконки (для построения URL Steam CDN)
     - img_logo_url: str — hash логотипа
     - icon_url: str — готовый URL иконки (построен из img_icon_url)
@@ -164,8 +164,8 @@ async def get_recently_played_games(steam_id64: str, api_key: str, count: int = 
             result.append({
                 "appid": g.get("appid"),
                 "name": g.get("name", "Unknown"),
-                "playtime_2weeks": g.get("playtime_2weeks", 0),
-                "playtime_forever": g.get("playtime_forever", 0),
+                "playtime_2weeks_min": g.get("playtime_2weeks", 0),
+                "playtime_forever_min": g.get("playtime_forever", 0),
                 "img_icon_url": icon_hash,
                 "img_logo_url": logo_hash,
                 "icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{g['appid']}/{icon_hash}.ico" if icon_hash else None,
@@ -183,11 +183,11 @@ async def get_owned_games(steam_id64: str, api_key: str, include_appinfo: bool =
     Endpoint: IPlayerService/GetOwnedGames/v1/
     Требует публичный профиль.
 
-    Возвращает список dict'ов:
+    Возвращает список dict'ов (имена полей с _min суффиксом, чтобы совпадать с кешем в БД):
     - appid: int
     - name: str (только если include_appinfo=True)
-    - playtime_forever: int — минуты за всё время
-    - playtime_2weeks: int — минуты за последние 2 недели (есть не всегда)
+    - playtime_forever_min: int — минуты за всё время
+    - playtime_2weeks_min: int — минуты за последние 2 недели (есть не всегда)
     - img_icon_url: str — hash для построения URL иконки
     - icon_url: str — готовый URL
 
@@ -218,13 +218,13 @@ async def get_owned_games(steam_id64: str, api_key: str, include_appinfo: bool =
             result.append({
                 "appid": appid,
                 "name": g.get("name", "Unknown"),
-                "playtime_forever": g.get("playtime_forever", 0),
-                "playtime_2weeks": g.get("playtime_2weeks", 0),
+                "playtime_forever_min": g.get("playtime_forever", 0),
+                "playtime_2weeks_min": g.get("playtime_2weeks", 0),
                 "img_icon_url": icon_hash,
                 "icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{appid}/{icon_hash}.ico" if icon_hash and appid else None,
             })
         # Сортируем по убыванию playtime_forever — топ игр первыми
-        result.sort(key=lambda x: x.get("playtime_forever", 0), reverse=True)
+        result.sort(key=lambda x: x.get("playtime_forever_min", 0), reverse=True)
         return result
     except Exception as e:
         log.warning("Steam GetOwnedGames failed: %s", e)
