@@ -448,15 +448,18 @@ select:focus {
 select:hover:not(:focus) {
   border-color: var(--accent);
 }
-/* Явные цвета для option — перебивают системные */
+/* Явные цвета для option — перебивают системные.
+   v2.1.2: принудительно чёрный текст на белом фоне для выпадающего списка —
+   нативный рендер options на macOS/Linux в тёмной теме мог показывать
+   тёмный текст на тёмном фоне. Теперь всегда читаемо. */
 select option {
-  background: var(--input-bg);
-  color: var(--text);
+  background: #ffffff;
+  color: #000000;
   padding: 8px;
 }
 select option:checked {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: #000000;
 }
 select option:hover {
   background: var(--accent-soft);

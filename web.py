@@ -40,6 +40,48 @@ app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_u
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
+# v2.1.2: Глобальные переменные для всех шаблонов — bot_version и commit_id.
+# Раньше bot_version передавался только в panel.html, теперь доступен везде
+# (sidebar footer показывает "v2.1.0(abc1234)" на всех страницах).
+def _get_git_commit_id() -> str:
+    """Возвращает короткий hash последнего git коммита (7 символов).
+    Если не git-репозиторий или git недоступен — возвращает 'unknown'.
+    Кешируется при первом вызове.
+    """
+    if hasattr(_get_git_commit_id, '_cached'):
+        return _get_git_commit_id._cached
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True, text=True, timeout=2.0,
+            cwd=str(Path(__file__).parent),
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            commit = result.stdout.strip()[:7]
+        else:
+            commit = 'unknown'
+    except Exception:
+        commit = 'unknown'
+    _get_git_commit_id._cached = commit
+    return commit
+
+
+def _get_bot_version() -> str:
+    """Возвращает текущую версию из CHANGELOG (например 'v2.1.0'). Кешируется."""
+    if hasattr(_get_bot_version, '_cached'):
+        return _get_bot_version._cached
+    from changelog_parser import get_latest_version
+    _get_bot_version._cached = get_latest_version("CHANGELOG.md")
+    return _get_bot_version._cached
+
+
+# Регистрируем как Jinja2 globals — доступны во всех шаблонах без явной передачи
+templates.env.globals['bot_version'] = _get_bot_version()
+templates.env.globals['commit_id'] = _get_git_commit_id()
+templates.env.globals['bot_version_with_commit'] = f"{_get_bot_version()}({_get_git_commit_id()})"
+
+
 # v2.0.4: Глобальный handler для 422 — FastAPI по умолчанию возвращает {detail: [{loc, msg, type, ...}]}
 # Фронт теперь умеет парсить этот формат, но также добавим человекочитаемое поле `error`.
 @app.exception_handler(RequestValidationError)

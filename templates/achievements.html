@@ -570,18 +570,13 @@
           select.appendChild(opt);
           showToast('Игр пока нет. Данные появятся автоматически.', 'info');
         }
-        // Обновляем кастомный dropdown (upgradeSelects создаёт копию)
-        select.removeAttribute('data-upgraded');
-        select.style.display = 'none';
-        const oldWrapper = select.nextElementSibling;
-        if (oldWrapper && oldWrapper.classList.contains('custom-select-wrapper')) {
-          oldWrapper.remove();
-        }
-        if (window.upgradeSelects) window.upgradeSelects();
+        // v2.1.2: select теперь нативный (data-native-select) — никаких
+        // upgradeSelects / display:none / removeAttribute. Просто оставляем
+        // нативный select видимым с обновлёнными options.
       } catch (e) {
         showToast('Ошибка загрузки игр: ' + e.message, 'error');
       } finally {
-        if (btn) { btn.innerHTML = '🔄 Загрузить список игр'; btn.disabled = false; }
+        if (btn) { btn.innerHTML = '🔄 Обновить список игр'; btn.disabled = false; }
       }
     }
 
@@ -729,14 +724,7 @@
           select.appendChild(opt);
         });
         warning.style.display = '';
-        // Обновляем кастомный dropdown (upgradeSelects создаёт копию)
-        select.removeAttribute('data-upgraded');
-        select.style.display = 'none';
-        const oldWrapper = select.nextElementSibling;
-        if (oldWrapper && oldWrapper.classList.contains('custom-select-wrapper')) {
-          oldWrapper.remove();
-        }
-        if (window.upgradeSelects) window.upgradeSelects();
+        // v2.1.2: select нативный (data-native-select) — оставляем как есть
       }
       return roles && roles.length > 0;
     }

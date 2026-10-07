@@ -133,6 +133,10 @@
   </nav>
 
   <div class="sidebar-footer">
+    <!-- v2.1.2: версия бота + commit ID — формат v2.1.0(abc1234) -->
+    <div style="text-align:center; font-size:0.68rem; color:var(--text-muted); padding:2px 0 6px; opacity:0.7; letter-spacing:0.02em;">
+      {{ bot_version_with_commit | default('v?') }}
+    </div>
     <!-- Профиль (кнопка) -->
     <a href="/profile" class="sb-user" style="text-decoration:none; color:inherit;" title="Профиль">
       <div class="sb-user-avatar">
