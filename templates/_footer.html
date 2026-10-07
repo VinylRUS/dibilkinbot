@@ -1,0 +1,6 @@
+{# Глобальный футер страницы — version + commit ID.
+   Include'ится перед </body> в каждом шаблоне.
+   Формат: v2.1.4(20261008) — версия из CHANGELOG + commit hash или дата сборки. #}
+<footer class="page-footer-version" style="text-align:center;font-size:0.68rem;color:var(--text-muted);padding:8px 16px;border-top:1px solid var(--border);opacity:0.6;letter-spacing:0.02em;margin-top:24px;">
+  {{ bot_version_with_commit | default('v?(unknown)') }}
+</footer>

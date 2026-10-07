@@ -169,14 +169,6 @@
   </div>
   </aside>
 
-{# v2.1.3: Глобальный футер страницы — version + commit ID.
-   Статичный блок внизу страницы (не fixed, не катится при скролле).
-   Включается через sidebar.html который include'ится во всех шаблонах.
-   Формат: v2.1.1(7e4eaba) #}
-<footer class="page-footer-version" style="text-align:center;font-size:0.68rem;color:var(--text-muted);padding:8px 16px;border-top:1px solid var(--border);opacity:0.6;letter-spacing:0.02em;margin-top:24px;">
-  {{ bot_version_with_commit | default('v?(unknown)') }}
-</footer>
-
 <script>
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
