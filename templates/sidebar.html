@@ -219,7 +219,10 @@ document.addEventListener('click', (e) => {
 // Оригинальный <select> скрывается (display:none), но остаётся в DOM для форм.
 // Синхронизация: custom → select (для FormData) и select → custom (для JS).
 window.upgradeSelects = function() {
-  document.querySelectorAll('select:not([data-upgraded])').forEach(original => {
+  // v2.1.1: select'ы с атрибутом data-native-select не апгрейдятся —
+  // оставляем нативный. Используется для критичных select'ов (trigger_type в ачивках),
+  // где custom dropdown ломал FormData (selected option не выставлялся).
+  document.querySelectorAll('select:not([data-upgraded]):not([data-native-select])').forEach(original => {
     original.setAttribute('data-upgraded', 'true');
     original.style.display = 'none';
 
