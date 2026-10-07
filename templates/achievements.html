@@ -615,18 +615,14 @@
       // значение из самого select элемента и подменяем в formData.
       const triggerSelect = document.getElementById('ach-trigger');
       const triggerValue = triggerSelect ? triggerSelect.value : '';
-      if (triggerValue) {
-        formData.set('trigger_type', triggerValue);
-      }
-      // То же для game_name и discord_role_id — на всякий случай
+      // v2.1.1: всегда set, даже если пустой — чтобы FormData(form) не вернул
+      // значение по умолчанию (manual) если оно было до upgradeSelects
+      formData.set('trigger_type', triggerValue);
+      // То же для game_name и discord_role_id
       const gameSelect = document.getElementById('ach-game-select');
-      if (gameSelect && gameSelect.value) {
-        formData.set('game_name', gameSelect.value);
-      }
+      formData.set('game_name', gameSelect ? gameSelect.value : '');
       const roleSelect = document.getElementById('ach-discord-role');
-      if (roleSelect && roleSelect.value) {
-        formData.set('discord_role_id', roleSelect.value);
-      }
+      formData.set('discord_role_id', roleSelect ? roleSelect.value : '');
 
       formData.set('icon_key', builderConfig.icon_key || '');
       formData.set('icon_url', builderConfig.icon_url || '');
@@ -656,7 +652,10 @@
       }
       if (!formData.get('trigger_type')) {
         showToast('Ошибка: поле "Триггер" обязательно (trigger_type пустой)', 'error');
-        console.error('trigger_type is empty. Select value:', triggerValue, 'Select element:', triggerSelect);
+        console.error('trigger_type is empty. Select value:', triggerValue,
+                       'Select element:', triggerSelect,
+                       'Select options:', triggerSelect ? Array.from(triggerSelect.options).map(o => o.value + (o.selected ? ' [sel]' : '')) : 'N/A',
+                       'Custom wrapper open:', triggerSelect?.nextElementSibling?.classList.contains('open'));
         return;
       }
       // Диагностика: выведем что отправляем
