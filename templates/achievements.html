@@ -696,10 +696,13 @@
       const roleSelect = document.getElementById('ach-discord-role');
       formData.set('discord_role_id', roleSelect ? roleSelect.value : '');
 
-      formData.set('icon_key', builderConfig.icon_key || '');
-      formData.set('icon_url', builderConfig.icon_url || '');
-      formData.set('icon_color', builderConfig.color || 'accent');
-      formData.set('icon_glow', builderConfig.glow || 'none');
+      // v2.1.5: защита от undefined builderConfig — если JS упал при инициализации,
+      // используем defaults чтобы форма хотя бы отправилась и страница перезагрузилась
+      const _bc = typeof builderConfig !== 'undefined' ? builderConfig : { icon_key: 'movie', icon_url: '', color: 'accent', glow: 'none' };
+      formData.set('icon_key', _bc.icon_key || '');
+      formData.set('icon_url', _bc.icon_url || '');
+      formData.set('icon_color', _bc.color || 'accent');
+      formData.set('icon_glow', _bc.glow || 'none');
       // v2.1.0: Конвертируем порог в секунды ТОЛЬКО для time-триггеров
       // (voice_time, voice_time_solo, voice_time_with_others, game_play_time).
       // Для count-триггеров (ratings_count, quotes_count, wheel_wins, etc.)
