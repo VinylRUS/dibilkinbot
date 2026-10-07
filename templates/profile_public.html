@@ -487,10 +487,11 @@
                   <span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.8rem;">🎲</span>
                 {% endif %}
                 <span class="game-name" title="{{ g.name }}">{{ g.name }}</span>
-                {% if g.playtime_2weeks_min > 0 %}
-                  <span class="game-duration" title="за 2 недели">{{ (g.playtime_2weeks_min / 60) | round(1) }} ч (2 нед)</span>
+                {# v2.1.2: используем default(0) чтобы не упасть если поле отсутствует #}
+                {% if (g.playtime_2weeks_min | default(0)) > 0 %}
+                  <span class="game-duration" title="за 2 недели">{{ (g.playtime_2weeks_min | default(0) / 60) | round(1) }} ч (2 нед)</span>
                 {% endif %}
-                <span class="game-date mono" title="всего">{{ (g.playtime_forever_min / 60) | round(0) | int }} ч всего</span>
+                <span class="game-date mono" title="всего">{{ ((g.playtime_forever_min | default(0)) / 60) | round(0) | int }} ч всего</span>
               </li>
             {% endfor %}
           </ul>
