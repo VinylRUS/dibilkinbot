@@ -22,6 +22,12 @@ RUN mkdir -p /app/data && chmod 777 /app/data
 WORKDIR /app
 COPY . /app/
 
+# v2.1.4: Записываем commit hash в .git_commit для футера версии.
+# Если Docker build запущен с --build-arg GIT_COMMIT=$(git rev-parse --short HEAD),
+# берём оттуда. Иначе — fallback на дату сборки.
+ARG GIT_COMMIT=unknown
+RUN echo "${GIT_COMMIT}" > /app/.git_commit
+
 ENV DATABASE_PATH=/app/data/bot.db
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/opt/venv/bin:$PATH"
