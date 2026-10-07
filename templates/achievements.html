@@ -548,7 +548,11 @@
     async function loadServerGames() {
       const select = document.getElementById('ach-game-select');
       if (!select) return;
-      const btn = event?.target || document.querySelector('button[onclick="loadServerGames()"]');
+      // v2.1.4: ищем именно <button>, не event.target — потому что loadServerGames
+      // вызывается и из onTriggerChange() (event = change на select триггера),
+      // и тогда event.target = <select id="ach-trigger"> — и мы бы затёрли его
+      // innerHTML спиннером, удалив все <option> триггера.
+      const btn = document.querySelector('button[onclick="loadServerGames()"]');
       if (btn) { btn.innerHTML = '<span class="spinner-inline"></span>'; btn.disabled = true; }
       try {
         const r = await fetch('/api/achievements/server_games');
@@ -746,7 +750,9 @@
 
     async function refreshDiscordRoles() {
       // POST /refresh — синхронизирует с Discord + обновляет кеш
-      const btn = event?.target || document.querySelector('button[onclick="refreshDiscordRoles()"]');
+      // v2.1.4: всегда ищем <button> через querySelector, не event.target —
+      // т.к. refreshDiscordRoles может быть вызван из loadDiscordRoles() без клика
+      const btn = document.querySelector('button[onclick="refreshDiscordRoles()"]');
       if (btn) { btn.innerHTML = '<span class="spinner-inline"></span>'; btn.disabled = true; }
       try {
         const r = await fetch('/api/achievements/discord_roles/refresh', { method: 'POST' });
