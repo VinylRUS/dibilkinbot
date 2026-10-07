@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -335,6 +335,22 @@ GUILD_SCHEMA_TEMPLATES = {
             synced_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_position ON {table}(position DESC);
+    """,
+    # === v2.1.0: Steam games cache (lazy refresh from Steam API) ===
+    "user_steam_games": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_discord_id INTEGER NOT NULL,
+            appid INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            playtime_forever_min INTEGER DEFAULT 0,
+            playtime_2weeks_min INTEGER DEFAULT 0,
+            icon_url TEXT,
+            last_fetched_at TEXT NOT NULL,
+            UNIQUE(user_discord_id, appid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_recent ON {table}(user_discord_id, playtime_2weeks_min DESC);
     """,
 }
 

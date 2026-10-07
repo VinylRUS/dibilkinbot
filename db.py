@@ -718,6 +718,47 @@ async def list_users() -> list[tuple]:
             return await cur.fetchall()
 
 
+async def list_guild_user_ids(guild_id: int) -> list[int]:
+    """Список discord_id юзеров которые когда-либо проявляли активность в этой гильдии
+    (смотрели фильмы, цитаты, ачивки, голос, игры).
+
+    v2.1.0: используется для ретро-выдачи ачивок только в рамках одной гильдии,
+    а не по всем юзерам всех гильдий. Глобальная таблица users не имеет колонки guild_id,
+    но мы можем узнать «кто здесь активен» через presence в guild-таблицах:
+    watched, user_achievements, voice_sessions, member_activities, ratings, quotes.
+    """
+    gid = _guild.validate_guild_id(guild_id)
+    tables = [
+        _guild.guild_table(gid, "watched"),       # watcher_user_id
+        _guild.guild_table(gid, "ratings"),       # user_discord_id
+        _guild.guild_table(gid, "quotes"),        # recorded_by
+        _guild.guild_table(gid, "watchlist"),     # user_discord_id
+        _guild.guild_table(gid, "user_achievements"),  # user_discord_id
+        _guild.guild_table(gid, "voice_sessions"),     # user_discord_id
+        _guild.guild_table(gid, "member_activities"),   # user_discord_id
+    ]
+    ids = set()
+    async with _connect() as db:
+        for t in tables:
+            # Проверяем существует ли таблица
+            async with db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (t,)
+            ) as cur:
+                if not await cur.fetchone():
+                    continue
+            # Колонка с user id зависит от таблицы
+            col = "watcher_user_id" if t.endswith("_watched") else "user_discord_id"
+            try:
+                async with db.execute(f"SELECT DISTINCT {col} FROM {t}") as cur:
+                    rows = await cur.fetchall()
+                for row in rows:
+                    if row[0]:
+                        ids.add(int(row[0]))
+            except Exception:
+                pass
+    return list(ids)
+
+
 async def list_active_members(limit: int = 12) -> list[dict]:
     """Список последних активных участников для дашборда (виден всем юзерам).
 
@@ -2161,6 +2202,10 @@ async def g_create_achievement(
     import json
     if trigger_type not in ACHIEVEMENT_TRIGGERS:
         raise ValueError(f"Unknown trigger_type: {trigger_type}")
+    # v2.1.0: M3 fix — отрицательный порог всегда «выполняется» (count >= -5 = True
+    # даже при count=0), что раздаёт ачивку всем без действий. Запрещаем.
+    if trigger_threshold < 0:
+        raise ValueError(f"trigger_threshold must be >= 0, got {trigger_threshold}")
     table = _guild.guild_table(guild_id, "achievements")
     async with _connect() as db:
         cur = await db.execute(
@@ -2284,10 +2329,12 @@ async def g_grant_achievement(
             f"VALUES (?, ?, ?, ?, 1)",
             (achievement_id, user_discord_id, datetime.utcnow().isoformat(), granted_by),
         )
-        # Если была неактивная — реактивируем
+        # v2.1.0: H1 fix — UPDATE только если is_active = 0 (была отозвана).
+        # Раньше всегда перезаписывался granted_at → счётчик непрочитанных ачивок
+        # сбрасывался каждый раз при повторной выдаче, и терялся оригинальный granted_by.
         await db.execute(
             f"UPDATE {table_ua} SET is_active = 1, granted_at = ?, granted_by = ? "
-            f"WHERE achievement_id = ? AND user_discord_id = ?",
+            f"WHERE achievement_id = ? AND user_discord_id = ? AND is_active = 0",
             (datetime.utcnow().isoformat(), granted_by, achievement_id, user_discord_id),
         )
         await db.commit()
@@ -2454,9 +2501,12 @@ async def g_get_user_trigger_count(guild_id: int, user_discord_id: int, trigger_
         elif trigger_type == "santa_participations":
             sql = f"SELECT COUNT(*) FROM {table_sp} WHERE user_discord_id = ?"
         elif trigger_type == "watched_count":
+            # v2.1.0: C1 fix — раньше считали все watched-записи гильдии без фильтра по юзеру,
+            # ачивка «в бэклоге N фильмов» выдавалась всем юзерам гильдии когда total >= N.
+            # Теперь фильтруем по watcher_user_id (колонка называется так, не user_discord_id).
             table_watched = _guild.guild_table(guild_id, "watched")
-            sql = f"SELECT COUNT(*) FROM {table_watched}"
-            row = await (await db.execute(sql, ())).fetchone()
+            sql = f"SELECT COUNT(*) FROM {table_watched} WHERE watcher_user_id = ?"
+            row = await (await db.execute(sql, (user_discord_id,))).fetchone()
             return row[0]
         elif trigger_type in ("voice_time", "voice_time_solo", "voice_time_with_others"):
             # Возвращаем секунды, не количество
@@ -2539,8 +2589,11 @@ async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_ty
                 "icon_config": json.loads(icon_cfg) if icon_cfg else {},
                 "discord_role_id": role_id,
             })
-            # Если есть Discord роль и передан bot_obj — выдаём роль
-            if role_id and bot_obj is not None:
+            # v2.1.0: C4 fix — Discord-роль выдаётся автоматически при авто-выдаче ачивки.
+            # Раньше требовалось передать bot_obj, но ни один call-site этого не делал →
+            # роль не выдавалась никогда. Теперь пытаемся импортировать bot и выдать роль
+            # в любом случае, ошибки логируем и глушим (ачивка остаётся выданной в БД).
+            if role_id:
                 try:
                     import bot as bot_module
                     await bot_module.assign_role_to_member(guild_id, user_discord_id, role_id)
@@ -2759,6 +2812,147 @@ async def g_get_game_compat(guild_id: int, user_a: int, user_b: int) -> dict:
         "compatibility": compatibility,
         "common_games": common_games,
     }
+
+
+# === v2.1.0: Steam games cache (lazy refresh) ===
+
+STEAM_CACHE_TTL_SECONDS = 3600  # 1 час
+
+
+async def g_get_steam_games_cached(guild_id: int, user_discord_id: int, limit: int = 10) -> tuple[list[dict], bool]:
+    """Получить закешированные Steam-игры юзера.
+
+    Возвращает (games, fresh):
+    - games: список [{appid, name, playtime_forever_min, playtime_2weeks_min, icon_url}], отсортированный по playtime_2weeks DESC
+    - fresh: True если кеш свежий (TTL < 1 часа), False если устарел или пуст
+
+    Вызывающий код (web.py) решает — сделать refresh или показать устаревший.
+    """
+    table = _guild.guild_table(guild_id, "user_steam_games")
+    games = []
+    fresh = False
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, last_fetched_at "
+            f"FROM {table} WHERE user_discord_id = ? "
+            f"ORDER BY playtime_2weeks_min DESC, playtime_forever_min DESC LIMIT ?",
+            (user_discord_id, limit)
+        ) as cur:
+            rows = await cur.fetchall()
+        if rows:
+            # Проверяем last_fetched_at первой строки — он одинаковый для всех строк пачки
+            last_fetched = rows[0][5]
+            if last_fetched:
+                try:
+                    from datetime import datetime, timedelta
+                    fetched_dt = datetime.fromisoformat(last_fetched)
+                    age = (datetime.utcnow() - fetched_dt).total_seconds()
+                    fresh = age < STEAM_CACHE_TTL_SECONDS
+                except Exception:
+                    fresh = False
+            games = [
+                {
+                    "appid": r[0],
+                    "name": r[1],
+                    "playtime_forever_min": r[2],
+                    "playtime_2weeks_min": r[3],
+                    "icon_url": r[4],
+                }
+                for r in rows
+            ]
+    return games, fresh
+
+
+async def g_save_steam_games_cache(guild_id: int, user_discord_id: int, games: list[dict]) -> None:
+    """Сохранить/обновить кеш Steam-игр юзера.
+
+    games: список dict'ов с полями {appid, name, playtime_forever_min, playtime_2weeks_min, icon_url}
+    Полностью заменяет кеш юзера (DELETE + INSERT), чтобы убрать удалённые из библиотеки игры.
+    """
+    if not games:
+        # Даже если список пустой — обновляем last_fetched_at, иначе кеш будет всегда "несвежим"
+        # и каждая открытие профиля будет дёргать Steam API.
+        # Делаем это только если в БД уже есть записи — иначе INSERT пустой строки не имеет смысла.
+        table = _guild.guild_table(guild_id, "user_steam_games")
+        now = datetime.utcnow().isoformat()
+        async with _connect() as db:
+            await db.execute(
+                f"UPDATE {table} SET last_fetched_at = ? WHERE user_discord_id = ?",
+                (now, user_discord_id)
+            )
+            await db.commit()
+        return
+
+    table = _guild.guild_table(guild_id, "user_steam_games")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        # Удаляем старый кеш
+        await db.execute(
+            f"DELETE FROM {table} WHERE user_discord_id = ?",
+            (user_discord_id,)
+        )
+        # Вставляем новый
+        for g in games:
+            await db.execute(
+                f"INSERT INTO {table} (user_discord_id, appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, last_fetched_at) "
+                f"VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_discord_id, int(g["appid"]), g.get("name", "Unknown"),
+                 int(g.get("playtime_forever_min", 0)),
+                 int(g.get("playtime_2weeks_min", 0)),
+                 g.get("icon_url"), now)
+            )
+        await db.commit()
+
+
+async def g_get_user_steam_games(guild_id: int, user_discord_id: int, limit: int = 10, force_refresh: bool = False) -> list[dict]:
+    """Получить Steam-игры юзера с lazy refresh.
+
+    Логика:
+    1. Читаем кеш из БД
+    2. Если кеш свежий (< 1 часа) — возвращаем как есть
+    3. Если устарел или пустой — делаем запрос к Steam API, обновляем кеш, возвращаем свежие данные
+    4. Если Steam API недоступен (None) — возвращаем устаревший кеш (best-effort)
+
+    force_refresh=True — игнорирует TTL, всегда обновляет.
+    """
+    games, fresh = await g_get_steam_games_cached(guild_id, user_discord_id, limit)
+    if fresh and not force_refresh:
+        return games
+    # Нужен refresh
+    try:
+        # Достаём steam_id64 юзера из глобальной таблицы users
+        steam_id64 = None
+        async with _connect() as db:
+            async with db.execute(
+                "SELECT steam_id64 FROM users WHERE discord_id = ?",
+                (user_discord_id,)
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    steam_id64 = row[0]
+        if not steam_id64:
+            # Юзер не привязал Steam-профиль — возвращаем что есть (возможно пусто)
+            return games
+        # Достаём API key
+        import steam as steam_module
+        api_key = await steam_module.get_steam_api_key()
+        if not api_key:
+            log.warning("Steam API key not set — cannot refresh games cache for user %s", user_discord_id)
+            return games
+        # Запрашиваем GetOwnedGames — самая полная картина
+        # (включает playtime_2weeks если юзер играл за последние 2 недели)
+        owned = await steam_module.get_owned_games(steam_id64, api_key)
+        if owned is None:
+            # API вернул ошибку (приватный профиль или таймаут) — возвращаем кеш
+            log.info("Steam GetOwnedGames returned None for user %s — using cache", user_discord_id)
+            return games
+        # Сохраняем кеш
+        await g_save_steam_games_cache(guild_id, user_discord_id, owned)
+        # Возвращаем топ-N
+        return owned[:limit]
+    except Exception as e:
+        log.warning("Failed to refresh Steam games cache for user %s: %s", user_discord_id, e)
+        return games
 
 
 async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, game_name: str) -> int:

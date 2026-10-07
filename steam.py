@@ -124,6 +124,113 @@ async def get_player_summaries(steam_id64: str, api_key: str) -> dict | None:
         return None
 
 
+# v2.1.0: Новые функции для трекинга игр пользователя
+
+async def get_recently_played_games(steam_id64: str, api_key: str, count: int = 10) -> list[dict] | None:
+    """Получить последние сыгранные игры пользователя (за последние 2 недели).
+
+    Endpoint: IPlayerService/GetRecentlyPlayedGames/v1/
+    Требует публичный профиль (communityvisibilitystate=3).
+
+    Возвращает список dict'ов:
+    - appid: int — Steam app ID
+    - name: str — название игры
+    - playtime_2weeks: int — минуты за последние 2 недели
+    - playtime_forever: int — общее время в минутах
+    - img_icon_url: str — hash иконки (для построения URL Steam CDN)
+    - img_logo_url: str — hash логотипа
+    - icon_url: str — готовый URL иконки (построен из img_icon_url)
+    - logo_url: str — готовый URL логотипа
+
+    Возвращает None если профиль приватный или нет данных.
+    Возвращает [] если профиль публичный, но юзер ничего не играл за 2 недели.
+    """
+    url = f"{STEAM_API_BASE}/IPlayerService/GetRecentlyPlayedGames/v1/"
+    params = {"key": api_key, "steamid": steam_id64, "count": count}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, params=params)
+        if r.status_code != 200:
+            log.warning("Steam GetRecentlyPlayedGames HTTP %s: %s", r.status_code, r.text[:200])
+            return None
+        data = r.json().get("response", {})
+        if data.get("total_count", 0) == 0:
+            return []
+        games = data.get("games", [])
+        result = []
+        for g in games:
+            icon_hash = g.get("img_icon_url", "")
+            logo_hash = g.get("img_logo_url", "")
+            result.append({
+                "appid": g.get("appid"),
+                "name": g.get("name", "Unknown"),
+                "playtime_2weeks": g.get("playtime_2weeks", 0),
+                "playtime_forever": g.get("playtime_forever", 0),
+                "img_icon_url": icon_hash,
+                "img_logo_url": logo_hash,
+                "icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{g['appid']}/{icon_hash}.ico" if icon_hash else None,
+                "logo_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{g['appid']}/{logo_hash}.jpg" if logo_hash else None,
+            })
+        return result
+    except Exception as e:
+        log.warning("Steam GetRecentlyPlayedGames failed: %s", e)
+        return None
+
+
+async def get_owned_games(steam_id64: str, api_key: str, include_appinfo: bool = True, include_free_games: bool = True) -> list[dict] | None:
+    """Получить полную библиотеку игр пользователя (со временем игры).
+
+    Endpoint: IPlayerService/GetOwnedGames/v1/
+    Требует публичный профиль.
+
+    Возвращает список dict'ов:
+    - appid: int
+    - name: str (только если include_appinfo=True)
+    - playtime_forever: int — минуты за всё время
+    - playtime_2weeks: int — минуты за последние 2 недели (есть не всегда)
+    - img_icon_url: str — hash для построения URL иконки
+    - icon_url: str — готовый URL
+
+    Возвращает None если профиль приватный или нет данных.
+    Возвращает [] если профиль публичный, но юзер не имеет игр.
+    """
+    url = f"{STEAM_API_BASE}/IPlayerService/GetOwnedGames/v1/"
+    params = {
+        "key": api_key,
+        "steamid": steam_id64,
+        "include_appinfo": "true" if include_appinfo else "false",
+        "include_played_free_games": "true" if include_free_games else "false",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(url, params=params)
+        if r.status_code != 200:
+            log.warning("Steam GetOwnedGames HTTP %s: %s", r.status_code, r.text[:200])
+            return None
+        data = r.json().get("response", {})
+        if data.get("game_count", 0) == 0:
+            return []
+        games = data.get("games", [])
+        result = []
+        for g in games:
+            icon_hash = g.get("img_icon_url", "")
+            appid = g.get("appid")
+            result.append({
+                "appid": appid,
+                "name": g.get("name", "Unknown"),
+                "playtime_forever": g.get("playtime_forever", 0),
+                "playtime_2weeks": g.get("playtime_2weeks", 0),
+                "img_icon_url": icon_hash,
+                "icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{appid}/{icon_hash}.ico" if icon_hash and appid else None,
+            })
+        # Сортируем по убыванию playtime_forever — топ игр первыми
+        result.sort(key=lambda x: x.get("playtime_forever", 0), reverse=True)
+        return result
+    except Exception as e:
+        log.warning("Steam GetOwnedGames failed: %s", e)
+        return None
+
+
 async def get_wishlist(steam_id64: str) -> list[dict] | None:
     """Получить wishlist игр Steam-профиля.
 

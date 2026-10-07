@@ -385,24 +385,29 @@ window.notifyNewAchievements = function(achievements) {
 // v1.9.4: Используем hex-цвета напрямую (не var(--accent)) — SVG fill="var(--accent)"
 // не работает в большинстве браузеров (computed style = rgb(0,0,0)).
 // Hex-значения берём из style.css :root для dark темы.
+// v2.1.0: Иконки ачивок переделаны в liquid glass стиле.
+// Раньше: SVG-кружок с solid-fill (плоский диск, opacity 0.85, stroke=fill).
+// Теперь: HTML-обёртка с backdrop-filter:blur + var(--glass-bg) + accent ring,
+// внутри SVG только иконка с drop-shadow. Цвета берём из CSS-переменных,
+// что позволяет автоматически подстраиваться под dark/light тему.
+//
+// ACHIEVEMENT_COLORS теперь хранит имя CSS-переменной (читаем через
+// getComputedStyle для текущей темы), а не хардкод hex-значения.
 window.ACHIEVEMENT_COLORS = {
-  accent: { svg: '#FFB703', hex: 'FFB703' },  // var(--accent) в dark теме
-  gold:   { svg: '#FFD700', hex: 'FFD700' },
-  red:    { svg: '#E55A4E', hex: 'E55A4E' },  // var(--red) в dark теме
-  green:  { svg: '#6FAE5A', hex: '6FAE5A' },  // var(--green) в dark теме
-  purple: { svg: '#9B59B6', hex: '9B59B6' },
-  blue:   { svg: '#3498DB', hex: '3498DB' },
+  accent: 'var(--accent)',
+  gold:   'var(--gold, #FFD700)',
+  red:    'var(--red)',
+  green:  'var(--green)',
+  purple: 'var(--purple, #9B59B6)',
+  blue:   'var(--blue, #3498DB)',
 };
 window.ACHIEVEMENT_GLOW_COLORS = {
-  none: 'none',
-  accent: '#FFB703',
-  gold: '#FFD700',
-  pulse: '#FFB703',
+  none: 'transparent',
+  accent: 'var(--accent)',
+  gold: 'var(--gold, #FFD700)',
+  pulse: 'var(--accent)',
 };
-// Встроенная библиотека SVG-иконок (как в sidebar) — используется если icon_key задан.
-// Хранит ТОЛЬКО path/g элементы (без обёртки <svg>), чтобы корректно
-// масштабироваться через transform внутри родительского SVG viewBox 64×64.
-// Размер 24×24 → scale(1) даёт иконку 24px, центрированную в (32,32) через translate(20,20).
+// Встроенная библиотека SVG-иконок — path элементы в координатах 0-24.
 window.ACHIEVEMENT_PRESET_ICONS = {
   'movie': '<path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4h-4z"/>',
   'star': '<path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>',
@@ -425,46 +430,49 @@ window.ACHIEVEMENT_PRESET_ICONS = {
   'medal': '<path d="M7.21 3l-1.49 4 4.28 4.94C10.96 11.05 11.4 11 12 11s1.04.05 1.71.94L17.99 7l-1.5-4h-9.28zM12 13c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4z"/>',
   'target': '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-4c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4z"/>',
 };
+// v2.1.0: Рендер иконки ачивки в liquid glass стиле.
+// Возвращает HTML-обёртку с backdrop-filter + SVG-иконкой внутри.
+// CSS-классы (.ach-icon-wrap, .ach-glow-accent, .ach-pulse) определены в style.css.
 window.renderAchievementSVG = function(config) {
   if (!config || typeof config !== 'object') config = {};
   const emoji = config.emoji || '';
   const iconUrl = config.icon_url || '';
   const presetKey = config.icon_key || '';
-  const colorObj = window.ACHIEVEMENT_COLORS[config.color] || window.ACHIEVEMENT_COLORS.accent;
-  const color = colorObj.svg;
+  const colorKey = config.color || 'accent';
   const glow = config.glow || 'none';
-  const cx = 32, cy = 32, r = 26;
-  let filterDef = '';
-  let filterAttr = '';
-  if (glow !== 'none') {
-    const glowColor = window.ACHIEVEMENT_GLOW_COLORS[glow] || 'var(--accent)';
-    const filterId = 'ach-glow-' + Math.random().toString(36).substr(2, 9);
-    filterDef = `<defs><filter id="${filterId}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5" result="b"/><feFlood flood-color="${glowColor}" flood-opacity="0.8"/><feComposite in2="b" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
-    filterAttr = ` filter="url(#${filterId})"`;
-  }
-  const animationClass = glow === 'pulse' ? ' ach-pulse' : '';
-  // Внутренняя иконка: URL приоритетнее preset, emoji как fallback.
-  // SVG viewBox 64×64, иконка должна быть ~50% диаметра круга (24px из 52px диаметра).
-  // preset SVG path рисуется в координатах 0-24. Чтобы отцентрировать в (32,32)
-  // со сдвигом на половину ширины иконки (12), используем translate(20, 20).
-  // Чтобы иконка не вылезала, scale 0.9 даёт запас. Белый цвет через fill.
+  // Класс glow добавляет box-shadow на обёртку через CSS
+  const glowClass = glow !== 'none' ? ` ach-glow ach-glow-${glow}` : '';
+  const pulseClass = glow === 'pulse' ? ' ach-pulse' : '';
+  // Внутренняя иконка
   let innerSvg = '';
   if (iconUrl) {
-    // Кастомная иконка по URL (PNG/SVG с icons8 или другого источника).
-    // Image 24×24, центрирована в (32,32) → x=20, y=20.
-    innerSvg = `<image href="${iconUrl}" x="${cx-12}" y="${cy-12}" width="24" height="24" />`;
+    // Кастомная иконка по URL (PNG/SVG из icons8 или static/icons/custom/*).
+    // Image 28×28, центрирована в 32×32 viewBox.
+    innerSvg = `<image href="${escapeAttr(iconUrl)}" x="4" y="4" width="56" height="56" preserveAspectRatio="xMidYMid meet" />`;
   } else if (presetKey && window.ACHIEVEMENT_PRESET_ICONS[presetKey]) {
-    // Preset SVG path (без <svg> обёртки). Рисуется в координатах 0-24.
-    // translate(20, 20) сдвигает origin в (20, 20), scale(0.9) для запаса.
-    innerSvg = `<g transform="translate(${cx-12}, ${cy-12}) scale(0.9)" fill="white">${window.ACHIEVEMENT_PRESET_ICONS[presetKey]}</g>`;
+    // Preset SVG path в координатах 0-24, центрируем в 32×32 через translate(4,4) и scale(2)
+    // (24×2 = 48px из 64 viewBox — оставляет 8px padding).
+    innerSvg = `<g transform="translate(8, 8) scale(2)" fill="currentColor">${window.ACHIEVEMENT_PRESET_ICONS[presetKey]}</g>`;
   } else if (emoji) {
-    // Эмодзи как fallback (legacy)
-    innerSvg = `<text x="${cx}" y="${cy+8}" text-anchor="middle" font-size="22" fill="white" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">${emoji}</text>`;
+    innerSvg = `<text x="32" y="44" text-anchor="middle" font-size="32">${escapeXml(emoji)}</text>`;
   } else {
-    innerSvg = `<text x="${cx}" y="${cy+8}" text-anchor="middle" font-size="22" fill="white">🏆</text>`;
+    innerSvg = `<g transform="translate(8, 8) scale(2)" fill="currentColor">${window.ACHIEVEMENT_PRESET_ICONS.trophy}</g>`;
   }
-  return `${filterDef}<g${filterAttr}><circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" opacity="0.85" stroke="${color}" stroke-width="1.5" class="${animationClass}"/>${innerSvg}</g>`;
+  // Обёртка: glass background + accent ring через CSS.
+  // Цвет кольца и иконки задаётся через inline style из ACHIEVEMENT_COLORS
+  // (использует CSS-переменные, чтобы подстраиваться под тему).
+  const colorVar = window.ACHIEVEMENT_COLORS[colorKey] || window.ACHIEVEMENT_COLORS.accent;
+  return `<span class="ach-icon-wrap${glowClass}${pulseClass}" style="color: ${colorVar};">
+    <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">${innerSvg}</svg>
+  </span>`;
 };
+// Экранирование атрибутов (для icon_url, чтобы предотвратить XSS через кавычку в URL).
+function escapeAttr(s) {
+  return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escapeXml(s) {
+  return String(s).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 // === Модалка «кто как оценил» (общая для всех страниц) ===
 window.showRatingsModal = function(winnerId, filmTitle) {

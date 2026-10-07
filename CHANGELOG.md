@@ -1,5 +1,41 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.1.0
+### Новое
+- 🎮 Steam-игры в профиле: если у юзера привязан Steam-профиль, в его публичном профиле появился блок «Steam за 2 недели» с играми, временем за последние 2 недели и общим временем. Иконки игр подтягиваются с Steam CDN. Источник — официальный Steam Web API (GetOwnedGames), кеш на 1 час — повторные открытия профиля не дёргают API
+- 🎨 Иконки ачивок переделаны в стиле glassmorphism панели: вместо плоского цветного кружка — стеклянная обёртка с размытием, акцентным кольцом и подсветкой сверху. Иконки теперь подстраиваются под dark/light тему автоматически (раньше были захардкожены под тёмную). Glow и pulse — реальные CSS-анимации, а не заглушки
+- 🛡 Безопасность иконок: URL-иконки теперь валидируются по схеме (только http/https) — это закрывает потенциальный XSS через `javascript:` и SSRF через внутренние адреса. Скачанные файлы проверяются по Content-Type и magic bytes, чтобы не сохранить HTML error page под видом PNG
+
+### Исправлено
+- 🐛 Ачивки на «N оценок», «N цитат», «N в вишлисте» и подобные — больше не сломаны. Раньше фронт всегда умножал порог на 3600 (думал что это время в часах), и ачивка «10 оценок» сохранялась как порог 36000 — недостижимая цифра. Теперь конвертация в секунды применяется только для time-триггеров (войс, игры)
+- 🐛 Discord-роль теперь автоматически выдаётся при авто-получении ачивки. Раньше роль выдавалась только при ручном «Выдать» через админку — автотриггеры (оценки, цитаты, игры) создавали запись в БД, но не дёргали Discord API. Теперь роль выдаётся в любом случае
+- 🐛 Создание ачивки больше не подвешивает вкладку на 5 минут. Ретроспективная выдача (проверка всех юзеров, кто уже выполнил условия) теперь запускается в фоновой задаче и проверяет только активных юзеров текущей гильдии, а не всех зарегистрированных в боте
+- 🐛 Ачивка «в бэклоге N фильмов» теперь действительно считает фильмы конкретного юзера, а не всей гильдии. Раньше условие `total >= N` срабатывало для всех одновременно
+- 🐛 Повторная выдача ачивки больше не сбрасывает дату выдачи. Раньше каждый клик «Выдать» обновлял `granted_at` на текущее время — счётчик непросмотренных ачивок бесконечно загорался. Теперь `granted_at` обновляется только при реактивации отозванной ачивки
+- 🐛 Отрицательный порог отклоняется при создании ачивки. Раньше `-5` означало «выдать всем без действий» (любой count ≥ -5 = True)
+- 🐛 Админ (Трутень) теперь может привязывать Discord-роль к ачивке в конструкторе. Раньше кнопка «🔄 Обновить роли» и сам список ролей требовали прав суперпользователя — админ получал 403 без объяснений
+
+### Техническое
+- steam.py: новые функции `get_recently_played_games(steam_id64, api_key, count)` → IPlayerService/GetRecentlyPlayedGames/v1 и `get_owned_games(steam_id64, api_key)` → IPlayerService/GetOwnedGames/v1. Обе возвращают список dict'ов с appid, name, playtime_forever_min, playtime_2weeks_min, icon_url
+- guild.py: новая таблица `guild_{id}_user_steam_games` (id PK, user_discord_id, appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, last_fetched_at). UNIQUE(user, appid). Индексы по user и по (user, playtime_2weeks DESC)
+- db.py: `STEAM_CACHE_TTL_SECONDS = 3600`. `g_get_steam_games_cached(guild_id, user_id, limit)` → (games, fresh) tuple. `g_save_steam_games_cache(guild_id, user_id, games)` — DELETE + INSERT (full replace). `g_get_user_steam_games(guild_id, user_id, limit, force_refresh)` — lazy refresh: если кеш свежий вернуть как есть, иначе запрос к Steam API; если API недоступен — вернуть устаревший кеш
+- db.py: `list_guild_user_ids(guild_id)` — список discord_id юзеров активных в гильдии (через presence в watched/ratings/quotes/watchlist/user_achievements/voice_sessions/member_activities). Используется для ретро-выдачи ачивок
+- db.py: `g_get_user_trigger_count` для `watched_count` теперь фильтрует по `watcher_user_id` (а не считает всю гильдию)
+- db.py: `g_grant_achievement` UPDATE добавлен `AND is_active = 0` — реактивирует только отозванные ачивки
+- db.py: `g_create_achievement` валидирует `trigger_threshold >= 0`
+- db.py: `g_check_and_grant_auto` — убрано обязательное условие `bot_obj is not None` для выдачи роли (просто try/except с импортом bot)
+- web.py: `_retro_grant_achievement` — фоновая async-функция через `asyncio.create_task`. Не блокирует HTTP-ответ
+- web.py: `get_current_user` unchanged — `unread_achievements_count` считается как раньше
+- web.py: `/api/achievements/discord_roles` и `/refresh` — `require_superuser` → `require_admin`
+- web.py: `/api/achievements/create` скачивание иконок — валидация URL (urlparse scheme in http/https), magic bytes check (PNG/JPEG/GIF), путь сохранения `/app/data/icons/` (персистентный) + fallback-роут `/static/icons/custom/{filename}`
+- web.py: `/u/{discord_id}` — добавлены `recent_steam_games` и `has_steam_linked` в контекст шаблона
+- sidebar.html: `renderAchievementSVG` полностью переписан. Возвращает `<span class="ach-icon-wrap">` с backdrop-filter и SVG-иконкой внутри (вместо прежнего solid-fill кружка). `ACHIEVEMENT_COLORS` теперь хранит CSS-переменные (var(--accent), var(--red), etc.) — автоматически подстраивается под тему
+- sidebar.html: добавлены `escapeAttr()` и `escapeXml()` для защиты от XSS через кавычки/скобки в `icon_url`
+- style.css: новые CSS-переменные `--gold`, `--purple`, `--blue` (в light и dark темах). Новые классы `.ach-icon-wrap`, `.ach-glow-accent`, `.ach-glow-gold`, `.ach-pulse`. `@keyframes ach-pulse` (раньше был мёртвый класс без анимации)
+- achievements.html: фронт конвертирует порог в секунды только для time-триггеров (voice_time*, game_play_time). Для count-триггеров передаёт как есть
+- achievements.html, profile_public.html: убрана обёртка `<svg viewBox="0 0 64 64">${svg}</svg>` — `renderAchievementSVG` теперь возвращает готовый HTML с обёрткой
+- profile_public.html: новый блок «🎮 Steam за 2 недели» с играми, временем, иконками. Заголовок «🎮 Последние игры» уточнён — «в Discord»
+
 ## v2.0.4
 ### Исправлено
 - Создание ачивок: при ошибке сервера (БД недоступна, read-only FS, etc.) теперь показывается реальная причина вместо безликого «Ошибка создания». Бэкенд ловит все исключения (а не только ValueError) и возвращает JSON `{error: "ExceptionType: message"}`. Фронт пытается распарсить JSON даже на 500, fallback на текст ответа
