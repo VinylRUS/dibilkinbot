@@ -251,3 +251,68 @@ Stage Summary:
 - Иконка ачивок в сайдбаре теперь 🏅 (medal), а не 🏆 (trophy) — отличается от победителей колеса
 - В профиле появился блок «🎮 Последние игры» (5 последних сыгранных, с временем) + компактная плашка совместимости по играм
 - Плашка совместимости фильмов уменьшена — убран лишний текст, уменьшены размеры
+
+---
+Task ID: feature/v2.1.0-achievements-steam
+Agent: main
+Task: v2.1.0 — большой багофикс ачивок + liquid glass иконки + Steam игры
+
+Work Log:
+- 4 параллельных Explore-агента провели аудит:
+  * Ачивки: 65 багов (4 CRITICAL, 9 HIGH, 28 MEDIUM, 24 LOW)
+  * Иконки: плоский solid-fill диск, хардкод dark hex, мёртвый .ach-pulse класс
+  * Steam: только 3 endpoint'а реализовано (ResolveVanityURL, GetPlayerSummaries, wishlist-проверка)
+  * Трекинг активностей: presence-трекер пишет только activity_name
+
+- Фаза 1: багофикс ачивок (8 багов)
+  * L19 (HIGH): фронт умножал threshold на 3600 для ВСЕХ триггеров (даже count-триггеров).
+    Ачивка "10 оценок" сохранялась как порог 36000 → никогда не срабатывала.
+    Фикс: конвертация в секунды только для time-триггеров (voice_time*, game_play_time)
+  * C4 (CRITICAL): авто-выдача не выдавала Discord-роль (bot_obj мёртвый параметр).
+    Фикс: try/except с импортом bot внутри g_check_and_grant_auto, вызывается всегда
+  * C2 (CRITICAL): ретро-выдача висла 5+ минут через list_users() по всем гильдиям.
+    Фикс: _retro_grant_achievement() в asyncio.create_task, list_guild_user_ids() —
+    только активные юзеры текущей гильдии
+  * H1 (HIGH): повторная выдача перезаписывала granted_at → счётчик непрочитанных горел.
+    Фикс: UPDATE с AND is_active = 0 (реактивируем только отозванные)
+  * C1 (CRITICAL): watched_count считал всю гильдию, выдавался всем.
+    Фикс: WHERE watcher_user_id = ?
+  * M3: отрицательный threshold раздавал ачивку всем.
+    Фикс: ValueError if threshold < 0
+  * M20-22: admin не видел роли в конструкторе (require_superuser).
+    Фикс: require_admin для /api/achievements/discord_roles и /refresh
+  * H4/H5 (HIGH): XSS через icon_url + SSRF + custom_*.png терялись при redeploy.
+    Фикс: валидация scheme (http/https), magic bytes check, /app/data/icons/ персистентный
+    путь, fallback-роут /static/icons/custom/{filename}
+  * Тесты: /home/z/my-project/scripts/test_v210_phase1.py — 6 тестов прошли
+
+- Фаза 2: иконки в liquid glass стиле
+  * renderAchievementSVG переписан: возвращает <span class="ach-icon-wrap"> с
+    backdrop-filter + glass-bg + accent ring через currentColor
+  * ACHIEVEMENT_COLORS теперь хранит CSS-переменные (var(--accent), var(--red))
+  * ACHIEVEMENT_PRESET_ICONS unchanged (20 path'ей)
+  * escapeAttr/escapeXml для защиты от XSS через кавычки в icon_url
+  * CSS: новые --gold, --purple, --blue в :root (light+dark). Классы .ach-icon-wrap,
+    .ach-glow-accent, .ach-glow-gold, .ach-pulse. @keyframes ach-pulse
+  * achievements.html, profile_public.html: убрана внешняя <svg> обёртка
+  * Тесты: /home/z/my-project/scripts/test_v210_phase2.py — 8 тестов прошли
+
+- Фаза 3: Steam игры
+  * steam.py: get_recently_played_games (GetRecentlyPlayedGames/v1),
+    get_owned_games (GetOwnedGames/v1). Обе возвращают appid, name, playtime_forever_min,
+    playtime_2weeks_min, icon_url
+  * guild.py: таблица user_steam_games (user_discord_id, appid, name, playtime_forever_min,
+    playtime_2weeks_min, icon_url, last_fetched_at). UNIQUE(user, appid)
+  * db.py: STEAM_CACHE_TTL_SECONDS = 3600, g_get_steam_games_cached (возвращает (games, fresh)),
+    g_save_steam_games_cache (DELETE + INSERT), g_get_user_steam_games (lazy refresh)
+  * web.py: /u/{discord_id} — добавлены recent_steam_games, has_steam_linked в контекст
+  * profile_public.html: новый блок "🎮 Steam за 2 недели" с играми, временем, иконками
+  * Тесты: /home/z/my-project/scripts/test_v210_phase3.py — 7 тестов прошли
+
+- Финальный smoke-test: все Python файлы синтаксически валидны, все ключевые функции
+  и таблицы существуют
+
+Stage Summary:
+- 8 багов ачивок исправлено, 3 новых фичи добавлены (Steam игры, liquid glass иконки, безопасность)
+- 21 тест всего (6+8+7), все прошли
+- Ветка feature/v2.1.0-achievements-steam готова к PR

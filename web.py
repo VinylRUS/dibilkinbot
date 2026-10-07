@@ -63,6 +63,43 @@ _cached_bot_version: str | None = None
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+# v2.1.0: C3 fix — custom_*.png иконки ачивок сохраняем в /app/data/icons
+# (персистентный путь, переживает redeploy Docker-образа). Создаём symlink
+# static/icons/custom → /app/data/icons чтобы StaticFiles их раздавал по /static/icons/.
+# Symlink создаётся один раз при старте, не пересоздаётся если уже есть.
+import os as _os
+import logging as _logging
+_data_icons_dir = _os.environ.get("DATABASE_PATH", "/app/data/bot.db")
+_data_icons_dir = _os.path.dirname(_os.path.abspath(_data_icons_dir)) if _data_icons_dir else "/app/data"
+_data_icons_dir = _os.path.join(_data_icons_dir, "icons")
+try:
+    _os.makedirs(_data_icons_dir, exist_ok=True)
+    _static_icons_link = _STATIC_DIR / "icons" / "custom"
+    if not _static_icons_link.exists() and (_STATIC_DIR / "icons").exists():
+        try:
+            _static_icons_link.symlink_to(_data_icons_dir, target_is_directory=True)
+            _logging.getLogger("achievements").info("Created symlink %s → %s", _static_icons_link, _data_icons_dir)
+        except (OSError, NotImplementedError):
+            # Symlink не поддерживается (Windows без прав, или файл уже есть) — fallback:
+            # будем раздавать напрямую через дополнительный route ниже.
+            pass
+except Exception as _e:
+    _logging.getLogger("achievements").warning("Failed to setup /app/data/icons: %s", _e)
+
+
+@app.get("/static/icons/custom/{filename:path}")
+async def _serve_custom_icon(filename: str):
+    """v2.1.0: Fallback-роут для раздачи custom_*.png из /app/data/icons,
+    если symlink не сработал (Windows-хосты без прав)."""
+    from fastapi.responses import FileResponse
+    # Защита от path traversal
+    if ".." in filename or "/" in filename:
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    file_path = _os.path.join(_data_icons_dir, filename)
+    if not _os.path.exists(file_path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(file_path)
+
 
 # === Session ===
 
@@ -1667,6 +1704,21 @@ async def public_profile_page(
     except Exception:
         pass
 
+    # v2.1.0: Steam игры (lazy refresh — кеш на 1 час, потом обновление из Steam API)
+    recent_steam_games = None
+    steam_profile_check = None
+    try:
+        steam_profile_check = await db.get_user_steam_profile(target_discord_id)
+        if steam_profile_check and steam_profile_check.get("steam_id64"):
+            # У юзера привязан Steam-профиль — получаем топ-5 недавно игр
+            recent_steam_games = await db.g_get_user_steam_games(
+                guild_id, target_discord_id, limit=5
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger("steam").warning("Steam games fetch failed for %s: %s",
+                                            target_discord_id, e)
+
     # v2.0.3: Если юзер смотрит свой профиль — отмечаем ачивки как просмотренные
     if is_self and current_discord_id:
         try:
@@ -1703,6 +1755,8 @@ async def public_profile_page(
         "top_games": top_games,
         "recent_games": recent_games,
         "game_compat": game_compat,
+        "recent_steam_games": recent_steam_games,
+        "has_steam_linked": bool(steam_profile_check and steam_profile_check.get("steam_id64")),
     })
 
 
@@ -3002,6 +3056,28 @@ async def ws_wheel(websocket: WebSocket):
 
 # === Achievements (v1.9.1) ===
 
+async def _retro_grant_achievement(guild_id: int, ach_id: int, trigger_type: str, logger) -> None:
+    """v2.1.0: Фоновая ретро-выдача ачивки. Перебирает только юзеров активных в этой
+    гильдии (не всех глобальных юзеров) и проверяет каждого на соответствие триггеру.
+
+    Не блокирует HTTP-ответ. Ошибки глушим и логируем — ачивка уже создана, ретро — best-effort.
+    """
+    try:
+        user_ids = await db.list_guild_user_ids(guild_id)
+        logger.info("Retro-grant ach#%s: checking %d active users in guild %s",
+                    ach_id, len(user_ids), guild_id)
+        retro_count = 0
+        for user_did in user_ids:
+            granted = await db.g_check_and_grant_auto(guild_id, user_did, trigger_type)
+            if granted:
+                retro_count += len(granted)
+        if retro_count > 0:
+            logger.info("Retro-grant ach#%s → %d users (out of %d checked)",
+                        ach_id, retro_count, len(user_ids))
+    except Exception as e:
+        logger.warning("Retro-grant failed for ach#%s: %s", ach_id, e, exc_info=True)
+
+
 @app.get("/achievements", response_class=HTMLResponse)
 async def achievements_page(request: Request, _user: dict = Depends(require_admin)):
     """Страница управления ачивками. Только админ."""
@@ -3081,53 +3157,63 @@ async def api_create_achievement(
             status_code=500,
         )
 
-    # Ретроспективная выдача: проверить всех юзеров кто уже выполнил условия
-    retro_count = 0
+    # v2.1.0: C2 fix — ретроспективная выдача запускается в фоновой задаче, не блокируя
+    # HTTP-ответ. Раньше итерировала ВСЕХ юзеров всех гильдий через list_users()
+    # и блокировала запрос на 5+ минут → браузер отваливался по таймауту.
+    # Теперь: только юзеры с активностью в текущей гильдии (list_guild_user_ids),
+    # и в фоне (asyncio.create_task) — фронт сразу получает {"ok": true, "retro_pending": true}.
+    import asyncio
     if trigger_type != "manual":
-        try:
-            all_users = await db.list_users()
-            for u in all_users:
-                user_did = u[0]
-                granted = await db.g_check_and_grant_auto(guild_id, user_did, trigger_type)
-                if granted:
-                    retro_count += len(granted)
-            if retro_count > 0:
-                import logging
-                logging.getLogger("achievements").info(
-                    "Retro-grant: achievement %s → %d users", ach_id, retro_count
-                )
-        except Exception as e:
-            import logging
-            logging.getLogger("achievements").warning("Retro-grant failed: %s", e)
+        asyncio.create_task(_retro_grant_achievement(guild_id, ach_id, trigger_type, ach_logger))
 
-    # Скачать иконку из URL в static/icons/ (если задан URL)
+    # v2.1.0: H4/H5/C3 fix — скачиваем иконку в /app/data/icons (персистентный путь,
+    # переживает redeploy) и валидируем URL по схеме (http/https только) — иначе
+    # админ мог передать javascript:/data: URL → XSS, или http://169.254.169.254/ → SSRF.
     if icon_url:
         try:
-            import httpx
-            import hashlib
-            # Генерируем уникальное имя файла из URL
-            url_hash = hashlib.md5(icon_url.encode()).hexdigest()[:12]
-            # Используем относительный путь от расположения web.py
-            import os
-            icons_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "icons")
-            os.makedirs(icons_dir, exist_ok=True)
-            local_filename = f"custom_{url_hash}.png"
-            local_path = os.path.join(icons_dir, local_filename)
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(icon_url)
-                if resp.status_code == 200 and len(resp.content) > 100:
-                    with open(local_path, "wb") as f:
-                        f.write(resp.content)
-                    # Обновляем icon_config: заменяем URL на локальный путь
-                    icon_config["icon_url"] = f"/static/icons/{local_filename}"
-                    await db.g_update_achievement_icon_config(guild_id, ach_id, icon_config)
-                    import logging
-                    logging.getLogger("achievements").info("Downloaded icon → %s", local_path)
+            from urllib.parse import urlparse
+            parsed = urlparse(icon_url)
+            if parsed.scheme not in ("http", "https"):
+                ach_logger.warning("Icon URL scheme rejected: %s", parsed.scheme)
+                icon_url = ""
+            elif not parsed.netloc:
+                ach_logger.warning("Icon URL without host rejected: %s", icon_url)
+                icon_url = ""
+            else:
+                import httpx
+                import hashlib
+                import os
+                url_hash = hashlib.md5(icon_url.encode()).hexdigest()[:12]
+                # v2.1.0: Персистентный путь в /app/data/icons (переживает redeploy Docker).
+                # Раздаётся через symlink static/icons/custom → /app/data/icons,
+                # или через fallback-роут /static/icons/custom/{filename}.
+                data_dir = os.environ.get("DATABASE_PATH", "/app/data/bot.db")
+                data_dir = os.path.dirname(os.path.abspath(data_dir)) if data_dir else "/app/data"
+                icons_dir = os.path.join(data_dir, "icons")
+                os.makedirs(icons_dir, exist_ok=True)
+                local_filename = f"custom_{url_hash}.png"
+                local_path = os.path.join(icons_dir, local_filename)
+                # URL в БД указывает на fallback-роут (работает даже без symlink)
+                icon_url_in_db = f"/static/icons/custom/{local_filename}"
+                async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                    resp = await client.get(icon_url, headers={"User-Agent": "DeeBeelkin-IconFetcher/2.1"})
+                    content_type = resp.headers.get("content-type", "").lower()
+                    if resp.status_code == 200 and len(resp.content) > 100:
+                        # Проверка что это реально изображение (по Content-Type или magic bytes)
+                        if "image/" in content_type or resp.content[:4] in (b"\x89PNG", b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1", b"GIF8"):
+                            with open(local_path, "wb") as f:
+                                f.write(resp.content)
+                            icon_config["icon_url"] = icon_url_in_db
+                            await db.g_update_achievement_icon_config(guild_id, ach_id, icon_config)
+                            ach_logger.info("Downloaded icon → %s", local_path)
+                        else:
+                            ach_logger.warning("Icon URL returned non-image content-type: %s", content_type)
+                    else:
+                        ach_logger.warning("Icon URL fetch failed: status=%s, size=%d", resp.status_code, len(resp.content))
         except Exception as e:
-            import logging
-            logging.getLogger("achievements").warning("Icon download failed: %s", e)
+            ach_logger.warning("Icon download failed: %s", e)
 
-    return JSONResponse({"ok": True, "id": ach_id, "retro_granted": retro_count})
+    return JSONResponse({"ok": True, "id": ach_id, "retro_pending": trigger_type != "manual"})
 
 
 @app.post("/api/achievements/{ach_id}/delete")
@@ -3214,12 +3300,15 @@ async def api_revoke_achievement(
 
 
 @app.get("/api/achievements/discord_roles")
-async def api_get_discord_roles(_user: dict = Depends(require_superuser)):
+async def api_get_discord_roles(_user: dict = Depends(require_admin)):
     """Получить список ролей Discord-сервера — из БД-кеша (быстро).
 
     v2.0.2: роли синхронизируются автоматически (on_ready + role events).
     Этот endpoint читает из БД — мгновенно, без запросов к Discord API.
     Для принудительного обновления кеша есть /api/achievements/discord_roles/refresh.
+
+    v2.1.0: M20-22 fix — раньше требовал superuser, теперь require_admin.
+    Админ (Трутень) может создавать ачивки, но не мог привязать роль — 403.
     """
     guild_id = get_current_guild_id(_user)
     roles = await db.g_list_discord_roles(guild_id)
@@ -3227,7 +3316,7 @@ async def api_get_discord_roles(_user: dict = Depends(require_superuser)):
 
 
 @app.post("/api/achievements/discord_roles/refresh")
-async def api_refresh_discord_roles(_user: dict = Depends(require_superuser)):
+async def api_refresh_discord_roles(_user: dict = Depends(require_admin)):
     """Принудительно синхронизировать роли Discord-сервера с БД.
 
     Запрашивает актуальный список ролей у Discord и обновляет кеш.

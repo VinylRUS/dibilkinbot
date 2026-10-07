@@ -456,9 +456,9 @@
       </div>
       {% endif %}
 
-      {# Последние игры (v2.0.3) — во что играл недавно, без агрегации #}
+      {# Последние игры (v2.0.3) — во что играл недавно в Discord #}
       {% if recent_games %}
-        <h3 class="section-title">🎮 Последние игры</h3>
+        <h3 class="section-title">🎮 Последние игры <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">в Discord</span></h3>
         <article class="card">
           <ul class="recent-games-list">
             {% for g in recent_games %}
@@ -471,6 +471,35 @@
           </ul>
         </article>
       {% endif %}
+      {% endif %}
+
+      {# Steam игры (v2.1.0) — последние 2 недели + общее время #}
+      {% if recent_steam_games %}
+        <h3 class="section-title">🎮 Steam <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">за 2 недели</span></h3>
+        <article class="card">
+          <ul class="recent-games-list">
+            {% for g in recent_steam_games %}
+              <li>
+                {% if g.icon_url %}
+                  <img src="{{ g.icon_url }}" alt="" style="width:24px;height:24px;border-radius:4px;flex-shrink:0;"
+                       onerror="this.style.display='none';">
+                {% else %}
+                  <span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.8rem;">🎲</span>
+                {% endif %}
+                <span class="game-name" title="{{ g.name }}">{{ g.name }}</span>
+                {% if g.playtime_2weeks_min > 0 %}
+                  <span class="game-duration" title="за 2 недели">{{ (g.playtime_2weeks_min / 60) | round(1) }} ч (2 нед)</span>
+                {% endif %}
+                <span class="game-date mono" title="всего">{{ (g.playtime_forever_min / 60) | round(0) | int }} ч всего</span>
+              </li>
+            {% endfor %}
+          </ul>
+        </article>
+      {% elif has_steam_linked %}
+        <h3 class="section-title">🎮 Steam <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">за 2 недели</span></h3>
+        <article class="card" style="text-align:center;padding:24px;color:var(--text-muted);font-size:0.85rem;">
+          Нет недавно сыгранных игр за последние 2 недели
+        </article>
       {% endif %}
 
       {# Achievements #}
@@ -527,11 +556,11 @@
     {% endif %}
   </main>
   <script>
-    // Render achievement icons via global renderAchievementSVG
+    // v2.1.0: renderAchievementSVG теперь возвращает HTML-обёртку (span.ach-icon-wrap)
+    // со встроенным SVG внутри — не нужно оборачивать во внешний <svg>.
     document.querySelectorAll('.user-achievement-icon[data-icon-config]').forEach(el => {
       const config = JSON.parse(el.dataset.iconConfig);
-      const svg = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
-      el.innerHTML = `<svg viewBox="0 0 64 64" width="48" height="48" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+      el.innerHTML = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
     });
   </script>
 </body>

@@ -47,6 +47,10 @@
   --accent-text: #FFFFFF;
   --accent-soft: rgba(255, 183, 3, 0.18);
   --accent-glow: 0 0 20px rgba(255, 183, 3, 0.3);
+  /* v2.1.0: недостающие цвета ачивок */
+  --gold: #FFD700;
+  --purple: #9B59B6;
+  --blue: #3498DB;
 
   --border: rgba(212, 196, 179, 0.4);
   --border-strong: rgba(212, 196, 179, 0.7);
@@ -103,6 +107,10 @@
   --accent-text: #1A1A1A;
   --accent-soft: rgba(255, 183, 3, 0.12);
   --accent-glow: 0 0 24px rgba(255, 183, 3, 0.4);
+  /* v2.1.0: недостающие цвета ачивок */
+  --gold: #FFD700;
+  --purple: #B57BDC;
+  --blue: #5DADE2;
 
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.15);
@@ -1673,4 +1681,111 @@ body.has-sidebar.sidebar-open {
   /* Звёзды рейтинга компактнее */
   .star-btn { padding: 2px 4px; font-size: 0.7rem; min-width: 18px; }
   .rating-stars { gap: 1px; }
+}
+
+/* === v2.1.0: Ачивки в liquid glass стиле ===
+   Обёртка для иконки ачивки. Изначальный размер задаёт родитель
+   (56px в карточке, 48px в профиле, 64px в превью конструктора).
+   Обёртка наследует цвет через `currentColor` для SVG-иконки и ring'а. */
+.ach-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  /* Glassmorphism: фон как у карточек панели */
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  /* Accent ring (текущий цвет через currentColor) */
+  border: 1.5px solid currentColor;
+  /* Inner highlight сверху — эффект 3D как у кнопок */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.15);
+  /* Размер по умолчанию — переопределяется родителем через CSS */
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.ach-icon-wrap svg {
+  width: 60%;
+  height: 60%;
+  /* drop-shadow для глубины иконки */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+  /* currentColor — цвет иконки наследуется от родителя (color: var(--accent)) */
+  fill: currentColor;
+  color: inherit;
+}
+.ach-icon-wrap svg image {
+  /* Кастомные URL-иконки — растягиваются по контейнеру */
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+
+/* Glow варианты: box-shadow вокруг обёртки */
+.ach-icon-wrap.ach-glow {
+  /* Базовый glow через текущий цвет — определяется в .ach-glow-* ниже */
+  transition: box-shadow 0.3s ease;
+}
+.ach-icon-wrap.ach-glow-accent {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 0 16px var(--accent-soft),
+    0 0 24px var(--accent-soft);
+}
+.ach-icon-wrap.ach-glow-gold {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 0 16px rgba(255, 215, 0, 0.4),
+    0 0 24px rgba(255, 215, 0, 0.25);
+}
+
+/* Pulse анимация — реальная пульсация (раньше класс был мёртвый) */
+.ach-icon-wrap.ach-pulse {
+  animation: ach-pulse 2s ease-in-out infinite;
+}
+@keyframes ach-pulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.15),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+      0 0 12px var(--accent-soft),
+      0 0 20px var(--accent-soft);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+      0 0 24px var(--accent-soft),
+      0 0 36px var(--accent-soft);
+    transform: scale(1.04);
+  }
+}
+
+/* Размеры обёртки в разных контекстах (раньше жёстко заданы в HTML) */
+.achievement-card .ach-icon,
+.user-achievement-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.achievement-card .ach-icon .ach-icon-wrap,
+.achievement-card .ach-icon-wrap {
+  width: 56px;
+  height: 56px;
+}
+.user-achievement .ach-icon-wrap,
+.user-achievement-icon .ach-icon-wrap {
+  width: 48px;
+  height: 48px;
+}
+.preview-area .ach-icon-wrap {
+  width: 64px;
+  height: 64px;
 }

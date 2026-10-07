@@ -305,7 +305,7 @@
         <h3>🛠 Конструктор ачивки</h3>
 
         <div class="preview-area">
-          <svg id="preview-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div id="preview-svg" style="width:64px;height:64px;"></div>
         </div>
 
         <form id="create-achievement-form">
@@ -451,14 +451,13 @@
 
   <script>
     // === SVG рендеринг — используем глобальные функции из sidebar.html ===
-    // window.ACHIEVEMENT_SHAPES, window.ACHIEVEMENT_COLORS,
-    // window.ACHIEVEMENT_GLOW_COLORS, window.renderAchievementSVG
+    // window.ACHIEVEMENT_COLORS, window.ACHIEVEMENT_GLOW_COLORS, window.renderAchievementSVG
 
     function renderAchievementIcon(elementId, config) {
       const el = document.getElementById(elementId);
       if (el) {
-        const svg = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
-        el.innerHTML = `<svg viewBox="0 0 64 64" width="56" height="56" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+        // v2.1.0: renderAchievementSVG возвращает HTML-обёртку (span.ach-icon-wrap)
+        el.innerHTML = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
       }
     }
 
@@ -599,8 +598,9 @@
     // Render existing achievement icons (data-icon-config attributes)
     document.querySelectorAll('.ach-icon[data-icon-config]').forEach(el => {
       const config = JSON.parse(el.dataset.iconConfig);
-      const svg = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
-      el.innerHTML = `<svg viewBox="0 0 64 64" width="56" height="56" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+      // v2.1.0: renderAchievementSVG теперь возвращает HTML-обёртку (span.ach-icon-wrap)
+      // со встроенным SVG внутри — не нужно оборачивать во внешний <svg>.
+      el.innerHTML = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
     });
 
     // === Создание ачивки ===
@@ -632,16 +632,22 @@
       formData.set('icon_url', builderConfig.icon_url || '');
       formData.set('icon_color', builderConfig.color || 'accent');
       formData.set('icon_glow', builderConfig.glow || 'none');
-      // v2.0.1: Конвертация порога в секунды
-      // v2.0.4: защита от NaN — если поле threshold пустое или не-число, берём 0
+      // v2.1.0: Конвертируем порог в секунды ТОЛЬКО для time-триггеров
+      // (voice_time, voice_time_solo, voice_time_with_others, game_play_time).
+      // Для count-триггеров (ratings_count, quotes_count, wheel_wins, etc.)
+      // порог — это число действий, конвертация в секунды была багом:
+      // админ вводил 10 оценок, фронт умножал на 3600 → ачивка требовала 36000 оценок.
+      const TIME_TRIGGERS = new Set(['voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time']);
       const rawThreshold = formData.get('trigger_threshold');
       let threshold = parseInt(rawThreshold);
       if (isNaN(threshold) || threshold < 0) threshold = 0;
-      const unit = formData.get('threshold_unit') || 'hours';
-      let thresholdSeconds = threshold;
-      if (unit === 'minutes') thresholdSeconds = threshold * 60;
-      else if (unit === 'hours') thresholdSeconds = threshold * 3600;
-      formData.set('trigger_threshold', String(thresholdSeconds));  // String() — строго строка, не NaN
+      let thresholdToSend = threshold;
+      if (TIME_TRIGGERS.has(formData.get('trigger_type'))) {
+        const unit = formData.get('threshold_unit') || 'hours';
+        if (unit === 'minutes') thresholdToSend = threshold * 60;
+        else if (unit === 'hours') thresholdToSend = threshold * 3600;
+      }
+      formData.set('trigger_threshold', String(thresholdToSend));
       formData.delete('threshold_unit');
       // v2.0.4: убеждаемся что все обязательные поля не пустые
       if (!formData.get('name') || !formData.get('name').trim()) {
