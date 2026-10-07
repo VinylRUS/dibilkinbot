@@ -44,25 +44,55 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # Раньше bot_version передавался только в panel.html, теперь доступен везде
 # (sidebar footer показывает "v2.1.0(abc1234)" на всех страницах).
 def _get_git_commit_id() -> str:
-    """Возвращает короткий hash последнего git коммита (7 символов).
-    Если не git-репозиторий или git недоступен — возвращает 'unknown'.
+    """Возвращает короткий идентификатор сборки (7 символов).
+
+    Источники (по приоритету):
+    1. Переменная окружения GIT_COMMIT (задаётся CI/CD)
+    2. Файл .git_commit рядом с web.py (создаётся в Dockerfile)
+    3. git rev-parse --short HEAD (если git доступен и есть .git)
+    4. Дата изменения web.py как fallback (даёт хотя бы понимание когда собрано)
+    5. 'unknown' если ничего не сработало
+
     Кешируется при первом вызове.
     """
     if hasattr(_get_git_commit_id, '_cached'):
         return _get_git_commit_id._cached
-    import subprocess
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True, text=True, timeout=2.0,
-            cwd=str(Path(__file__).parent),
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            commit = result.stdout.strip()[:7]
-        else:
-            commit = 'unknown'
-    except Exception:
-        commit = 'unknown'
+    commit = 'unknown'
+    # 1. ENV GIT_COMMIT
+    env_commit = os.environ.get('GIT_COMMIT', '').strip()
+    if env_commit:
+        commit = env_commit[:7]
+    # 2. Файл .git_commit
+    if commit == 'unknown':
+        git_commit_file = Path(__file__).parent / '.git_commit'
+        if git_commit_file.exists():
+            try:
+                file_commit = git_commit_file.read_text().strip()
+                if file_commit:
+                    commit = file_commit[:7]
+            except Exception:
+                pass
+    # 3. git rev-parse
+    if commit == 'unknown':
+        import subprocess
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True, text=True, timeout=2.0,
+                cwd=str(Path(__file__).parent),
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                commit = result.stdout.strip()[:7]
+        except Exception:
+            pass
+    # 4. Fallback: дата изменения web.py (YYYYMMDD) — для прод-сборок без git
+    if commit == 'unknown':
+        try:
+            mtime = Path(__file__).stat().st_mtime
+            from datetime import datetime as _dt
+            commit = _dt.fromtimestamp(mtime).strftime('%Y%m%d')
+        except Exception:
+            pass
     _get_git_commit_id._cached = commit
     return commit
 
