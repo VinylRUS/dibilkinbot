@@ -291,7 +291,7 @@
                 </div>
                 <div class="ach-actions">
                   <button class="ach-grant-btn" onclick="openGrantModal({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Выдать</button>
-                  <button class="btn-icon" onclick="openEditModal({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}', '{{ ach.description | replace("'", "\\'") }}')" title="Редактировать" aria-label="Редактировать">✏️</button>
+                  <button class="btn-icon" onclick="openEditModal({{ ach.id }})" title="Редактировать" aria-label="Редактировать">✏️</button>
                   <button class="ach-delete-btn" onclick="deleteAchievement({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Удалить</button>
                 </div>
               </div>
@@ -427,29 +427,102 @@
     </div>
   </div>
 
-  {# Модалка редактирования ачивки #}
+  {# Модалка редактирования ачивки — v2.1.4: полный набор полей #}
   <div id="edit-modal" style="display:none;" class="grant-modal">
-    <div class="grant-modal-content">
-      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+    <div class="grant-modal-content" style="max-width:520px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
         <div>
           <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">Редактирование ачивки</div>
           <div id="edit-modal-title" style="font-size:1.1rem;font-weight:700;color:var(--text);"></div>
         </div>
-        <button onclick="closeEditModal()" class="btn-icon" aria-label="Закрыть" style="font-size:1.2rem;">×</button>
+        {# v2.1.4: красный крестик для закрытия модалки #}
+        <button onclick="closeEditModal()" aria-label="Закрыть" style="font-size:1.4rem;background:var(--red-soft);color:var(--red);border:1px solid var(--red);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s;line-height:1;padding:0;" onmouseover="this.style.background='var(--red)';this.style.color='#fff';" onmouseout="this.style.background='var(--red-soft)';this.style.color='var(--red)';">×</button>
       </div>
       <div style="margin-bottom:12px;">
         <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Название</label>
         <input type="text" id="edit-name" maxlength="64" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;">
       </div>
-      <div style="margin-bottom:16px;">
+      <div style="margin-bottom:12px;">
         <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Описание</label>
-        <textarea id="edit-description" maxlength="200" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;min-height:60px;resize:vertical;"></textarea>
+        <textarea id="edit-description" maxlength="200" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;min-height:50px;resize:vertical;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <div style="flex:1;">
+          <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Триггер</label>
+          <select id="edit-trigger" data-native-select style="width:100%;"></select>
+        </div>
+        <div style="width:100px;" id="edit-threshold-row">
+          <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Порог</label>
+          <input type="number" id="edit-threshold" min="0" style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;">
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;align-items:end;">
+        <div>
+          <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Цвет</label>
+          <div id="edit-color-grid" style="display:flex;gap:6px;">
+            <button type="button" class="edit-color-btn" data-color="accent" style="width:24px;height:24px;border-radius:50%;background:var(--accent);border:2px solid transparent;cursor:pointer;"></button>
+            <button type="button" class="edit-color-btn" data-color="gold" style="width:24px;height:24px;border-radius:50%;background:var(--gold, #FFD700);border:2px solid transparent;cursor:pointer;"></button>
+            <button type="button" class="edit-color-btn" data-color="red" style="width:24px;height:24px;border-radius:50%;background:var(--red);border:2px solid transparent;cursor:pointer;"></button>
+            <button type="button" class="edit-color-btn" data-color="green" style="width:24px;height:24px;border-radius:50%;background:var(--green);border:2px solid transparent;cursor:pointer;"></button>
+            <button type="button" class="edit-color-btn" data-color="purple" style="width:24px;height:24px;border-radius:50%;background:var(--purple, #9B59B6);border:2px solid transparent;cursor:pointer;"></button>
+            <button type="button" class="edit-color-btn" data-color="blue" style="width:24px;height:24px;border-radius:50%;background:var(--blue, #3498DB);border:2px solid transparent;cursor:pointer;"></button>
+          </div>
+        </div>
+        <div>
+          <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Glow</label>
+          <select id="edit-glow" data-native-select style="padding:6px 28px 6px 10px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.82rem;">
+            <option value="none">Без glow</option>
+            <option value="accent">Акцентный</option>
+            <option value="gold">Золотой</option>
+            <option value="pulse">Pulse</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;font-weight:600;">Discord роль</label>
+        <select id="edit-role" data-native-select style="width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.88rem;">
+          <option value="">— без роли —</option>
+        </select>
       </div>
       <button onclick="saveEdit()" class="btn-primary" style="width:100%;">💾 Сохранить</button>
     </div>
   </div>
 
   <script>
+    // v2.1.4: Data store для всех ачивок — используется модалкой редактирования
+    const ACHIEVEMENTS_DATA = {};
+    {% for ach in achievements %}
+    ACHIEVEMENTS_DATA[{{ ach.id }}] = {
+      id: {{ ach.id }},
+      name: {{ ach.name | tojson }},
+      description: {{ (ach.description or '') | tojson }},
+      trigger_type: {{ ach.trigger_type | tojson }},
+      trigger_threshold: {{ ach.trigger_threshold }},
+      discord_role_id: {{ ach.discord_role_id | tojson if ach.discord_role_id else '""' }},
+      icon_config: {{ ach.icon_config | tojson }},
+    };
+    {% endfor %}
+
+    // v2.1.4: Trigger options для edit modal (копия из конструктора)
+    const TRIGGER_OPTIONS = [
+      {value: 'manual', label: 'Только ручная выдача'},
+      {value: 'ratings_count', label: 'Поставил N оценок'},
+      {value: 'quotes_count', label: 'Добавил N цитат'},
+      {value: 'watchlist_count', label: 'В вишлисте N фильмов'},
+      {value: 'wheel_wins', label: 'N раз фильм выиграл в колесе'},
+      {value: 'collections_started', label: 'Организовал N сборов'},
+      {value: 'santa_participations', label: 'Участвовал в Сайте N раз'},
+      {value: 'watched_count', label: 'В бэклоге N фильмов (гильдия)'},
+      {value: 'first_rating', label: 'Первая оценка'},
+      {value: 'first_quote', label: 'Первая цитата'},
+      {value: 'voice_time', label: 'Войс-чат (любое время)'},
+      {value: 'voice_time_solo', label: 'Войс-чат (одиночные)'},
+      {value: 'voice_time_with_others', label: 'Войс-чат (с другими)'},
+      {value: 'game_play_time', label: 'Игры (время игры)'},
+    ];
+    // Триггеры, для которых порог — это время (секунды), а не количество
+    const TIME_TRIGGERS_EDIT = new Set(['voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time']);
+
     // === SVG рендеринг — используем глобальные функции из sidebar.html ===
     // window.ACHIEVEMENT_COLORS, window.ACHIEVEMENT_GLOW_COLORS, window.renderAchievementSVG
 
@@ -807,14 +880,81 @@
       currentGrantAchId = null;
     }
 
-    // === Модалка редактирования ===
+    // === Модалка редактирования — v2.1.4: полный набор полей ===
     let currentEditAchId = null;
+    let editSelectedColor = 'accent';
 
-    function openEditModal(achId, achName, achDescription) {
+    function openEditModal(achId) {
+      const ach = ACHIEVEMENTS_DATA[achId];
+      if (!ach) { showToast('Ачивка не найдена', 'error'); return; }
       currentEditAchId = achId;
-      document.getElementById('edit-modal-title').textContent = achName;
-      document.getElementById('edit-name').value = achName;
-      document.getElementById('edit-description').value = achDescription || '';
+
+      // Заполняем основные поля
+      document.getElementById('edit-modal-title').textContent = ach.name;
+      document.getElementById('edit-name').value = ach.name;
+      document.getElementById('edit-description').value = ach.description || '';
+
+      // Заполняем trigger select (создаём options если их ещё нет)
+      const triggerSelect = document.getElementById('edit-trigger');
+      if (triggerSelect.options.length === 0) {
+        TRIGGER_OPTIONS.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.value;
+          opt.textContent = t.label;
+          triggerSelect.appendChild(opt);
+        });
+      }
+      triggerSelect.value = ach.trigger_type;
+
+      // threshold
+      const thresholdInput = document.getElementById('edit-threshold');
+      const thresholdRow = document.getElementById('edit-threshold-row');
+      const t = ach.trigger_threshold;
+      if (TIME_TRIGGERS_EDIT.has(ach.trigger_type)) {
+        // Для time-триггеров: конвертируем секунды в часы (если >= 3600)
+        if (t >= 3600) {
+          thresholdInput.value = Math.round(t / 3600 * 10) / 10;
+          thresholdInput.title = 'часов';
+        } else if (t >= 60) {
+          thresholdInput.value = Math.round(t / 60);
+          thresholdInput.title = 'минут';
+        } else {
+          thresholdInput.value = t;
+          thresholdInput.title = 'секунд';
+        }
+        thresholdRow.style.display = '';
+      } else if (ach.trigger_type === 'manual' || ach.trigger_type === 'first_rating' || ach.trigger_type === 'first_quote') {
+        thresholdRow.style.display = 'none';
+      } else {
+        thresholdInput.value = t;
+        thresholdInput.title = '';
+        thresholdRow.style.display = '';
+      }
+
+      // Цвет
+      editSelectedColor = ach.icon_config?.color || 'accent';
+      document.querySelectorAll('.edit-color-btn').forEach(btn => {
+        btn.style.borderColor = btn.dataset.color === editSelectedColor ? 'var(--text)' : 'transparent';
+      });
+
+      // Glow
+      document.getElementById('edit-glow').value = ach.icon_config?.glow || 'none';
+
+      // Discord роль — копируем из основного select ролей
+      const roleSelect = document.getElementById('edit-role');
+      const mainRoleSelect = document.getElementById('ach-discord-role');
+      if (mainRoleSelect && mainRoleSelect.options.length > 1 && roleSelect.options.length <= 1) {
+        // Копируем options из конструктора (только если роли уже загружены)
+        Array.from(mainRoleSelect.options).forEach(opt => {
+          const newOpt = document.createElement('option');
+          newOpt.value = opt.value;
+          newOpt.textContent = opt.textContent;
+          roleSelect.appendChild(newOpt);
+        });
+      }
+      roleSelect.value = ach.discord_role_id ? String(ach.discord_role_id) : '';
+
+      // Показываем модалку
       document.getElementById('edit-modal').style.display = 'flex';
     }
 
@@ -822,6 +962,17 @@
       document.getElementById('edit-modal').style.display = 'none';
       currentEditAchId = null;
     }
+
+    // v2.1.4: выбор цвета в edit modal
+    document.querySelectorAll('.edit-color-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        editSelectedColor = btn.dataset.color;
+        document.querySelectorAll('.edit-color-btn').forEach(b => {
+          b.style.borderColor = 'transparent';
+        });
+        btn.style.borderColor = 'var(--text)';
+      });
+    });
 
     async function saveEdit() {
       if (!currentEditAchId) return;
@@ -834,6 +985,20 @@
       const fd = new FormData();
       fd.append('name', name);
       fd.append('description', description);
+      fd.append('trigger_type', document.getElementById('edit-trigger').value);
+      // Конвертация порога: для time-триггеров умножаем на 3600 (часы → секунды)
+      const triggerType = document.getElementById('edit-trigger').value;
+      const thresholdRaw = parseInt(document.getElementById('edit-threshold').value) || 0;
+      let thresholdToSend = thresholdRaw;
+      if (TIME_TRIGGERS_EDIT.has(triggerType)) {
+        // Если value > 100 — скорее всего уже в секундах, иначе умножаем на 3600
+        thresholdToSend = thresholdRaw * 3600;
+      }
+      fd.append('trigger_threshold', String(thresholdToSend));
+      fd.append('icon_color', editSelectedColor);
+      fd.append('icon_glow', document.getElementById('edit-glow').value);
+      const roleVal = document.getElementById('edit-role').value;
+      if (roleVal) fd.append('discord_role_id', roleVal);
       try {
         const r = await fetch(`/api/achievements/${currentEditAchId}/edit`, { method: 'POST', body: fd });
         const data = await r.json();

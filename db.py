@@ -2273,8 +2273,12 @@ async def g_delete_achievement(guild_id: int, achievement_id: int) -> bool:
 
 
 async def g_update_achievement(guild_id: int, achievement_id: int,
-                               name: str | None = None, description: str | None = None) -> bool:
-    """Обновить название и/или описание ачивки. Возвращает True если обновлено."""
+                               name: str | None = None, description: str | None = None,
+                               trigger_type: str | None = None, trigger_threshold: int | None = None,
+                               discord_role_id: int | None = None,
+                               icon_config: dict | None = None) -> bool:
+    """Обновить поля ачивки. Только переданные поля обновляются. Возвращает True если обновлено."""
+    import json
     table = _guild.guild_table(guild_id, "achievements")
     async with _connect() as db:
         updates = []
@@ -2285,6 +2289,22 @@ async def g_update_achievement(guild_id: int, achievement_id: int,
         if description is not None:
             updates.append("description = ?")
             params.append(description.strip() or None)
+        if trigger_type is not None:
+            if trigger_type not in ACHIEVEMENT_TRIGGERS:
+                raise ValueError(f"Unknown trigger_type: {trigger_type}")
+            updates.append("trigger_type = ?")
+            params.append(trigger_type)
+        if trigger_threshold is not None:
+            if trigger_threshold < 0:
+                raise ValueError("trigger_threshold must be >= 0")
+            updates.append("trigger_threshold = ?")
+            params.append(trigger_threshold)
+        if discord_role_id is not None:
+            updates.append("discord_role_id = ?")
+            params.append(discord_role_id if discord_role_id > 0 else None)
+        if icon_config is not None:
+            updates.append("icon_config = ?")
+            params.append(json.dumps(icon_config, ensure_ascii=False))
         if not updates:
             return False
         params.append(achievement_id)

@@ -3307,15 +3307,72 @@ async def api_edit_achievement(
     _user: dict = Depends(require_admin),
     name: str = Form(""),
     description: str = Form(""),
+    trigger_type: str = Form(""),
+    trigger_threshold: int = Form(-1),
+    discord_role_id: str = Form(""),
+    icon_color: str = Form(""),
+    icon_glow: str = Form(""),
+    icon_key: str = Form(""),
+    icon_url: str = Form(""),
+    game_name: str = Form(""),
 ):
-    """Редактировать название и описание ачивки."""
+    """Редактировать ачивку — название, описание, триггер, порог, роль, иконку."""
     guild_id = get_current_guild_id(_user)
+    import logging
+    logger = logging.getLogger("achievements")
     name = name.strip()
     if not name or len(name) > 64:
         return JSONResponse({"error": "name required (1-64 chars)"}, status_code=400)
-    updated = await db.g_update_achievement(guild_id, ach_id, name=name, description=description)
+
+    # Собираем kwargs для g_update_achievement (только переданные поля)
+    kwargs = {"name": name, "description": description}
+
+    # trigger_type (пустая строка = не обновлять)
+    if trigger_type:
+        if trigger_type not in db.ACHIEVEMENT_TRIGGERS:
+            return JSONResponse({"error": f"invalid trigger_type: {trigger_type}"}, status_code=400)
+        kwargs["trigger_type"] = trigger_type
+
+    # trigger_threshold (-1 = не обновлять, валидное значение = обновить)
+    if trigger_threshold >= 0:
+        kwargs["trigger_threshold"] = trigger_threshold
+
+    # discord_role_id (пустая строка = не обновлять, "0" или число = обновить)
+    if discord_role_id:
+        if discord_role_id.isdigit():
+            kwargs["discord_role_id"] = int(discord_role_id)
+        elif discord_role_id == "none":
+            kwargs["discord_role_id"] = 0  # убрать роль
+
+    # icon_config (если хотя бы один параметр иконки передан — пересобираем config)
+    if icon_color or icon_glow or icon_key or icon_url or game_name:
+        # Читаем текущий config чтобы не потерять поля
+        ach = await db.g_get_achievement(guild_id, ach_id)
+        if not ach:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        import json
+        current_cfg = json.loads(ach["icon_config"]) if isinstance(ach["icon_config"], str) else (ach["icon_config"] or {})
+        if icon_color:
+            current_cfg["color"] = icon_color
+        if icon_glow:
+            current_cfg["glow"] = icon_glow
+        if icon_key:
+            current_cfg["icon_key"] = icon_key
+        if icon_url:
+            current_cfg["icon_url"] = icon_url
+        if game_name:
+            current_cfg["game_name"] = game_name.strip()
+        kwargs["icon_config"] = current_cfg
+
+    try:
+        updated = await db.g_update_achievement(guild_id, ach_id, **kwargs)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        logger.error("Edit achievement failed: %s: %s", type(e).__name__, e, exc_info=True)
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
     if not updated:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"error": "not found or no changes"}, status_code=404)
     return JSONResponse({"ok": True})
 
 
