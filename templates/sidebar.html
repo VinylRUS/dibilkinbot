@@ -133,10 +133,6 @@
   </nav>
 
   <div class="sidebar-footer">
-    <!-- v2.1.2: версия бота + commit ID — формат v2.1.0(abc1234) -->
-    <div style="text-align:center; font-size:0.68rem; color:var(--text-muted); padding:2px 0 6px; opacity:0.7; letter-spacing:0.02em;">
-      {{ bot_version_with_commit | default('v?') }}
-    </div>
     <!-- Профиль (кнопка) -->
     <a href="/profile" class="sb-user" style="text-decoration:none; color:inherit;" title="Профиль">
       <div class="sb-user-avatar">
@@ -171,7 +167,14 @@
       {{ sb_icon('logout') }}
     </a>
   </div>
-</aside>
+  </aside>
+
+{# v2.1.2: Глобальный футер страницы — version + commit ID.
+   Fixed внизу страницы, поверх всего. Включается через sidebar.html
+   который include'ится во всех шаблонах. Формат: v2.1.0(61a8e44) #}
+<footer class="page-footer-version" style="position:fixed;bottom:0;left:0;right:0;text-align:center;font-size:0.68rem;color:var(--text-muted);padding:4px 8px;background:var(--bg-base);border-top:1px solid var(--border);opacity:0.6;z-index:1000;pointer-events:none;letter-spacing:0.02em;">
+  {{ bot_version_with_commit | default('v?(unknown)') }}
+</footer>
 
 <script>
 function toggleSidebar() {
