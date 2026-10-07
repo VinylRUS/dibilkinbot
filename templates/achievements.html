@@ -498,7 +498,7 @@
       description: {{ (ach.description or '') | tojson }},
       trigger_type: {{ ach.trigger_type | tojson }},
       trigger_threshold: {{ ach.trigger_threshold }},
-      discord_role_id: {{ ach.discord_role_id | tojson if ach.discord_role_id else '""' }},
+      discord_role_id: {{ ach.discord_role_id | tojson if ach.discord_role_id else 'null' | safe }},
       icon_config: {{ ach.icon_config | tojson }},
     };
     {% endfor %}
@@ -1102,5 +1102,6 @@
       if (e.key === 'Escape') { closeGrantModal(); closeEditModal(); }
     });
   </script>
+{% include "_footer.html" %}
 </body>
 </html>
