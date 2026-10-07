@@ -143,6 +143,8 @@ body {
   line-height: 1.5;
   position: relative;
   overflow-x: hidden;
+  /* v2.1.2: padding-bottom чтобы fixed футер версии не перекрывал контент */
+  padding-bottom: 24px;
 }
 
 /* Декоративные размытые круги (blobs) на фоне */
