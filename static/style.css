@@ -450,22 +450,13 @@ select:focus {
 select:hover:not(:focus) {
   border-color: var(--accent);
 }
-/* Явные цвета для option — перебивают системные.
-   v2.1.2: принудительно чёрный текст на белом фоне для выпадающего списка —
-   нативный рендер options на macOS/Linux в тёмной теме мог показывать
-   тёмный текст на тёмном фоне. Теперь всегда читаемо. */
-select option {
-  background: #ffffff;
-  color: #000000;
-  padding: 8px;
-}
-select option:checked {
-  background: var(--accent-soft);
-  color: #000000;
-}
-select option:hover {
-  background: var(--accent-soft);
-}
+/* v2.1.3: убраны переопределения для select option.
+   Раньше пытались зафиксировать чёрный текст на белом фоне, но это ломало
+   нативный select на macOS — при выборе option пропадали все варианты,
+   потому что браузер не мог скомбинировать системный рендер selected option
+   с CSS-переопределением background.
+   Теперь полагаемся на color-scheme: dark light (в select rule выше) —
+   браузер сам выбирает правильные цвета для текущей темы. */
 
 /* === Кастомный dropdown (v1.9.5) ===
    Заменяет нативный <select> на div-based компонент.
