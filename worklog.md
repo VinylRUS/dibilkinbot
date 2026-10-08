@@ -316,3 +316,116 @@ Stage Summary:
 - 8 багов ачивок исправлено, 3 новых фичи добавлены (Steam игры, liquid glass иконки, безопасность)
 - 21 тест всего (6+8+7), все прошли
 - Ветка feature/v2.1.0-achievements-steam готова к PR
+
+---
+Task ID: v2.3.2
+Agent: main
+Task: v2.3.2 — большая итерация: UI доработки + Steam фичи + новые ачивки
+
+Work Log:
+- Прочитал worklog.md, запустил 2 Explore-агентов параллельно для аудита
+  dashboard (panel.html), sidebar.html, profile_public.html, steam.py,
+  db.py (achievements triggers, settings, games functions)
+- Создал ветку feature/v2.3.2 из feature/v2.3.1-admin-panel
+
+Доработка 1: Сайдбар — компактный футер
+- Убраны ник, role-badge, "Настройки" текст из футера сайдбара
+- Оставлена только кликабельная аватарка (36×36, с hover-зумом)
+- Аватарка теперь ведёт на публичный профиль (/u/{discord_id}), а не на /profile
+- Убрана отдельная кнопка 👁 (дубликат)
+
+Доработка 2: Шестерёнка на аватарке публичного профиля
+- Убрана отдельная кнопка "Настройки" рядом с "Назад"
+- Аватар обёрнут в .profile-avatar-wrap (position: relative)
+- При hover — появляется полупрозрачная шестерёнка с blur(3px) фоном
+- Клик по шестерёнке → /profile (настройки), только для is_self
+
+Доработка 3: Discord-статус на аватарке публичного профиля
+- Добавлен .status-dot с цветом по discord_info.status (online/idle/dnd/offline)
+- Использует тот же CSS-класс что на дашборде (.avatar-wrap.lg .status-dot)
+
+#5: Дашборд — двухколоночный "Сейчас" + "Сейчас играют"
+- "Быстрые действия" перенесены наверх (под status-bar админа, над "Сейчас")
+- Блок "Сейчас" теперь двухколоночный (grid 1.4fr 1fr):
+  * Левая: киновечер (collection / wheel / winner / empty)
+  * Правая: "Сейчас играют" — список active_members с current_game
+- Mobile: stack в одну колонку
+- В блоке "Сейчас играют" — аватар 24×24 + статус-дот + имя + название игры
+- Лимит 6 юзеров, если больше — "и ещё N"
+
+#8: Сортировка игр по последним запущенным + "new" бейдж
+- Добавлена колонка rtime_last_played INTEGER DEFAULT 0 в user_steam_games
+  (миграция для всех существующих гильдий)
+- steam.py: get_owned_games и get_recently_played_games теперь захватывают
+  rtime_last_played из ответа Steam API
+- db.py: g_save_steam_games_cache сохраняет rtime_last_played;
+  g_get_steam_games_cached возвращает его
+- g_get_user_games_merged переписан:
+  * Сортировка по last_played_at DESC (сначала недавно запущенные)
+  * Для Steam: last_played_at = rtime_last_played (Unix timestamp)
+  * Для Discord-only: last_played_at = MAX(ended_at) из member_activities
+  * Fallback: playtime_forever DESC (для never-played)
+  * is_new = True если last_played_at в пределах последних 14 дней
+- profile_public.html: <li class="game-new"> получает золотое свечение
+  (text-shadow + animation keyframes new-game-glow 2.4s infinite)
+- Плашка "new" (.game-new-badge) — золотая, со светящимся box-shadow
+
+#4: Пересечение библиотек (замена простого count)
+- game_compat.common_games (уже считается в db.g_get_game_compat) теперь
+  отображается в шаблоне как expandable 2-column list
+- Клик по compat-item toggles "expanded" класс, раскрывает/скрывает список
+- Hint "раскрыть →" / "свернуть ↑" через CSS ::before
+
+#11: show_wishlist toggle + Steam wishlist в публичном профиле
+- Новая колонка users.show_wishlist INTEGER DEFAULT 0 (миграция)
+- db.get_user_show_wishlist / set_user_show_wishlist хелперы
+- POST /api/profile/show_wishlist — переключатель (требует Steam profile)
+- В /profile (настройки) — чекбокс с предупреждением о приватном профиле
+- JS toggleShowWishlist() с inline success/error feedback
+- В /u/{discord_id} — если show_wishlist=True и Steam API доступен,
+  запрашивается топ-10 вишлиста (steam.get_top_wishlist_games)
+- Новый блок "Steam-вишлист" с капсулами, % отзывов, годом релиза
+
+#2: Совместные игровые сессии (multiplayer + войс)
+- steam.py: get_app_details(appid) — Steam Store API appdetails
+- steam.py: is_multiplayer_game(appid) — cached (7 дней), проверяет
+  категории Multi-player / Co-op / PvP / etc.
+- db.py: g_find_appid_by_game_name — поиск appid в кеше user_steam_games
+  по нормализованному имени (по всем гильдиям)
+- bot.py: get_joint_play_sessions(guild_id) — сканирует все войс-каналы,
+  группирует участников по current_game, для каждой группы >= 2 юзеров
+  проверяет multiplayer-статус через Steam appdetails
+- web.py: / route добавлен вызов get_joint_play_sessions, результат
+  передаётся в шаблон как joint_sessions
+- panel.html: новый блок "Вместе играют" с glassmorphism-карточками:
+  * Имя игры + 'MP' бейдж если multiplayer подтверждён
+  * Название войс-канала
+  * User chips (аватар + имя) с hover-зумом
+- CSS: .joint-sessions grid auto-fit minmax(260px, 1fr)
+
+#7: Новые триггеры ачивок + фикс steam_play_time
+- Новые триггеры:
+  * steam_games_count — количество игр в библиотеке Steam
+  * steam_play_time_specific — время в конкретной игре
+    (icon_config.game_name, через g_get_game_play_time_specific)
+  * voice_co_sessions — количество уникальных юзеров, с которыми юзер
+    делил войс-канал (через g_get_voice_co_occurrence)
+- Все новые триггеры добавлены в PERIODIC_TRIGGERS (_auto_achievements_loop)
+- Фикс бага steam_play_time: было расхождение — фронт × 3600 (hours→seconds),
+  а БД возвращала минуты. Теперь возвращает секунды (minutes × 60),
+  консистентно с voice_time / game_play_time
+- achievements.html: dropdown trigger_type расширен 3 новыми опциями
+- TIME_TRIGGERS_EDIT и TIME_TRIGGERS обновлены — steam_play_time_specific
+  теперь тоже time-триггер
+- game-select-row показывается для game_play_time И steam_play_time_specific
+- TRIGGERS_NEED_GAME set для будущего расширения
+
+Stage Summary:
+- 8 пунктов реализовано (3 доработки + 5 фич из списка пользователя)
+- Изменено: db.py, steam.py, bot.py, web.py, guild.py, static/style.css,
+  templates/sidebar.html, profile_public.html, profile.html, panel.html,
+  achievements.html
+- Все Python файлы синтаксически валидны (ast.parse)
+- Все Jinja шаблоны компилируются
+- Новые миграции БД: rtime_last_played в user_steam_games, show_wishlist в users
+- Ветка feature/v2.3.2 готова к PR
