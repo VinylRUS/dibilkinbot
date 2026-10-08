@@ -383,20 +383,20 @@
             <select id="ach-game-select" name="game_name" data-native-select>
               <option value="">Любая игра</option>
             </select>
-            <button type="button" class="btn-ghost" onclick="loadServerGames()" style="margin-top: 6px; width: 100%; padding: 6px;"><img src="/static/icons/rocket.png" alt="" width="16" height="16" class="ui-icon"> Обновить список игр</button>
+            <button type="button" class="btn-ghost" onclick="loadServerGames()" style="margin-top: 6px; width: 100%; padding: 6px;"><img src="/static/icons/refresh.png" alt="" width="16" height="16" class="ui-icon"> Обновить список игр</button>
           </div>
 
           <label>Discord роль (опционально)</label>
           <select id="ach-discord-role" name="discord_role_id" data-native-select>
             <option value="">— без роли —</option>
           </select>
-          <button type="button" class="btn-ghost" onclick="refreshDiscordRoles()" style="margin-top: 6px; width: 100%; padding: 6px;"><img src="/static/icons/rocket.png" alt="" width="16" height="16" class="ui-icon"> Обновить роли</button>
+          <button type="button" class="btn-ghost" onclick="refreshDiscordRoles()" style="margin-top: 6px; width: 100%; padding: 6px;"><img src="/static/icons/refresh.png" alt="" width="16" height="16" class="ui-icon"> Обновить роли</button>
           <div id="role-warning" class="role-warning" style="display:none;">
             <img src="/static/icons/info.png" alt="" width="14" height="14" class="ui-icon"> Бот должен иметь manage_roles permission, а его роль должна быть выше роли ачивки в иерархии Discord.
           </div>
 
           <div class="builder-actions">
-            <button type="submit" class="btn-primary"><img src="/static/icons/lightning.png" alt="" width="16" height="16" class="ui-icon"> Создать ачивку</button>
+            <button type="submit" class="btn-primary"><img src="/static/icons/plus.png" alt="" width="16" height="16" class="ui-icon"> Создать ачивку</button>
           </div>
         </form>
       </div>
@@ -484,7 +484,7 @@
           <option value="">— без роли —</option>
         </select>
       </div>
-      <button onclick="saveEdit()" class="btn-primary" style="width:100%;"><img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
+      <button onclick="saveEdit()" class="btn-primary" style="width:100%;"><img src="/static/icons/check.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
     </div>
   </div>
 

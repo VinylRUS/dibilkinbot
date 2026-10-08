@@ -140,7 +140,7 @@
 
     {# ===== Участники комьюнити (виден всем) ===== #}
     {% if active_members %}
-    <h2><img src="/static/icons/home.png" alt="" width="16" height="16" class="ui-icon"> Участники <span style="font-size:0.75rem; color:var(--text-soft); font-weight:400;">{{ active_members|length }}</span></h2>
+    <h2><img src="/static/icons/groups.png" alt="" width="16" height="16" class="ui-icon"> Участники <span style="font-size:0.75rem; color:var(--text-soft); font-weight:400;">{{ active_members|length }}</span></h2>
     <article class="card">
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 16px; justify-items: center;">
         {% for m in active_members %}

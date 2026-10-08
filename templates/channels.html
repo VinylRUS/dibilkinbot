@@ -47,7 +47,7 @@
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2><img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> Каналы и роли</h2>
+    <h2><img src="/static/icons/microphone.png" alt="" width="16" height="16" class="ui-icon"> Каналы и роли</h2>
 
     {% if request.query_params.get('saved') %}
       <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Сохранено.</div>
@@ -68,7 +68,7 @@
         {% endfor %}
 
         <div class="section-divider"></div>
-        <div class="section-title"><img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> Discord каналы и роли</div>
+        <div class="section-title"><img src="/static/icons/microphone.png" alt="" width="16" height="16" class="ui-icon"> Discord каналы и роли</div>
         {% for key, label in channels %}
           {% if key in ['channel_quotes_id', 'channel_announce_id', 'channel_winners_id', 'channel_updates_id', 'role_movie_ping_id'] %}
             <label>{{ label }}</label>
