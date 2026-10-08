@@ -1716,21 +1716,21 @@ body.has-sidebar.sidebar-open {
   height: 100%;
   position: relative;
   transition: transform 0.15s, box-shadow 0.15s;
+  overflow: hidden;
 }
-.ach-icon-wrap svg {
-  width: 60%;
-  height: 60%;
-  /* drop-shadow для глубины иконки */
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
-  /* currentColor — цвет иконки наследуется от родителя (color: var(--accent)) */
-  fill: currentColor;
-  color: inherit;
+/* v2.3: Preset PNG иконка через mask-image — цвет берётся из parent (currentColor) */
+.ach-preset-icon {
+  background: currentColor;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
-.ach-icon-wrap svg image {
-  /* Кастомные URL-иконки — растягиваются по контейнеру */
-  width: 100%;
-  height: 100%;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+/* URL иконка (icons8) — <img> внутри обёртки */
+.ach-icon-wrap img {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
 }
 
 /* Glow варианты: box-shadow вокруг обёртки */
