@@ -63,34 +63,34 @@
   </div>
 
   <nav class="sidebar-nav">
-    <a href="/" class="sb-item {% if active == 'dashboard' %}active{% endif %}">
+    <a href="/" class="sb-item {% if active == 'dashboard' %}active{% endif %}" title="Дашборд">
       {{ sb_icon('dashboard') }}
       <span class="sb-item-label">Дашборд</span>
     </a>
 
     <div class="sb-section-label">Комьюнити</div>
-    <a href="/movienight" class="sb-item {% if active == 'movienight' %}active{% endif %}">
+    <a href="/movienight" class="sb-item {% if active == 'movienight' %}active{% endif %}" title="Киновечер">
       {{ sb_icon('movie') }}
       <span class="sb-item-label">Киновечер</span>
     </a>
-    <a href="/wheel" class="sb-item {% if active == 'wheel' %}active{% endif %}">
+    <a href="/wheel" class="sb-item {% if active == 'wheel' %}active{% endif %}" title="Колесо">
       {{ sb_icon('wheel') }}
       <span class="sb-item-label">Колесо</span>
     </a>
-    <a href="/winners" class="sb-item {% if active == 'winners' %}active{% endif %}">
+    <a href="/winners" class="sb-item {% if active == 'winners' %}active{% endif %}" title="Победители">
       {{ sb_icon('trophy') }}
       <span class="sb-item-label">Победители</span>
     </a>
-    <a href="/watched" class="sb-item {% if active == 'watched' %}active{% endif %}">
+    <a href="/watched" class="sb-item {% if active == 'watched' %}active{% endif %}" title="Бэклог">
       {{ sb_icon('backlog') }}
       <span class="sb-item-label">Бэклог</span>
     </a>
-    <a href="/quotes" class="sb-item {% if active == 'quotes' %}active{% endif %}">
+    <a href="/quotes" class="sb-item {% if active == 'quotes' %}active{% endif %}" title="Цитаты">
       {{ sb_icon('quote') }}
       <span class="sb-item-label">Цитаты</span>
     </a>
     {% if santa_enabled() %}
-    <a href="/santa" class="sb-item {% if active == 'santa' %}active{% endif %}">
+    <a href="/santa" class="sb-item {% if active == 'santa' %}active{% endif %}" title="Тайный Санта">
       {{ sb_icon('santa') }}
       <span class="sb-item-label">Тайный Санта</span>
     </a>
@@ -100,31 +100,31 @@
     <div class="sb-divider"></div>
     <div class="sb-section-label">Админ</div>
     {% if user.is_superuser %}
-    <a href="/tokens" class="sb-item {% if active == 'tokens' %}active{% endif %}">
+    <a href="/tokens" class="sb-item {% if active == 'tokens' %}active{% endif %}" title="Токены">
       {{ sb_icon('key') }}
       <span class="sb-item-label">Токены</span>
     </a>
-    <a href="/channels" class="sb-item {% if active == 'channels' %}active{% endif %}">
+    <a href="/channels" class="sb-item {% if active == 'channels' %}active{% endif %}" title="Каналы">
       {{ sb_icon('channels') }}
       <span class="sb-item-label">Каналы</span>
     </a>
-    <a href="/features" class="sb-item {% if active == 'features' %}active{% endif %}">
+    <a href="/features" class="sb-item {% if active == 'features' %}active{% endif %}" title="Фичи">
       {{ sb_icon('features') }}
       <span class="sb-item-label">Фичи</span>
     </a>
     {% endif %}
     {% if user.is_superuser %}
-    <a href="/users" class="sb-item {% if active == 'users' %}active{% endif %}">
+    <a href="/users" class="sb-item {% if active == 'users' %}active{% endif %}" title="Юзеры">
       {{ sb_icon('users') }}
       <span class="sb-item-label">Юзеры</span>
     </a>
     {% endif %}
-    <a href="/achievements" class="sb-item {% if active == 'achievements' %}active{% endif %}">
+    <a href="/achievements" class="sb-item {% if active == 'achievements' %}active{% endif %}" title="Ачивки">
       {{ sb_icon('achievements') }}
       <span class="sb-item-label">Ачивки</span>
     </a>
     {% if user.is_superuser %}
-    <a href="/guilds" class="sb-item {% if active == 'guilds' %}active{% endif %}">
+    <a href="/guilds" class="sb-item {% if active == 'guilds' %}active{% endif %}" title="Серверы">
       {{ sb_icon('guilds') }}
       <span class="sb-item-label">Серверы</span>
     </a>
