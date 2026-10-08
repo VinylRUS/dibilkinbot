@@ -223,7 +223,7 @@
 
     <!-- Поиск + сортировка -->
     <form class="search-form" method="get" action="/watched">
-      <input type="text" name="q" value="{{ search }}" placeholder="<img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"> Поиск по бэклогу..." autocomplete="off">
+      <input type="text" name="q" value="{{ search }}" placeholder="Поиск по бэклогу..." autocomplete="off">
       <select name="sort" onchange="this.form.submit()" style="max-width: 140px;">
         <option value="recent" {% if sort == 'recent' or not sort %}selected{% endif %}>↓ По дате</option>
         <option value="rating" {% if sort == 'rating' %}selected{% endif %}><img src="/static/icons/star.png" alt="" width="16" height="16" class="ui-icon"> По оценке</option>
