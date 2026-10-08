@@ -134,6 +134,12 @@
 /* ===== Базовые стили ===== */
 * { box-sizing: border-box; }
 
+/* v2.2: Spring easing для всех интерактивных элементов */
+:root {
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --smooth: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 body {
   background: var(--bg-gradient);
   color: var(--text);
@@ -590,16 +596,17 @@ button {
   font-weight: 700;
   cursor: pointer;
   margin-top: 22px;
-  transition: all 0.2s;
+  transition: transform 0.2s var(--spring), box-shadow 0.2s var(--smooth), background 0.2s var(--smooth);
   box-shadow: 0 4px 16px rgba(255, 183, 3, 0.2);
 }
 button:hover:not(:disabled) {
   background: var(--accent-hover);
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(255, 183, 3, 0.3);
+  box-shadow: 0 8px 28px rgba(255, 183, 3, 0.35);
 }
 button:active:not(:disabled) {
-  transform: translateY(0);
+  transform: scale(0.95);
+  box-shadow: 0 2px 8px rgba(255, 183, 3, 0.2);
 }
 button:disabled {
   opacity: 0.5;
@@ -626,16 +633,21 @@ button:disabled {
   margin: 0;
   border: none;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: transform 0.2s var(--spring), box-shadow 0.2s var(--smooth), background 0.2s var(--smooth);
   box-shadow: 0 4px 16px rgba(255, 183, 3, 0.2);
+  position: relative;
+  overflow: hidden;
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(255, 183, 3, 0.3);
+  box-shadow: 0 8px 28px rgba(255, 183, 3, 0.35);
   color: var(--accent-text);
 }
-.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.95);
+  box-shadow: 0 2px 8px rgba(255, 183, 3, 0.2);
+}
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Outline-вариант (для вторичных действий рядом с .btn-primary) */
@@ -662,7 +674,10 @@ button:disabled {
   transform: translateY(-2px);
   color: var(--accent);
 }
-.btn-outline:active:not(:disabled) { transform: translateY(0); }
+.btn-outline:active:not(:disabled) {
+  transform: scale(0.95);
+  transition: transform 0.1s var(--smooth);
+}
 
 /* Danger-кнопка (для удаления, сброса) */
 .btn-danger {
@@ -685,6 +700,10 @@ button:disabled {
 .btn-danger:hover:not(:disabled) {
   background: var(--red);
   color: #fff;
+}
+.btn-danger:active:not(:disabled) {
+  transform: scale(0.95);
+  transition: transform 0.1s var(--smooth);
 }
 
 /* Ghost-кнопка (минималистичная, для редких действий) */
@@ -710,6 +729,10 @@ button:disabled {
   color: var(--accent);
   border-color: var(--accent);
 }
+.btn-ghost:active:not(:disabled) {
+  transform: scale(0.95);
+  transition: transform 0.1s var(--smooth);
+}
 
 /* Компактная icon-only кнопка (✏️, ×, 🔑) — для действий в списках */
 .btn-icon {
@@ -731,6 +754,10 @@ button:disabled {
   color: var(--accent);
   border-color: var(--accent);
 }
+.btn-icon:active:not(:disabled) {
+  transform: scale(0.90);
+  transition: transform 0.1s var(--smooth);
+}
 .btn-icon.danger {
   color: var(--red);
   border-color: var(--red);
@@ -738,6 +765,9 @@ button:disabled {
 .btn-icon.danger:hover:not(:disabled) {
   background: var(--red);
   color: #fff;
+}
+.btn-icon.danger:active:not(:disabled) {
+  transform: scale(0.90);
 }
 
 .saved {
@@ -1791,4 +1821,115 @@ body.has-sidebar.sidebar-open {
 .preview-area .ach-icon-wrap {
   width: 64px;
   height: 64px;
+}
+
+/* ===== v2.2: Glassmorphism Polish — микро-улучшения без редизайна ===== */
+
+/* --- Ripple-эффект на кнопках --- */
+.btn-primary, button:not(.theme-toggle):not(.sb-theme-toggle):not(.sb-bell) {
+  position: relative;
+  overflow: hidden;
+}
+.ripple-wave {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(0);
+  animation: ripple-spread 0.6s var(--smooth);
+  pointer-events: none;
+}
+@keyframes ripple-spread {
+  to {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* --- Hover-glow на карточках --- */
+article.card:hover,
+.achievement-card:hover,
+.user-achievement:hover {
+  box-shadow: var(--glass-shadow-hover), 0 0 0 1px var(--glass-border-strong), 0 0 20px var(--accent-soft);
+}
+
+/* --- Spring-анимация на модалках --- */
+.grant-modal {
+  animation: modal-pop-in 0.25s var(--spring);
+}
+@keyframes modal-pop-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.grant-modal-content {
+  animation: modal-scale-in 0.3s var(--spring);
+}
+@keyframes modal-scale-in {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* --- Toast анимация --- */
+.toast {
+  animation: toast-slide-in 0.3s var(--spring);
+}
+@keyframes toast-slide-in {
+  0% { transform: translateX(120%); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+.toast.removing {
+  animation: toast-slide-out 0.2s var(--smooth) forwards;
+}
+@keyframes toast-slide-out {
+  to { transform: translateX(120%); opacity: 0; }
+}
+
+/* --- Sidebar item hover-glow --- */
+.sb-item {
+  transition: background 0.15s var(--smooth), transform 0.15s var(--spring), box-shadow 0.15s var(--smooth);
+}
+.sb-item:hover:not(.active) {
+  background: var(--glass-bg-hover);
+  transform: translateX(2px);
+}
+.sb-item:active {
+  transform: scale(0.97);
+  transition: transform 0.08s var(--smooth);
+}
+
+/* --- Bell icon hover-тряска --- */
+.sb-bell:hover .sb-bell-icon {
+  animation: sb-bell-ring 0.4s ease-in-out;
+  display: inline-block;
+}
+
+/* --- Контраст текста на glassmorphism карточках --- */
+article.card,
+.achievement-card,
+.user-achievement {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* --- Мобильный blur бюджет: ≤16px на маленьких экранах --- */
+@media (max-width: 768px) {
+  :root {
+    --glass-blur: blur(12px);
+  }
+}
+
+/* --- Fallback: если backdrop-filter не поддерживается --- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-bg: rgba(40, 40, 55, 0.92);
+    --glass-bg-hover: rgba(50, 50, 65, 0.95);
+  }
+  [data-theme="light"] {
+    --glass-bg: rgba(255, 255, 255, 0.92);
+    --glass-bg-hover: rgba(255, 255, 255, 0.95);
+  }
+}
+
+/* --- Focus ring для accessibility --- */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

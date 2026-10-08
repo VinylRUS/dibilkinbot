@@ -316,6 +316,23 @@ if (document.readyState === 'loading') {
   window.upgradeSelects();
 }
 
+// === v2.2: Ripple-эффект на кнопках ===
+// Волну пускаем от точки клика, через ::before не получится — нужна координата.
+// Применяется ко всем .btn-primary и <button> (кроме sidebar toggle'ов).
+document.addEventListener('pointerdown', (e) => {
+  const target = e.target.closest('.btn-primary, button:not(.theme-toggle):not(.sb-theme-toggle):not(.sb-bell)');
+  if (!target || target.disabled) return;
+  const rect = target.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const x = e.clientX - rect.left - size / 2;
+  const y = e.clientY - rect.top - size / 2;
+  const wave = document.createElement('span');
+  wave.className = 'ripple-wave';
+  wave.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px;`;
+  target.appendChild(wave);
+  wave.addEventListener('animationend', () => wave.remove());
+});
+
 // === Toast-уведомления (замена alert()) ===
 // Глобальная функция showToast(message, type='info', duration=3500)
 // type: 'success' | 'error' | 'info'
