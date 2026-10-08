@@ -217,7 +217,7 @@
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2>🎅 Тайный Санта</h2>
+    <h2><img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon"> Тайный Санта</h2>
 
     {% if request.query_params.get('error') == 'disabled' %}
       <div class="flash error">Модуль Тайный Санта выключен администратором.</div>
@@ -226,12 +226,12 @@
     {% if not event %}
       {# === Нет активного события === #}
       <div class="santa-hero">
-        <div class="santa-icon">🎅</div>
+        <div class="santa-icon"><img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon"></div>
         <p>Сейчас нет активного события Тайного Санты.</p>
       </div>
 
       <div class="santa-card">
-        <h3>🚀 Создать событие</h3>
+        <h3><img src="/static/icons/rocket.png" alt="" width="14" height="14" class="ui-icon"> Создать событие</h3>
         <p class="santa-hint">
           Любой участник может запустить Тайного Санту. После старта все смогут присоединиться,
           указать свой Steam-профиль и пожелания. Когда все будут готовы — бот распределит сант.
@@ -242,13 +242,13 @@
         <input type="date" id="santa-deadline" class="santa-input" min="{{ today if today is defined else '' }}">
         <label class="santa-label">Бюджет (опционально, свободный)</label>
         <input type="text" id="santa-budget" class="santa-input" placeholder="например: до 1000₽, или свободный">
-        <button type="button" class="santa-btn" onclick="createEvent()">🎅 Создать событие</button>
+        <button type="button" class="santa-btn" onclick="createEvent()"><img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon"> Создать событие</button>
         <div id="create-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
       </div>
 
       {% if all_events %}
         <div class="santa-card">
-          <h3>📜 История событий</h3>
+          <h3><img src="/static/icons/checkmark.png" alt="" width="14" height="14" class="ui-icon"> История событий</h3>
           {% for ev in all_events %}
             <div class="activity-row">
               <span>
@@ -269,7 +269,7 @@
     {% elif event.status == 'collecting' %}
       {# === Сбор участников === #}
       <div class="santa-hero">
-        <div class="santa-icon">🎅</div>
+        <div class="santa-icon"><img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon"></div>
         <p><strong>{{ event.title }}</strong> — сбор участников</p>
         <div class="santa-stats">
           <div class="santa-stat">Участников: <strong>{{ total_count }}</strong></div>
@@ -277,7 +277,7 @@
           <div class="santa-stat">Дедлайн: <strong>{{ format_msk_short(event.deadline) }}</strong></div>
         </div>
         {% if event.budget_note %}
-          <p style="margin-top: 12px;">💰 Бюджет: {{ event.budget_note }}</p>
+          <p style="margin-top: 12px;"><img src="/static/icons/money.png" alt="" width="16" height="16" class="ui-icon"> Бюджет: {{ event.budget_note }}</p>
         {% endif %}
       </div>
 
@@ -292,14 +292,14 @@
           <label class="santa-label">Пожелания получателю (опционально)</label>
           <textarea id="santa-prefs" class="santa-textarea"
                     placeholder="Например: люблю стратегии и инди, не дарите хорроры..."></textarea>
-          <button type="button" class="santa-btn" onclick="joinEvent()">🎁 Присоединиться</button>
+          <button type="button" class="santa-btn" onclick="joinEvent()"><img src="/static/icons/gift.png" alt="" width="16" height="16" class="ui-icon"> Присоединиться</button>
           <div id="join-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
         </div>
 
       {% else %}
         {# Юзер уже участник === #}
         <div class="santa-card">
-          <h3>✓ Вы участник</h3>
+          <h3><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Вы участник</h3>
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
             {% if my_participant.steam_avatar_url %}
               <img src="{{ my_participant.steam_avatar_url }}" alt="" style="width: 48px; height: 48px; border-radius: 50%;">
@@ -312,9 +312,9 @@
             </div>
             <div style="margin-left: auto;">
               {% if my_participant.is_ready %}
-                <span class="badge confirmed">✓ Готов</span>
+                <span class="badge confirmed"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Готов</span>
               {% else %}
-                <span class="badge unconfirmed">⏳ Не готов</span>
+                <span class="badge unconfirmed"><img src="/static/icons/clock.png" alt="" width="16" height="16" class="ui-icon"> Не готов</span>
               {% endif %}
             </div>
           </div>
@@ -326,7 +326,7 @@
           {% endif %}
 
           {% if not my_participant.is_ready %}
-            <button type="button" class="santa-btn" onclick="setReady(true)">✓ Я готов</button>
+            <button type="button" class="santa-btn" onclick="setReady(true)"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Я готов</button>
           {% else %}
             <button type="button" class="santa-btn secondary" onclick="setReady(false)">↩ Отменить готовность</button>
           {% endif %}
@@ -336,7 +336,7 @@
         {# Организатор controls #}
         {% if is_organizer %}
           <div class="organizer-controls">
-            <h4>🎛 Управление (организатор)</h4>
+            <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Управление (организатор)</h4>
             <p class="santa-hint">
               Для распределения нужно минимум {{ min_participants }} готовых участников.
               Сейчас готовых: <strong>{{ ready_count }}</strong>.
@@ -354,7 +354,7 @@
 
         {# Список участников #}
         <div class="santa-card">
-          <h3>👥 Участники ({{ total_count }})</h3>
+          <h3><img src="/static/icons/users.png" alt="" width="16" height="16" class="ui-icon"> Участники ({{ total_count }})</h3>
           <div class="participant-grid">
             {% for p in participants %}
               <div class="participant-card {{ 'ready' if p.is_ready else '' }}">
@@ -362,13 +362,13 @@
                   {% if p.avatar_url %}
                     <img src="{{ p.avatar_url }}" alt="">
                   {% else %}
-                    👤
+                    <img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon">
                   {% endif %}
                 </div>
                 <div class="participant-info">
                   <div class="participant-name">{{ p.display_name or p.username or 'User#' ~ p.user_discord_id }}</div>
                   <div class="participant-status {{ 'ready' if p.is_ready else 'pending' }}">
-                    {% if p.is_ready %}✓ готов{% else %}⏳ ожидание{% endif %}
+                    {% if p.is_ready %}<img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> готов{% else %}<img src="/static/icons/clock.png" alt="" width="16" height="16" class="ui-icon"> ожидание{% endif %}
                   </div>
                 </div>
               </div>
@@ -380,21 +380,21 @@
     {% elif event.status == 'assigned' %}
       {# === Санты распределены === #}
       <div class="santa-hero">
-        <div class="santa-icon">🎁</div>
+        <div class="santa-icon"><img src="/static/icons/gift.png" alt="" width="16" height="16" class="ui-icon"></div>
         <p><strong>{{ event.title }}</strong> — санты распределены!</p>
         {% if event.budget_note %}
-          <p>💰 Бюджет: {{ event.budget_note }}</p>
+          <p><img src="/static/icons/money.png" alt="" width="16" height="16" class="ui-icon"> Бюджет: {{ event.budget_note }}</p>
         {% endif %}
       </div>
 
       {% if my_assignment %}
         <div class="recipient-card">
-          <h3 style="margin: 0 0 16px;">🎅 Вы — Тайный Санта для:</h3>
+          <h3 style="margin: 0 0 16px;"><img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon"> Вы — Тайный Санта для:</h3>
           <div class="recipient-avatar">
             {% if my_assignment.recipient_avatar_url %}
               <img src="{{ my_assignment.recipient_avatar_url }}" alt="">
             {% else %}
-              👤
+              <img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon">
             {% endif %}
           </div>
           <div class="recipient-name">{{ my_assignment.recipient_display_name or my_assignment.recipient_username }}</div>
@@ -415,12 +415,12 @@
             </div>
           {% endif %}
           {% if my_assignment.gift_sent_at %}
-            <div class="gift-sent-badge">✓ Подарок отправлен {{ format_msk_short(my_assignment.gift_sent_at) }}</div>
+            <div class="gift-sent-badge"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Подарок отправлен {{ format_msk_short(my_assignment.gift_sent_at) }}</div>
           {% else %}
             <div style="margin-top: 20px;">
               <label class="santa-label">Послание получателю (опционально)</label>
-              <textarea id="gift-note" class="santa-textarea" placeholder="С Новым годом! 🎄..." style="min-height: 60px;"></textarea>
-              <button type="button" class="santa-btn" onclick="markGiftSent()">📦 Подарок отправлен!</button>
+              <textarea id="gift-note" class="santa-textarea" placeholder="С Новым годом! <img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon">..." style="min-height: 60px;"></textarea>
+              <button type="button" class="santa-btn" onclick="markGiftSent()"><img src="/static/icons/download.png" alt="" width="14" height="14" class="ui-icon"> Подарок отправлен!</button>
               <div id="gift-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
             </div>
           {% endif %}
@@ -431,12 +431,12 @@
 
       {% if is_admin %}
         <div class="organizer-controls">
-          <h4>🎛 Админ: раскрытие</h4>
+          <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Админ: раскрытие</h4>
           <p class="santa-hint">
             Раскрытие сант — показать всем кто кому дарил. Используйте на стриме в день дедлайна.
           </p>
-          <button type="button" class="santa-btn" onclick="revealEvent({{ event.id }})">🎉 Раскрыть сант</button>
-          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})" style="margin-left: 8px;">✕ Закрыть событие</button>
+          <button type="button" class="santa-btn" onclick="revealEvent({{ event.id }})"><img src="/static/icons/party.png" alt="" width="16" height="16" class="ui-icon"> Раскрыть сант</button>
+          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})" style="margin-left: 8px;"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Закрыть событие</button>
           <div id="reveal-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
         </div>
       {% endif %}
@@ -444,7 +444,7 @@
     {% elif event.status == 'revealed' %}
       {# === Раскрытие === #}
       <div class="santa-hero">
-        <div class="santa-icon">🎉</div>
+        <div class="santa-icon"><img src="/static/icons/party.png" alt="" width="16" height="16" class="ui-icon"></div>
         <p><strong>{{ event.title }}</strong> — раскрыто!</p>
         <a href="/santa/{{ event.id }}/reveal" class="santa-btn" style="text-decoration: none; display: inline-block; margin-top: 16px;">
           <img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Открыть страницу раскрытия
@@ -453,8 +453,8 @@
 
       {% if is_admin %}
         <div class="organizer-controls">
-          <h4>🎛 Админ</h4>
-          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})">✕ Закрыть событие (скрыть данные)</button>
+          <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Админ</h4>
+          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Закрыть событие (скрыть данные)</button>
         </div>
       {% endif %}
 

@@ -106,10 +106,10 @@
 </head>
 <body>
   <div class="guild-card">
-    <h1>🐝 Выбор сервера</h1>
+    <h1><img src="/static/icons/home.png" alt="" width="16" height="16" class="ui-icon"> Выбор сервера</h1>
 
     {% if request.query_params.get('error') == 'no_access' %}
-      <div class="error">❌ У вас нет доступа к этому серверу.</div>
+      <div class="error"><img src="/static/icons/error.png" alt="" width="16" height="16" class="ui-icon"> У вас нет доступа к этому серверу.</div>
     {% endif %}
 
     {% if guilds|length == 0 %}

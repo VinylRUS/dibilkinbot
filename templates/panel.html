@@ -51,7 +51,7 @@
       {# Колесо готово к крутке #}
       <div class="now-card">
         <div class="now-status">
-          <div class="now-icon">🎡</div>
+          <div class="now-icon"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"></div>
           <div class="now-text">
             <div class="now-title">Колесо готово ({{ wheel_count }} фильмов)</div>
             <div class="now-subtitle">Можно крутить!</div>
@@ -96,12 +96,12 @@
     <h2>Ваш профиль</h2>
     <article class="card">
       <div class="checklist-item">
-        <div class="checklist-icon done">✓</div>
+        <div class="checklist-icon done"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"></div>
         <div class="checklist-text">Discord ID привязан</div>
       </div>
       <div class="checklist-item">
         {% if is_tg_linked %}
-        <div class="checklist-icon done">✓</div>
+        <div class="checklist-icon done"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"></div>
         <div class="checklist-text">Telegram привязан: @{{ tg_username }}</div>
         {% else %}
         <div class="checklist-icon pending">!</div>
@@ -111,7 +111,7 @@
       </div>
       <div class="checklist-item">
         {% if is_steam_set %}
-        <div class="checklist-icon done">✓</div>
+        <div class="checklist-icon done"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"></div>
         <div class="checklist-text">Steam-профиль указан</div>
         {% else %}
         <div class="checklist-icon pending">!</div>
@@ -140,7 +140,7 @@
 
     {# ===== Участники комьюнити (виден всем) ===== #}
     {% if active_members %}
-    <h2>🐝 Участники <span style="font-size:0.75rem; color:var(--text-soft); font-weight:400;">{{ active_members|length }}</span></h2>
+    <h2><img src="/static/icons/home.png" alt="" width="16" height="16" class="ui-icon"> Участники <span style="font-size:0.75rem; color:var(--text-soft); font-weight:400;">{{ active_members|length }}</span></h2>
     <article class="card">
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 16px; justify-items: center;">
         {% for m in active_members %}
@@ -176,7 +176,7 @@
         </a>
       {% else %}
         <div class="empty-state">
-          <div class="empty-state-icon">😴</div>
+          <div class="empty-state-icon"><img src="/static/icons/moon.png" alt="" width="14" height="14" class="ui-icon"></div>
           <p class="empty-state-text">Нет активности за последнюю неделю.</p>
         </div>
       {% endfor %}
@@ -193,7 +193,7 @@
           <a href="/winners" class="checklist-link">Оценить →</a>
         </div>
       {% else %}
-        <div class="empty">Все победители оценены. 🎉</div>
+        <div class="empty">Все победители оценены. <img src="/static/icons/party.png" alt="" width="16" height="16" class="ui-icon"></div>
       {% endfor %}
     </article>
 

@@ -122,30 +122,30 @@
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2>🎡 Победители колеса</h2>
+    <h2><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Победители колеса</h2>
 
     {% if request.query_params.get('deleted') %}
-      <div class="flash">✓ Запись удалена.</div>
+      <div class="flash"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Запись удалена.</div>
     {% endif %}
 
     <!-- Поиск -->
     <form class="search-form" method="get" action="/winners">
-      <input type="text" name="q" value="{{ search }}" placeholder="🔍 Поиск по победителям..." autocomplete="off">
-      <button type="submit">🔍 Найти</button>
+      <input type="text" name="q" value="{{ search }}" placeholder="<img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"> Поиск по победителям..." autocomplete="off">
+      <button type="submit"><img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"> Найти</button>
       {% if search %}
-        <a href="/winners" class="page-btn clear-btn">✕ Сбросить</a>
+        <a href="/winners" class="page-btn clear-btn"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Сбросить</a>
       {% endif %}
     </form>
 
     {% if winners|length == 0 %}
       <article class="card" style="text-align:center;padding:32px 20px;">
         {% if search %}
-          <div style="font-size:2rem;margin-bottom:8px;">🔍</div>
+          <div style="font-size:2rem;margin-bottom:8px;"><img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"></div>
           <p style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:4px;">Ничего не найдено</p>
           <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">По запросу «{{ search }}» нет победителей.</p>
           <a href="/winners" class="btn-outline" style="font-size:0.85rem;padding:6px 16px;">Сбросить поиск</a>
         {% else %}
-          <div style="font-size:2rem;margin-bottom:8px;">🎡</div>
+          <div style="font-size:2rem;margin-bottom:8px;"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"></div>
           <p style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:4px;">Пока нет победителей</p>
           <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">Крутаните колесо, чтобы определить первый фильм.</p>
           <a href="/wheel" class="btn-primary" style="font-size:0.85rem;padding:6px 16px;">К колесу →</a>

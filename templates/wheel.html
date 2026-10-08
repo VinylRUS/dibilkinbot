@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>🎡 Колесо · DeeBeelkin</title>
+  <title><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Колесо · DeeBeelkin</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
   <style>
@@ -358,7 +358,7 @@
       {# === Компактный баннер статуса сбора (одна строка над заголовком) === #}
       {% if recent_winner %}
         <div class="wheel-banner warning">
-          <span class="wheel-banner-icon">🏆</span>
+          <span class="wheel-banner-icon"><img src="/static/icons/trophy.png" alt="" width="16" height="16" class="ui-icon"></span>
           <span class="wheel-banner-text">
             <strong>Победитель: «{{ recent_winner.lot_name }}»</strong> — повторная крутка невозможна
           </span>
@@ -366,7 +366,7 @@
         </div>
       {% elif active_collection %}
         <div class="wheel-banner warning">
-          <span class="wheel-banner-icon">⏳</span>
+          <span class="wheel-banner-icon"><img src="/static/icons/clock.png" alt="" width="16" height="16" class="ui-icon"></span>
           <span class="wheel-banner-text">
             <strong>Идёт активный сбор фильмов</strong> — завершите его чтобы крутить
           </span>
@@ -374,21 +374,21 @@
         </div>
       {% elif last_collection and wheel_count > 0 %}
         <div class="wheel-banner success">
-          <span class="wheel-banner-icon">✓</span>
+          <span class="wheel-banner-icon"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"></span>
           <span class="wheel-banner-text">
             <strong>Колесо загружено из сбора</strong> ({{ wheel_count }} фильмов) — крутите!
           </span>
         </div>
       {% elif wheel_count > 0 %}
         <div class="wheel-banner">
-          <span class="wheel-banner-icon">🎡</span>
+          <span class="wheel-banner-icon"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"></span>
           <span class="wheel-banner-text">
             <strong>Колесо готово</strong> ({{ wheel_count }} фильмов) — фильмы загружены вручную
           </span>
         </div>
       {% else %}
         <div class="wheel-banner">
-          <span class="wheel-banner-icon">📭</span>
+          <span class="wheel-banner-icon"><img src="/static/icons/inbox.png" alt="" width="16" height="16" class="ui-icon"></span>
           <span class="wheel-banner-text">
             <strong>Колесо пустое</strong> — {% if last_collection %}запустите новый сбор{% else %}начните сбор{% endif %} на <a href="/movienight">/movienight</a>
           </span>
@@ -396,7 +396,7 @@
         </div>
       {% endif %}
 
-      <h1 class="wheel-title">🎡 Колесо фильмов</h1>
+      <h1 class="wheel-title"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Колесо фильмов</h1>
       <div class="wheel-canvas-wrap">
         <div class="pointer"></div>
         <canvas id="wheel-canvas" width="600" height="600"></canvas>
@@ -420,7 +420,7 @@
       <h2>Лоты в колесе <span id="count" class="count-badge">0</span></h2>
 
       <ul id="items-list" class="items-list"></ul>
-      <div id="empty-state" class="empty-state">Колесо пустое. Начните сбор фильмов на <a href="/movienight" style="color: var(--accent);">/movienight</a> 🎬</div>
+      <div id="empty-state" class="empty-state">Колесо пустое. Начните сбор фильмов на <a href="/movienight" style="color: var(--accent);">/movienight</a> <img src="/static/icons/clapperboard.png" alt="" width="16" height="16" class="ui-icon"></div>
       <button id="clear-btn" class="clear-btn" style="display:none">Очистить колесо</button>
     </aside>
   </main>

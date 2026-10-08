@@ -286,12 +286,12 @@
                     <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' and ach.trigger_type not in ('first_rating', 'first_quote') %} ≥ {% if ach.trigger_threshold >= 3600 %}{{ (ach.trigger_threshold / 3600) | round(1) }} ч{% elif ach.trigger_threshold >= 60 %}{{ (ach.trigger_threshold / 60) | round(0) }} мин{% else %}{{ ach.trigger_threshold }} сек{% endif %}{% endif %}</span>
                     {% if ach.discord_role_id %}<span class="ach-tag role">Discord роль</span>{% endif %}
                     {% if ach.trigger_type == 'manual' %}<span class="ach-tag manual">Только manual</span>{% endif %}
-                    <span class="ach-tag">👤 {{ ach.granted_count }}</span>
+                    <span class="ach-tag"><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> {{ ach.granted_count }}</span>
                   </div>
                 </div>
                 <div class="ach-actions">
                   <button class="ach-grant-btn" onclick="openGrantModal({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Выдать</button>
-                  <button class="btn-icon" onclick="openEditModal({{ ach.id }})" title="Редактировать" aria-label="Редактировать">✏️</button>
+                  <button class="btn-icon" onclick="openEditModal({{ ach.id }})" title="Редактировать" aria-label="Редактировать"><img src="/static/icons/edit.png" alt="" width="16" height="16" class="ui-icon"></button>
                   <button class="ach-delete-btn" onclick="deleteAchievement({{ ach.id }}, '{{ ach.name | replace("'", "\\'") }}')">Удалить</button>
                 </div>
               </div>
@@ -302,7 +302,7 @@
 
       {# Правая колонка: конструктор #}
       <div class="builder">
-        <h3>🛠 Конструктор ачивки</h3>
+        <h3><img src="/static/icons/settings.png" alt="" width="14" height="14" class="ui-icon"> Конструктор ачивки</h3>
 
         <div class="preview-area">
           <div id="preview-svg" style="width:64px;height:64px;"></div>
@@ -328,7 +328,7 @@
           <label>Или URL иконки <span style="font-weight:400;color:var(--text-soft);font-size:0.72rem;">(напр. с icons8)</span></label>
           <input type="text" id="ach-icon-url" name="icon_url" placeholder="https://img.icons8.com/liquid-glass/50/FFFFFF/your-icon.png" style="font-size:0.78rem;">
           <p style="font-size:0.72rem;color:var(--text-soft);margin-top:4px;line-height:1.4;">
-            💡 На <a href="https://icons8.ru/" target="_blank" rel="noopener" style="color:var(--accent);">icons8.ru</a> выбери иконку → скопируй «Link to this image» → вставь сюда. Цвет в URL можно менять (hex-код без #).
+            <img src="/static/icons/idea.png" alt="" width="16" height="16" class="ui-icon"> На <a href="https://icons8.ru/" target="_blank" rel="noopener" style="color:var(--accent);">icons8.ru</a> выбери иконку → скопируй «Link to this image» → вставь сюда. Цвет в URL можно менять (hex-код без #).
           </p>
 
           <label>Цвет фона кружка</label>
@@ -392,7 +392,7 @@
           </select>
           <button type="button" class="btn-ghost" onclick="refreshDiscordRoles()" style="margin-top: 6px; width: 100%; padding: 6px;"><img src="/static/icons/rocket.png" alt="" width="16" height="16" class="ui-icon"> Обновить роли</button>
           <div id="role-warning" class="role-warning" style="display:none;">
-            ⚠ Бот должен иметь manage_roles permission, а его роль должна быть выше роли ачивки в иерархии Discord.
+            <img src="/static/icons/info.png" alt="" width="14" height="14" class="ui-icon"> Бот должен иметь manage_roles permission, а его роль должна быть выше роли ачивки в иерархии Discord.
           </div>
 
           <div class="builder-actions">
@@ -484,7 +484,7 @@
           <option value="">— без роли —</option>
         </select>
       </div>
-      <button onclick="saveEdit()" class="btn-primary" style="width:100%;">💾 Сохранить</button>
+      <button onclick="saveEdit()" class="btn-primary" style="width:100%;"><img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
     </div>
   </div>
 

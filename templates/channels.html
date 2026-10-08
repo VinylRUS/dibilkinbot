@@ -47,15 +47,15 @@
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2>📺 Каналы и роли</h2>
+    <h2><img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> Каналы и роли</h2>
 
     {% if request.query_params.get('saved') %}
-      <div class="saved">✓ Сохранено.</div>
+      <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Сохранено.</div>
     {% endif %}
 
     <article class="card">
       <form method="post" action="/channels" id="channels-form">
-        <div class="section-title">🌐 Веб-панель</div>
+        <div class="section-title"><img src="/static/icons/globe.png" alt="" width="16" height="16" class="ui-icon"> Веб-панель</div>
         {% for key, label in channels %}
           {% if key == 'panel_base_url' %}
             <label>{{ label }}</label>
@@ -68,7 +68,7 @@
         {% endfor %}
 
         <div class="section-divider"></div>
-        <div class="section-title">📺 Discord каналы и роли</div>
+        <div class="section-title"><img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> Discord каналы и роли</div>
         {% for key, label in channels %}
           {% if key in ['channel_quotes_id', 'channel_announce_id', 'channel_winners_id', 'channel_updates_id', 'role_movie_ping_id'] %}
             <label>{{ label }}</label>

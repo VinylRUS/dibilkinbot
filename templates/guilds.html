@@ -106,11 +106,11 @@
     <h2><img src="/static/icons/parallel-tasks.png" alt="" width="16" height="16" class="ui-icon"> Управление серверами</h2>
 
     {% if request.query_params.get('saved') %}
-      <div class="flash">✓ Изменения сохранены.</div>
+      <div class="flash"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Изменения сохранены.</div>
     {% elif request.query_params.get('deleted') %}
-      <div class="flash">✓ Сервер и все его данные удалены.</div>
+      <div class="flash"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Сервер и все его данные удалены.</div>
     {% elif request.query_params.get('error') == 'cannot_delete_default' %}
-      <div class="flash error">❌ Нельзя удалить default сервер (guild_id=0).</div>
+      <div class="flash error"><img src="/static/icons/error.png" alt="" width="16" height="16" class="ui-icon"> Нельзя удалить default сервер (guild_id=0).</div>
     {% endif %}
 
     {% if guilds|length == 0 %}
@@ -142,17 +142,17 @@
         <div class="guild-actions">
           {% if not g.approved %}
             <form method="post" action="/guilds/{{ g.guild_id }}/approve" style="margin:0;">
-              <button type="submit" class="btn-approve">✓ Одобрить</button>
+              <button type="submit" class="btn-approve"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Одобрить</button>
             </form>
           {% else %}
             <form method="post" action="/guilds/{{ g.guild_id }}/reject" style="margin:0;">
-              <button type="submit" class="btn-reject">✗ Отозвать</button>
+              <button type="submit" class="btn-reject"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Отозвать</button>
             </form>
           {% endif %}
           {% if g.guild_id != 0 %}
             <form method="post" action="/guilds/{{ g.guild_id }}/delete" style="margin:0;"
                   onsubmit="return confirm('Удалить сервер «{{ g.name }}» и ВСЕ его данные? Это необратимо!');">
-              <button type="submit" class="btn-delete">🗑 Удалить</button>
+              <button type="submit" class="btn-delete"><img src="/static/icons/trash.png" alt="" width="14" height="14" class="ui-icon"> Удалить</button>
             </form>
           {% endif %}
         </div>
