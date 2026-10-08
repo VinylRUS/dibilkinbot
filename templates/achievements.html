@@ -364,7 +364,8 @@
             <option value="voice_time">Войс-чат (любое время)</option>
             <option value="voice_time_solo">Войс-чат (одиночные)</option>
             <option value="voice_time_with_others">Войс-чат (с другими)</option>
-            <option value="game_play_time">Игры (время игры)</option>
+            <option value="game_play_time">Игры (время игры, Discord)</option>
+            <option value="steam_play_time">Steam (общее время, минуты)</option>
           </select>
 
           <label for="ach-threshold" id="threshold-label">Порог</label>
@@ -518,10 +519,11 @@
       {value: 'voice_time', label: 'Войс-чат (любое время)'},
       {value: 'voice_time_solo', label: 'Войс-чат (одиночные)'},
       {value: 'voice_time_with_others', label: 'Войс-чат (с другими)'},
-      {value: 'game_play_time', label: 'Игры (время игры)'},
+      {value: 'game_play_time', label: 'Игры (время игры, Discord)'},
+      {value: 'steam_play_time', label: 'Steam (общее время, минуты)'},
     ];
     // Триггеры, для которых порог — это время (секунды), а не количество
-    const TIME_TRIGGERS_EDIT = new Set(['voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time']);
+    const TIME_TRIGGERS_EDIT = new Set(['voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time', 'steam_play_time']);
 
     // === SVG рендеринг — используем глобальные функции из sidebar.html ===
     // window.ACHIEVEMENT_COLORS, window.ACHIEVEMENT_GLOW_COLORS, window.renderAchievementSVG
@@ -708,7 +710,7 @@
       // Для count-триггеров (ratings_count, quotes_count, wheel_wins, etc.)
       // порог — это число действий, конвертация в секунды была багом:
       // админ вводил 10 оценок, фронт умножал на 3600 → ачивка требовала 36000 оценок.
-      const TIME_TRIGGERS = new Set(['voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time']);
+      const TIME_TRIGGERS = new Set(['voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time', 'steam_play_time']);
       const rawThreshold = formData.get('trigger_threshold');
       let threshold = parseInt(rawThreshold);
       if (isNaN(threshold) || threshold < 0) threshold = 0;
