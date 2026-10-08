@@ -52,7 +52,7 @@
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2>👤 Профиль</h2>
+    <h2><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> Профиль</h2>
     {% if user.discord_id %}
     <a href="/u/{{ user.discord_id }}" class="btn-outline" style="margin-bottom: 16px; display: inline-flex; align-items: center; gap: 6px;"><img src="/static/icons/eye.png" alt="" width="16" height="16" class="ui-icon"> Посмотреть публичный профиль</a>
     {% endif %}
@@ -81,7 +81,7 @@
         <span class="hint">Telegram</span>
         <span>
           {% if tg_link and tg_link[5] %}
-            <span class="badge confirmed">✓ @{{ tg_link[2] or 'без username' }}</span>
+            <span class="badge confirmed"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> @{{ tg_link[2] or 'без username' }}</span>
           {% else %}
             <span class="badge unconfirmed">не привязан</span>
           {% endif %}
@@ -94,7 +94,7 @@
       {% endif %}
     </article>
 
-    <h2>📱 Уведомления в Telegram</h2>
+    <h2><img src="/static/icons/phone.png" alt="" width="16" height="16" class="ui-icon"> Уведомления в Telegram</h2>
     <article class="card">
       {% if not is_tg_linked %}
         <div class="empty">
@@ -140,12 +140,12 @@
           </div>
           <button type="button" onclick="removeSteamProfile()"
                   style="background: transparent; color: var(--red); border: 1px solid var(--red); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.82rem; margin: 0;">
-            ✕ Удалить
+            <img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Удалить
           </button>
         </div>
         {% if is_santa_enabled %}
           <p class="hint" style="margin: 0;">
-            ✓ Steam-профиль готов для участия в Тайном Санте.
+            <img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Steam-профиль готов для участия в Тайном Санте.
             Бот автоматически подтянет ваш вишлист при присоединении к событию.
           </p>
         {% endif %}
@@ -187,7 +187,7 @@
             <div class="watchlist-title {{ 'watched' if is_watched else '' }}" id="wl-title-{{ w_id }}">{{ title }}</div>
             <div class="watchlist-actions">
               {% if not is_watched %}
-                <button class="wl-edit-btn" onclick="editWatchlistTitle({{ w_id }})" id="wl-edit-{{ w_id }}">✏️</button>
+                <button class="wl-edit-btn" onclick="editWatchlistTitle({{ w_id }})" id="wl-edit-{{ w_id }}"><img src="/static/icons/edit.png" alt="" width="16" height="16" class="ui-icon"></button>
                 <button class="wl-del-btn" onclick="deleteWatchlistItem({{ w_id }})">×</button>
               {% else %}
                 <span class="badge confirmed" style="font-size:0.72rem;">просмотрен</span>
@@ -207,7 +207,7 @@
       <div id="pin-achievements-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <span style="color:var(--text-muted);font-size:0.82rem;">Загрузка...</span>
       </div>
-      <button type="button" class="btn-primary" onclick="savePinnedAchievements()" style="margin-top:0;font-size:0.82rem;padding:8px 16px;">💾 Сохранить</button>
+      <button type="button" class="btn-primary" onclick="savePinnedAchievements()" style="margin-top:0;font-size:0.82rem;padding:8px 16px;"><img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
     </article>
   </main>
 

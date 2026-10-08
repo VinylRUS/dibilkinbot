@@ -75,9 +75,9 @@
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2>👥 Пользователи панели</h2>
+    <h2><img src="/static/icons/users.png" alt="" width="16" height="16" class="ui-icon"> Пользователи панели</h2>
     {% if request.query_params.get('saved') %}
-      <div class="saved">✓ Изменения сохранены.</div>
+      <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Изменения сохранены.</div>
     {% endif %}
     <article class="card">
       <table>
@@ -103,7 +103,7 @@
                     <div class="user-meta">роль: {{ top_role }}</div>
                   {% endif %}
                   {% if guild_name %}
-                    <div class="guild-name">📱 {{ guild_name }}</div>
+                    <div class="guild-name"><img src="/static/icons/phone.png" alt="" width="16" height="16" class="ui-icon"> {{ guild_name }}</div>
                   {% endif %}
                 </div>
               </a>
@@ -130,7 +130,7 @@
                   </select>
                 </form>
               {% endif %}
-              <button type="button" onclick="resetPassword({{ discord_id }})" class="btn-icon danger" title="Сбросить пароль" aria-label="Сбросить пароль">🔑</button>
+              <button type="button" onclick="resetPassword({{ discord_id }})" class="btn-icon danger" title="Сбросить пароль" aria-label="Сбросить пароль"><img src="/static/icons/key.png" alt="" width="16" height="16" class="ui-icon"></button>
             </td>
           </tr>
         {% else %}

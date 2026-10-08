@@ -11,10 +11,10 @@
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2>⚙️ Кросс-постинг в Telegram</h2>
+    <h2><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Кросс-постинг в Telegram</h2>
 
     {% if request.query_params.get('saved') %}
-      <div class="saved">✓ Сохранено.</div>
+      <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Сохранено.</div>
     {% endif %}
 
     <article class="card">

@@ -29,7 +29,7 @@
       justify-content: center;
       gap: 8px;
     }
-    h1::before { content: "🐝"; font-size: 1.4rem; }
+    h1::before { content: "<img src="/static/icons/home.png" alt="" width="16" height="16" class="ui-icon">"; font-size: 1.4rem; }
     .error {
       background: var(--red-soft);
       color: var(--red);
@@ -134,16 +134,16 @@
       <div class="error">Этот Discord ID принадлежит администратору. Введите пароль администратора.</div>
     {% elif error == 'not_member' %}
       <div class="error">
-        ❌ Вы не участник сервера с этим ботом.<br>
+        <img src="/static/icons/error.png" alt="" width="16" height="16" class="ui-icon"> Вы не участник сервера с этим ботом.<br>
         Войдите в Discord-сервер, где стоит DeeBeelkin, и попробуйте снова.<br>
         <em>(Если бот офлайн — попросите админа перезапустить процесс.)</em>
       </div>
     {% elif error == 'password_required' %}
       <div class="error">Введите пароль для входа.</div>
     {% elif error == 'wrong_password' %}
-      <div class="error">❌ Неверный пароль. Попробуйте ещё раз.</div>
+      <div class="error"><img src="/static/icons/error.png" alt="" width="16" height="16" class="ui-icon"> Неверный пароль. Попробуйте ещё раз.</div>
     {% elif error == 'password_set' %}
-      <div class="success">✓ Пароль установлен! Теперь войдите с ним.</div>
+      <div class="success"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Пароль установлен! Теперь войдите с ним.</div>
     {% endif %}
 
     <label for="login">Discord ID</label>
@@ -167,7 +167,7 @@
   <!-- Попап установки пароля (для первого входа) -->
   <div class="modal-overlay" id="set-password-modal">
     <div class="modal-card">
-      <h2>🔑 Установите пароль</h2>
+      <h2><img src="/static/icons/key.png" alt="" width="16" height="16" class="ui-icon"> Установите пароль</h2>
       <div class="modal-subtitle">Вы входите впервые. Придумайте пароль для входа в веб-панель.</div>
       <div class="modal-error" id="modal-error"></div>
       <label for="modal-password">Пароль (минимум 4 символа)</label>

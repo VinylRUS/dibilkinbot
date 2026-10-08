@@ -77,12 +77,12 @@
 
   <form method="post" action="/theme" class="theme-form">
     <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="theme-toggle">
-      {{ '☀️' if theme_from_request(request) == 'dark' else '🌙' }}
+      {{ '<img src="/static/icons/sun.png" alt="" width="16" height="16" class="ui-icon">️' if theme_from_request(request) == 'dark' else '<img src="/static/icons/moon.png" alt="" width="16" height="16" class="ui-icon">' }}
     </button>
   </form>
 
   <span class="right">
-    👤 {{ user.username }}
+    <img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> {{ user.username }}
     <a href="/logout">{{ nav_icon('logout') }} Выйти</a>
   </span>
 </nav>

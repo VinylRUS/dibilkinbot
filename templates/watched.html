@@ -211,7 +211,7 @@
     <h2><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Бэклог просмотренных фильмов</h2>
 
     {% if request.query_params.get('deleted') %}
-      <div class="saved">✓ Запись удалена.</div>
+      <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Запись удалена.</div>
     {% endif %}
 
     <!-- Форма добавления -->
@@ -223,14 +223,14 @@
 
     <!-- Поиск + сортировка -->
     <form class="search-form" method="get" action="/watched">
-      <input type="text" name="q" value="{{ search }}" placeholder="🔍 Поиск по бэклогу..." autocomplete="off">
+      <input type="text" name="q" value="{{ search }}" placeholder="<img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"> Поиск по бэклогу..." autocomplete="off">
       <select name="sort" onchange="this.form.submit()" style="max-width: 140px;">
         <option value="recent" {% if sort == 'recent' or not sort %}selected{% endif %}>↓ По дате</option>
         <option value="rating" {% if sort == 'rating' %}selected{% endif %}><img src="/static/icons/star.png" alt="" width="16" height="16" class="ui-icon"> По оценке</option>
       </select>
-      <button type="submit">🔍 Найти</button>
+      <button type="submit"><img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"> Найти</button>
       {% if search %}
-        <a href="/watched{% if sort and sort != 'recent' %}?sort={{ sort }}{% endif %}" class="page-btn clear-btn">✕ Сбросить</a>
+        <a href="/watched{% if sort and sort != 'recent' %}?sort={{ sort }}{% endif %}" class="page-btn clear-btn"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Сбросить</a>
       {% endif %}
     </form>
 
@@ -239,17 +239,17 @@
       {% if watched|length == 0 %}
         {% if search %}
           <div class="empty-state">
-            <div class="empty-state-icon">🔍</div>
+            <div class="empty-state-icon"><img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"></div>
             <p class="empty-state-title">Ничего не найдено</p>
             <p class="empty-state-text">По запросу «{{ search }}» нет фильмов в бэклоге.</p>
             <a href="/watched" class="btn-outline">Сбросить поиск</a>
           </div>
         {% else %}
           <div class="empty-state">
-            <div class="empty-state-icon">🍿</div>
+            <div class="empty-state-icon"><img src="/static/icons/popcorn.png" alt="" width="14" height="14" class="ui-icon"></div>
             <p class="empty-state-title">Бэклог пуст</p>
             <p class="empty-state-text">Добавьте первый фильм выше или крутаните колесо.</p>
-            <a href="/wheel" class="btn-primary">🎡 К колесу</a>
+            <a href="/wheel" class="btn-primary"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> К колесу</a>
           </div>
         {% endif %}
       {% else %}
@@ -287,7 +287,7 @@
                 <span class="rating-value">{% if user_rating %}{{ user_rating }}{% else %}—{% endif %}/5</span>
               </div>
               <!-- Редактировать название -->
-              <button type="button" class="btn-icon" onclick="editTitle({{ w_id }})" id="edit-btn-{{ w_id }}" aria-label="Редактировать название">✏️</button>
+              <button type="button" class="btn-icon" onclick="editTitle({{ w_id }})" id="edit-btn-{{ w_id }}" aria-label="Редактировать название"><img src="/static/icons/edit.png" alt="" width="16" height="16" class="ui-icon"></button>
               {% if is_admin %}
                 <form method="post" action="/watched/{{ w_id }}/delete" style="margin:0;"
                       onsubmit="return confirm('Удалить «{{ title }}» из бэклога?');">

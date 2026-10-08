@@ -253,12 +253,12 @@
   <main class="container">
     <a href="javascript:history.back()" class="back-link">← Назад</a>
     {% if is_self %}
-    <a href="/profile" class="btn-outline" style="margin-bottom: 12px; margin-left: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 6px 14px;">⚙️ Настройки</a>
+    <a href="/profile" class="btn-outline" style="margin-bottom: 12px; margin-left: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 6px 14px;"><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Настройки</a>
     {% endif %}
 
     {% if not_found %}
       <article class="card" style="text-align:center;padding:32px 20px;">
-        <div style="font-size:2rem;margin-bottom:8px;">👻</div>
+        <div style="font-size:2rem;margin-bottom:8px;"><img src="/static/icons/ghost.png" alt="" width="16" height="16" class="ui-icon"></div>
         <p style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:4px;">Пользователь не найден</p>
         <p style="color:var(--text-muted);font-size:0.85rem;">Возможно, он покинул сервер или никогда не входил в панель.</p>
       </article>

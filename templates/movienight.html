@@ -126,7 +126,7 @@
       color: var(--accent-text);
     }
     .pick-item.checked .pick-checkbox::after {
-      content: "✓";
+      content: "<img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon">";
       font-weight: 700;
       font-size: 0.85rem;
     }
@@ -368,11 +368,11 @@
 
   <main class="container">
     {% if request.query_params.get('error') == 'invalid_token' %}
-      <div class="flash error">❌ Ссылка недействительна или сбор удалён.</div>
+      <div class="flash error"><img src="/static/icons/error.png" alt="" width="16" height="16" class="ui-icon"> Ссылка недействительна или сбор удалён.</div>
     {% elif request.query_params.get('error') == 'not_active' %}
       <div class="flash error">ℹ️ Сбор уже завершён или отменён.</div>
     {% elif request.query_params.get('joined') %}
-      <div class="flash info">✓ Вы присоединились к сбору!</div>
+      <div class="flash info"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Вы присоединились к сбору!</div>
     {% endif %}
 
     {% if not collection %}
@@ -383,7 +383,7 @@
       </div>
 
       <div class="start-form">
-        <h3 style="margin: 0 0 14px; font-size: 1.05rem;">🚀 Начать сбор</h3>
+        <h3 style="margin: 0 0 14px; font-size: 1.05rem;"><img src="/static/icons/rocket.png" alt="" width="14" height="14" class="ui-icon"> Начать сбор</h3>
         <p class="hint" style="margin-bottom: 16px;">
           Любой участник может начать сбор. После старта в Discord-канале анонсов появится ссылка для всех.
           Каждый участник выбирает ровно <strong>N фильмов</strong> из своего списка желаемого и жмёт «Готов».
@@ -416,7 +416,7 @@
 
           {% if watchlist | length == 0 %}
             <div class="empty-state">
-              <div class="empty-state-icon">📭</div>
+              <div class="empty-state-icon"><img src="/static/icons/inbox.png" alt="" width="16" height="16" class="ui-icon"></div>
               <p>Ваш список желаемого пуст.</p>
               <p style="margin-top: 8px; font-size: 0.85rem;">
                 Добавьте фильмы через <a href="/profile">/profile</a> или команду <code>/addfilm</code> в Discord,
@@ -451,7 +451,7 @@
                     id="ready-btn"
                     onclick="toggleReady()">
               {% if user_picks_count == max_per_user %}
-                ✓ Готов! (нажмите чтобы отменить)
+                <img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Готов! (нажмите чтобы отменить)
               {% else %}
                 Выберите {{ max_per_user - user_picks_count }} ещё фильм(ов)
               {% endif %}
@@ -461,15 +461,15 @@
           {% if is_organizer %}
             {# === Organizer controls === #}
             <div class="organizer-controls">
-              <h4>🎛 Управление сбором</h4>
+              <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Управление сбором</h4>
               <button type="button" class="org-btn" id="start-spin-btn" onclick="startSpin(false)">
-                🎡 Начать крутку колеса
+                <img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Начать крутку колеса
               </button>
               <button type="button" class="org-btn secondary" onclick="startSpin(true)">
-                ⚡ Начать принудительно
+                <img src="/static/icons/lightning.png" alt="" width="16" height="16" class="ui-icon"> Начать принудительно
               </button>
               <button type="button" class="org-btn danger" onclick="cancelCollection()">
-                ✕ Отменить сбор
+                <img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Отменить сбор
               </button>
               <div id="org-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
             </div>
@@ -479,7 +479,7 @@
         {# === Sidebar: список участников === #}
         <aside>
           <div class="participants-panel">
-            <h3>👥 Участники <span style="color: var(--text-muted); font-size: 0.78rem; font-weight: 400;">({{ participants | length }})</span></h3>
+            <h3><img src="/static/icons/users.png" alt="" width="16" height="16" class="ui-icon"> Участники <span style="color: var(--text-muted); font-size: 0.78rem; font-weight: 400;">({{ participants | length }})</span></h3>
             <div id="participants-list">
               {% for p in participants %}
                 <div class="participant-row {{ 'kicked' if p.kicked_at else '' }} {{ 'ready' if p.is_ready else '' }}"
@@ -489,7 +489,7 @@
                     {% if p.avatar_url %}
                       <img src="{{ p.avatar_url }}" alt="">
                     {% else %}
-                      👤
+                      <img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon">
                     {% endif %}
                   </div>
                   <div class="participant-info">
@@ -498,15 +498,15 @@
                       {% if p.kicked_at %}
                         кикнут
                       {% elif p.is_ready %}
-                        ✓ готов
+                        <img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> готов
                       {% else %}
-                        ⏳ выбирает...
+                        <img src="/static/icons/clock.png" alt="" width="16" height="16" class="ui-icon"> выбирает...
                       {% endif %}
                     </div>
                   </div>
                   <div class="participant-status {{ 'ready' if p.is_ready else ('kicked' if p.kicked_at else 'waiting') }}"></div>
                   {% if is_organizer and not p.kicked_at and p.user_discord_id != collection.started_by %}
-                    <button type="button" class="participant-kick" onclick="kickParticipant({{ p.user_discord_id }})">✕</button>
+                    <button type="button" class="participant-kick" onclick="kickParticipant({{ p.user_discord_id }})"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"></button>
                   {% endif %}
                 </div>
               {% else %}

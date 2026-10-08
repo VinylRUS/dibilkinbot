@@ -199,15 +199,15 @@
     <h2><img src="/static/icons/chat.png" alt="" width="16" height="16" class="ui-icon"> Цитатник</h2>
 
     {% if request.query_params.get('deleted') %}
-      <div class="flash">✓ Цитата удалена.</div>
+      <div class="flash"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Цитата удалена.</div>
     {% elif request.query_params.get('error') == 'not_found' %}
-      <div class="flash error">❌ Цитата не найдена.</div>
+      <div class="flash error"><img src="/static/icons/error.png" alt="" width="16" height="16" class="ui-icon"> Цитата не найдена.</div>
     {% elif request.query_params.get('error') == 'forbidden' %}
-      <div class="flash error">❌ Нет прав. Удалить может только автор цитаты или админ.</div>
+      <div class="flash error"><img src="/static/icons/error.png" alt="" width="16" height="16" class="ui-icon"> Нет прав. Удалить может только автор цитаты или админ.</div>
     {% endif %}
 
     <form method="get" action="/quotes" class="search-form">
-      <input type="text" name="q" value="{{ search }}" placeholder="🔍 Поиск по автору или тексту...">
+      <input type="text" name="q" value="{{ search }}" placeholder="<img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"> Поиск по автору или тексту...">
       <button type="submit">Искать</button>
       {% if search %}
         <a href="/quotes" style="padding:8px 14px;align-self:center;color:var(--text-muted);text-decoration:none;">×</a>
@@ -217,7 +217,7 @@
     <div class="total-info">
       Всего цитат: <strong>{{ total }}</strong>
       {% if search %} · по запросу "{{ search }}"{% endif %}
-      <a href="/api/quotes/export" style="float: right; color: var(--accent); text-decoration: none; font-size: 0.82rem;">📥 Экспорт TXT</a>
+      <a href="/api/quotes/export" style="float: right; color: var(--accent); text-decoration: none; font-size: 0.82rem;"><img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Экспорт TXT</a>
     </div>
 
     <div class="quotes-grid">
@@ -278,7 +278,7 @@
 
       <!-- Форма создания -->
       <aside class="add-form">
-        <h3>➕ Новая цитата</h3>
+        <h3><img src="/static/icons/plus.png" alt="" width="14" height="14" class="ui-icon"> Новая цитата</h3>
         <form id="add-quote-form">
           <label for="author">Автор</label>
           <input type="text" id="author" name="author" required placeholder="@username или имя" autocomplete="off">
@@ -289,22 +289,22 @@
           <label for="message_link">Ссылка на сообщение (опционально)</label>
           <input type="text" id="message_link" name="message_link" placeholder="https://discord.com/channels/...">
 
-          <button type="submit">💾 Сохранить</button>
+          <button type="submit"><img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
         </form>
 
         <hr style="border: none; border-top: 1px dashed var(--border); margin: 18px 0;">
 
-        <h3 style="font-size: 0.9rem;">📥 Импорт из Discord</h3>
+        <h3 style="font-size: 0.9rem;"><img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Импорт из Discord</h3>
         <p class="hint" style="margin-bottom: 10px;">
           Импортировать существующие сообщения из канала #цитатник. Автор: "Неизвестен", записавший: автор сообщения. Сообщения бота пропускаются.
         </p>
         <button type="button" id="import-btn" class="btn-outline" style="width: 100%; padding: 8px;">
-          📥 Импортировать из #цитатник
+          <img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Импортировать из #цитатник
         </button>
         <div id="import-result" style="margin-top: 10px; font-size: 0.82rem; display: none;"></div>
 
         <p class="hint" style="margin-top: 12px;">
-          💡 Эта форма сохраняет цитату в БД. Чтобы она появилась в Discord-канале #цитатник, используй команду <code>/funword</code> в Discord.
+          <img src="/static/icons/idea.png" alt="" width="16" height="16" class="ui-icon"> Эта форма сохраняет цитату в БД. Чтобы она появилась в Discord-канале #цитатник, используй команду <code>/funword</code> в Discord.
         </p>
       </aside>
     </div>

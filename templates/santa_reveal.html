@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>🎁 Раскрытие Тайного Санты · {{ event.title }}</title>
+  <title><img src="/static/icons/gift.png" alt="" width="16" height="16" class="ui-icon"> Раскрытие Тайного Санты · {{ event.title }}</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
   <style>
@@ -227,7 +227,7 @@
   <div id="snowflakes"></div>
 
   <div class="reveal-container">
-    <div class="reveal-title">🎁 {{ event.title }}</div>
+    <div class="reveal-title"><img src="/static/icons/gift.png" alt="" width="16" height="16" class="ui-icon"> {{ event.title }}</div>
     <div class="reveal-subtitle">Раскрытие Тайного Санты</div>
 
     {# Прогресс-бар #}
@@ -248,7 +248,7 @@
                 {% if a.santa_avatar_url %}
                   <img src="{{ a.santa_avatar_url }}" alt="">
                 {% else %}
-                  <span class="placeholder">🎅</span>
+                  <span class="placeholder"><img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon"></span>
                 {% endif %}
               </div>
               <div class="person-role santa">Санта</div>
@@ -264,7 +264,7 @@
                 {% if a.recipient_avatar_url %}
                   <img src="{{ a.recipient_avatar_url }}" alt="">
                 {% else %}
-                  <span class="placeholder">🎁</span>
+                  <span class="placeholder"><img src="/static/icons/gift.png" alt="" width="16" height="16" class="ui-icon"></span>
                 {% endif %}
               </div>
               <div class="person-role recipient">Получатель</div>
@@ -274,15 +274,15 @@
 
           {# Информация о подарке #}
           {% if a.gift_sent_at %}
-            <div class="gift-info sent">✓ Подарок отправлен</div>
+            <div class="gift-info sent"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Подарок отправлен</div>
           {% else %}
-            <div class="gift-info">⏳ Подарок ещё не отправлен</div>
+            <div class="gift-info"><img src="/static/icons/clock.png" alt="" width="16" height="16" class="ui-icon"> Подарок ещё не отправлен</div>
           {% endif %}
 
           {# Пожелания получателя #}
           {% if a.recipient_preferences %}
             <div class="preferences">
-              <strong>💬 Пожелания получателя:</strong><br>
+              <strong><img src="/static/icons/chat.png" alt="" width="16" height="16" class="ui-icon"> Пожелания получателя:</strong><br>
               {{ a.recipient_preferences }}
             </div>
           {% endif %}
@@ -292,7 +292,7 @@
 
     {# Финал #}
     <div class="reveal-complete" id="reveal-complete">
-      <h2>🎉 С НОВЫМ ГОДОМ! 🎄</h2>
+      <h2><img src="/static/icons/party.png" alt="" width="16" height="16" class="ui-icon"> С НОВЫМ ГОДОМ! <img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon"></h2>
       <p style="font-size: 1.2rem; color: #B0B0B0;">
         Все пары раскрыты. Спасибо всем участникам!
       </p>
@@ -300,8 +300,8 @@
 
     {# Кнопки управления #}
     <div class="reveal-controls" id="controls">
-      <button class="reveal-btn" id="next-btn" onclick="nextPair()">🎁 Следующая пара →</button>
-      <button class="reveal-btn secondary" onclick="revealAll()">⚡ Показать все</button>
+      <button class="reveal-btn" id="next-btn" onclick="nextPair()"><img src="/static/icons/gift.png" alt="" width="16" height="16" class="ui-icon"> Следующая пара →</button>
+      <button class="reveal-btn secondary" onclick="revealAll()"><img src="/static/icons/lightning.png" alt="" width="16" height="16" class="ui-icon"> Показать все</button>
       <button class="reveal-btn secondary" onclick="resetReveal()">↻ Заново</button>
     </div>
   </div>
