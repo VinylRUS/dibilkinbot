@@ -31,66 +31,117 @@
     </div>
     {% endif %}
 
-    {# ===== «Сейчас» — статус киновечера ===== #}
+    {# ===== Быстрые действия (перенесены наверх) ===== #}
+    <div class="quick-links">
+      <a href="/wheel" class="quick-link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+        Колесо
+      </a>
+      <a href="/profile" class="quick-link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Вишлист
+      </a>
+      <a href="/quotes" class="quick-link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+        Цитаты
+      </a>
+    </div>
+
+    {# ===== «Сейчас» — двухколоночный: киновечер + играют ===== #}
     <h2>Сейчас</h2>
-    {% if active_collection %}
-      {# Идёт сбор #}
-      <div class="now-card">
-        <div class="now-status">
-          <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
-          <div class="now-text">
-            <div class="now-title">Идёт сбор фильмов</div>
-            <div class="now-subtitle">{{ ready_count }} из {{ total_count }} участников готовы{% if my_collection_status %} · Вы: {{ my_collection_status }}{% endif %}</div>
+    <div class="now-grid">
+      {# Левая колонка — киновечер #}
+      <div class="now-card now-card-cinema">
+        {% if active_collection %}
+          <div class="now-status">
+            <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
+            <div class="now-text">
+              <div class="now-title">Идёт сбор фильмов</div>
+              <div class="now-subtitle">{{ ready_count }} из {{ total_count }} готовы{% if my_collection_status %} · Вы: {{ my_collection_status }}{% endif %}</div>
+            </div>
           </div>
-        </div>
-        <div class="now-actions">
-          <a href="/movienight" class="btn-primary">К сбору →</a>
-        </div>
-      </div>
-    {% elif wheel_count > 0 and not recent_winner %}
-      {# Колесо готово к крутке #}
-      <div class="now-card">
-        <div class="now-status">
-          <div class="now-icon"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"></div>
-          <div class="now-text">
-            <div class="now-title">Колесо готово ({{ wheel_count }} фильмов)</div>
-            <div class="now-subtitle">Можно крутить!</div>
+          <div class="now-actions">
+            <a href="/movienight" class="btn-primary">К сбору →</a>
           </div>
-        </div>
-        <div class="now-actions">
-          <a href="/wheel" class="btn-primary">Крутить →</a>
-        </div>
-      </div>
-    {% elif recent_winner %}
-      {# Победитель определён #}
-      <div class="now-card">
-        <div class="now-status">
-          <div class="now-icon"><img src="/static/icons/trophy.png" alt="" width="16" height="16" class="ui-icon"></div>
-          <div class="now-text">
-            <div class="now-title">Последний победитель: {{ recent_winner.lot_name }}</div>
-            <div class="now-subtitle">{{ format_msk_short(recent_winner.detected_at) }}</div>
+        {% elif wheel_count > 0 and not recent_winner %}
+          <div class="now-status">
+            <div class="now-icon"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"></div>
+            <div class="now-text">
+              <div class="now-title">Колесо готово ({{ wheel_count }})</div>
+              <div class="now-subtitle">Можно крутить!</div>
+            </div>
           </div>
-        </div>
-        <div class="now-actions">
-          <a href="/winners" class="btn-primary">Оценить →</a>
-          <a href="/movienight" class="btn-outline">Новый сбор</a>
-        </div>
-      </div>
-    {% else %}
-      {# Ничего нет #}
-      <div class="now-card">
-        <div class="now-status">
-          <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
-          <div class="now-text">
-            <div class="now-title">Нет активного киновечера</div>
-            <div class="now-subtitle">Начните сбор фильмов чтобы крутить колесо</div>
+          <div class="now-actions">
+            <a href="/wheel" class="btn-primary">Крутить →</a>
           </div>
-        </div>
-        <div class="now-actions">
-          <a href="/movienight" class="btn-primary">Начать сбор →</a>
-        </div>
+        {% elif recent_winner %}
+          <div class="now-status">
+            <div class="now-icon"><img src="/static/icons/trophy.png" alt="" width="16" height="16" class="ui-icon"></div>
+            <div class="now-text">
+              <div class="now-title">Победитель: {{ recent_winner.lot_name }}</div>
+              <div class="now-subtitle">{{ format_msk_short(recent_winner.detected_at) }}</div>
+            </div>
+          </div>
+          <div class="now-actions">
+            <a href="/winners" class="btn-primary">Оценить →</a>
+            <a href="/movienight" class="btn-outline">Новый сбор</a>
+          </div>
+        {% else %}
+          <div class="now-status">
+            <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
+            <div class="now-text">
+              <div class="now-title">Нет активного киновечера</div>
+              <div class="now-subtitle">Начните сбор, чтобы крутить колесо</div>
+            </div>
+          </div>
+          <div class="now-actions">
+            <a href="/movienight" class="btn-primary">Начать сбор →</a>
+          </div>
+        {% endif %}
       </div>
-    {% endif %}
+
+      {# Правая колонка — сейчас играют #}
+      <div class="now-card now-card-games">
+        {% set playing_members = active_members | selectattr('current_game') | list %}
+        {% if playing_members %}
+          <div class="now-status">
+            <div class="now-icon"><img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"></div>
+            <div class="now-text">
+              <div class="now-title">Сейчас играют <span class="now-count">{{ playing_members|length }}</span></div>
+            </div>
+          </div>
+          <ul class="playing-list">
+            {% for m in playing_members[:6] %}
+            <li class="playing-item">
+              <a href="/u/{{ m.discord_id }}" class="playing-link" title="{{ m.display_name }}">
+                <div class="avatar-wrap xs">
+                  {% if m.avatar_url %}
+                    <img src="{{ m.avatar_url }}" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">
+                  {% else %}
+                    <div class="playing-avatar-placeholder">{{ m.display_name[:1]|upper if m.display_name else '?' }}</div>
+                  {% endif %}
+                  <span class="status-dot {{ m.status or 'offline' }}"></span>
+                </div>
+                <span class="playing-name">{{ m.display_name }}</span>
+                <span class="playing-game" title="{{ m.current_game }}">{{ m.current_game }}</span>
+              </a>
+            </li>
+            {% endfor %}
+            {% if playing_members|length > 6 %}
+            <li class="playing-more">и ещё {{ playing_members|length - 6 }}</li>
+            {% endif %}
+          </ul>
+        {% else %}
+          <div class="now-status">
+            <div class="now-icon"><img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"></div>
+            <div class="now-text">
+              <div class="now-title">Никто не играет</div>
+              <div class="now-subtitle">Зайдите позже</div>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
 
     {# ===== Чек-лист настроек ===== #}
     <h2>Ваш профиль</h2>
@@ -120,23 +171,6 @@
         {% endif %}
       </div>
     </article>
-
-    {# ===== Быстрые действия ===== #}
-    <h2>Быстрые действия</h2>
-    <div class="quick-links">
-      <a href="/wheel" class="quick-link">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
-        Колесо
-      </a>
-      <a href="/profile" class="quick-link">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        Вишлист
-      </a>
-      <a href="/quotes" class="quick-link">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-        Цитаты
-      </a>
-    </div>
 
     {# ===== Участники комьюнити (виден всем) ===== #}
     {% if active_members %}
