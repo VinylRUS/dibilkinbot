@@ -1446,6 +1446,36 @@ body.has-sidebar.sidebar-open {
 .sb-item-label { opacity: 0; transition: opacity 0.15s 0.1s; }
 .sidebar.open .sb-item-label { opacity: 1; }
 
+/* v2.3: Tooltip при свёрнутом сайдбаре — справа от иконки */
+.sidebar:not(.open) .sb-item::after {
+  content: attr(title);
+  position: absolute;
+  left: 100%;
+  margin-left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s var(--smooth);
+  z-index: 1000;
+}
+.sidebar:not(.open) .sb-item:hover::after {
+  opacity: 1;
+}
+/* Убираем нативный title tooltip когда показываем кастомный */
+.sidebar:not(.open) .sb-item { position: relative; }
+
 .sb-divider { height: 1px; background: var(--border); margin: 8px 12px; }
 .sb-section-label {
   font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
