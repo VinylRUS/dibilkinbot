@@ -1817,6 +1817,8 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         import guild as guild_module
         # init_guild_tables уже вызывается при on_ready бота
         watchlist = await db.g_list_watchlist(guild_id, discord_id, include_watched=True)
+    # v2.3.2: показывать ли Steam-вишлист в публичном профиле
+    show_wishlist = await db.get_user_show_wishlist(discord_id) if discord_id else False
     return templates.TemplateResponse(request, "profile.html", {
         "user": _user,
         "tg_link": tg_link,
@@ -1824,6 +1826,7 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         "is_tg_linked": is_tg_linked,
         "tg_notify_settings": db.TG_NOTIFY_SETTINGS,
         "steam_profile": steam_profile,
+        "show_wishlist": show_wishlist,
         "is_santa_enabled": await is_santa_enabled(),
         "watchlist": watchlist,
     })
@@ -1941,6 +1944,25 @@ async def public_profile_page(
         except Exception:
             pass
 
+    # v2.3.2: Steam-вишлист (если юзер разрешил показ)
+    steam_wishlist = None
+    try:
+        if steam_profile_check and steam_profile_check.get("steam_id64"):
+            show_wl = await db.get_user_show_wishlist(target_discord_id)
+            if show_wl:
+                import steam as steam_module
+                api_key = await steam_module.get_steam_api_key()
+                if api_key:
+                    wl = await steam_module.get_top_wishlist_games(
+                        steam_profile_check["steam_id64"], limit=10
+                    )
+                    steam_wishlist = wl if wl else []
+    except Exception as e:
+        import logging
+        logging.getLogger("wishlist").warning(
+            "Wishlist fetch failed for %s: %s", target_discord_id, e
+        )
+
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
         "target": {
@@ -1974,6 +1996,7 @@ async def public_profile_page(
         "has_steam_linked": bool(steam_profile_check and steam_profile_check.get("steam_id64")),
         "merged_games": merged_games,
         "pinned_achievements": pinned_achievements,
+        "steam_wishlist": steam_wishlist,
     })
 
 
@@ -2089,6 +2112,28 @@ async def api_set_tg_settings(
         return JSONResponse({"error": str(e)}, status_code=400)
 
     return JSONResponse({"ok": updated, "setting_key": setting_key, "value": value})
+
+
+# v2.3.2: показать/скрыть Steam-вишлист в публичном профиле
+@app.post("/api/profile/show_wishlist")
+async def api_set_show_wishlist(
+    _user: dict = Depends(require_user),
+    value: bool = Form(False),
+):
+    """Переключатель show_wishlist: показывать ли Steam-вишлист в публичном профиле.
+
+    Работает только если у юзера задан Steam-профиль.
+    """
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+    if not await db.is_steam_profile_set(user_discord_id):
+        return JSONResponse({
+            "error": "Сначала укажите Steam-профиль.",
+            "error_code": "no_steam",
+        }, status_code=400)
+    updated = await db.set_user_show_wishlist(user_discord_id, value)
+    return JSONResponse({"ok": updated, "value": value})
 
 
 @app.post("/api/profile/steam")

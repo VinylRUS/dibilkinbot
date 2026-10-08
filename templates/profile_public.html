@@ -502,6 +502,34 @@
     </article>
     {% endif %}
 
+    {# === v2.3.2: Steam-вишлист (опционально) === #}
+    {% if steam_wishlist %}
+    <h3 class="section-title"><img src="/static/icons/heart.png" alt="" width="16" height="16" class="ui-icon"> Steam-вишлист</h3>
+    <article class="card">
+      <ul class="recent-games-list">
+        {% for g in steam_wishlist %}
+        <li>
+          {% if g.capsule %}
+            <img src="{{ g.capsule }}" alt="" style="width:32px;height:16px;border-radius:3px;flex-shrink:0;object-fit:cover;" onerror="this.style.display='none';">
+          {% else %}
+            <span style="width:32px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><img src="/static/icons/target.png" alt="" width="16" height="16" class="ui-icon"></span>
+          {% endif %}
+          <span class="game-name" title="{{ g.name }}">{{ g.name }}</span>
+          {% if g.review_percent and g.review_total %}
+          <span class="game-duration" title="{{ g.review_total }} отзывов">{{ g.review_percent }}%</span>
+          {% endif %}
+          {% if g.release_date %}
+          <span class="game-date mono">{{ g.release_date[:4] }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p style="margin: 10px 0 0; font-size: 0.75rem; color: var(--text-muted);">
+        Показано топ-{{ steam_wishlist|length }} по приоритету в Steam.
+      </p>
+    </article>
+    {% endif %}
+
     {# Recent ratings #}
     {% if recent_ratings %}
     <h3 class="section-title"><img src="/static/icons/star.png" alt="" width="16" height="16" class="ui-icon"> Последние оценки</h3>

@@ -192,6 +192,8 @@ async def init_db() -> None:
                 "role": "TEXT DEFAULT 'user'",
                 # v2.0.3: timestamp последнего просмотра своих ачивок — для unread-бейджа
                 "last_viewed_achievements_at": "TEXT",
+                # v2.3.2: показывать ли Steam-вишлист в публичном профиле (0/1)
+                "show_wishlist": "INTEGER DEFAULT 0",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in existing_cols:
@@ -1013,6 +1015,30 @@ async def is_steam_profile_set(discord_id: int) -> bool:
     """Проверить, указан ли Steam-профиль у юзера."""
     profile = await get_user_steam_profile(discord_id)
     return profile is not None and bool(profile.get("steam_id64"))
+
+
+# === v2.3.2: show_wishlist setting (для публичного профиля) ===
+
+async def get_user_show_wishlist(discord_id: int) -> bool:
+    """Возвращает True если юзер разрешил показывать Steam-вишлист в публичном профиле."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT show_wishlist FROM users WHERE discord_id = ?",
+            (discord_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+
+async def set_user_show_wishlist(discord_id: int, value: bool) -> bool:
+    """Установить флаг show_wishlist. Возвращает True при успехе."""
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE users SET show_wishlist = ? WHERE discord_id = ?",
+            (1 if value else 0, discord_id)
+        )
+        await db.commit()
+        return cur.rowcount > 0
 
 
 # === Password (v1.8.2 → v1.8.5 reinforced) ===
