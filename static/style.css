@@ -1866,3 +1866,16 @@ article.card .stat-box-label,
 .quick-link {
   line-height: 1.6;
 }
+
+/* UI icons — замена эмодзи на PNG иконки из static/icons/ */
+.ui-icon {
+  vertical-align: middle;
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+  width: 16px;
+  height: 16px;
+}
+.ui-icon:hover { opacity: 1; }
+h2 .ui-icon, h3 .ui-icon, .section-title .ui-icon { width: 18px; height: 18px; }

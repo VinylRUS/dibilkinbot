@@ -284,7 +284,7 @@
       {% if not my_participant %}
         {# Юзер ещё не присоединился === #}
         <div class="santa-card">
-          <h3>🎮 Присоединиться</h3>
+          <h3><img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Присоединиться</h3>
           <p class="santa-hint">
             Steam-профиль берётся из вашего <a href="/profile" style="color: var(--accent);">профиля</a>.
             Убедитесь что он указан и публичный.
@@ -343,7 +343,7 @@
             </p>
             <button type="button" class="santa-btn" onclick="assignSantas()"
                     {% if ready_count < min_participants %}disabled{% endif %}>
-              🎲 Распределить сант
+              <img src="/static/icons/target.png" alt="" width="16" height="16" class="ui-icon"> Распределить сант
             </button>
             {% if ready_count < min_participants %}
               <p class="santa-hint" style="margin-top: 8px;">Нужно ещё {{ min_participants - ready_count }} участника(ов).</p>
@@ -405,12 +405,12 @@
           {% endif %}
           {% if my_assignment.recipient_steam_profile_url %}
             <a href="{{ my_assignment.recipient_steam_profile_url }}/wishlist" target="_blank" class="recipient-steam">
-              🎮 Вишлист на Steam ↗
+              <img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Вишлист на Steam ↗
             </a>
           {% endif %}
           {% if my_assignment.recipient_preferences %}
             <div class="recipient-prefs">
-              <strong>💬 Пожелания получателя:</strong><br>
+              <strong><img src="/static/icons/chat.png" alt="" width="16" height="16" class="ui-icon"> Пожелания получателя:</strong><br>
               {{ my_assignment.recipient_preferences }}
             </div>
           {% endif %}
@@ -447,7 +447,7 @@
         <div class="santa-icon">🎉</div>
         <p><strong>{{ event.title }}</strong> — раскрыто!</p>
         <a href="/santa/{{ event.id }}/reveal" class="santa-btn" style="text-decoration: none; display: inline-block; margin-top: 16px;">
-          🎬 Открыть страницу раскрытия
+          <img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Открыть страницу раскрытия
         </a>
       </div>
 

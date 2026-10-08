@@ -378,7 +378,7 @@
     {% if not collection %}
       {# === Нет активного сбора === #}
       <div class="mn-hero">
-        <h2>🎬 Киновечер</h2>
+        <h2><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Киновечер</h2>
         <p>Сбор пока закрыт. Чтобы начать киновечер, запустите сбор фильмов.</p>
       </div>
 
@@ -390,7 +390,7 @@
         </p>
         <label for="max_per_user">Лимит фильмов на участника (1-10)</label>
         <input type="number" id="max_per_user" name="max_per_user" value="5" min="1" max="10">
-        <button type="button" onclick="startCollection()">🎬 Начать сбор</button>
+        <button type="button" onclick="startCollection()"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Начать сбор</button>
         <div id="start-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
       </div>
 
@@ -399,7 +399,7 @@
       <div class="mn-grid">
         <div>
           <div class="mn-hero">
-            <h2>🎬 Сбор фильмов активен</h2>
+            <h2><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Сбор фильмов активен</h2>
             <p>Лимит: <strong>{{ max_per_user }}</strong> фильм(ов) на участника</p>
             <div class="mn-status-row">
               <div class="mn-stat">
@@ -520,11 +520,11 @@
       {# Ссылка на сбор для шерингa #}
       {% if is_organizer %}
         <div style="margin-top: 24px; padding: 14px 18px; background: var(--card-alt); border-radius: 8px; font-size: 0.82rem;">
-          <strong>📋 Ссылка для участников:</strong>
+          <strong><img src="/static/icons/checkmark.png" alt="" width="16" height="16" class="ui-icon"> Ссылка для участников:</strong>
           <code id="collect-link" style="display: block; margin-top: 8px; padding: 8px 12px; background: var(--bg); border-radius: 4px; word-break: break-all;">
             (нужен panel_base_url в /channels)
           </code>
-          <button type="button" onclick="copyLink()" style="margin-top: 8px; padding: 6px 14px; background: var(--accent); color: var(--accent-text); border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem;">📋 Копировать</button>
+          <button type="button" onclick="copyLink()" style="margin-top: 8px; padding: 6px 14px; background: var(--accent); color: var(--accent-text); border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem;"><img src="/static/icons/checkmark.png" alt="" width="16" height="16" class="ui-icon"> Копировать</button>
         </div>
       {% endif %}
     {% endif %}
