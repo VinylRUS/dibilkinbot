@@ -347,10 +347,12 @@ GUILD_SCHEMA_TEMPLATES = {
             playtime_2weeks_min INTEGER DEFAULT 0,
             icon_url TEXT,
             last_fetched_at TEXT NOT NULL,
+            rtime_last_played INTEGER DEFAULT 0,
             UNIQUE(user_discord_id, appid)
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_recent ON {table}(user_discord_id, playtime_2weeks_min DESC);
+        CREATE INDEX IF NOT EXISTS idx_{table}_last_played ON {table}(user_discord_id, rtime_last_played DESC);
     """,
     # === v2.3: Pinned achievements (user selects 3 to show under nickname) ===
     "user_pinned_achievements": """

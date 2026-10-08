@@ -371,6 +371,17 @@ async def init_db() -> None:
                         log.info("v1.9.7 migration: added review column to %s", table_r_migr)
                 except Exception as e:
                     log.warning("v1.9.7 migration: %s: %s", table_r_migr, e)
+                # v2.3.2: добавить rtime_last_played в user_steam_games (для сортировки
+                # игр по последним запущенным + пометки новых)
+                table_sg_migr = guild_module.guild_table(gid, "user_steam_games")
+                try:
+                    async with db.execute(f"PRAGMA table_info({table_sg_migr})") as cur:
+                        sg_cols = {row[1] for row in await cur.fetchall()}
+                    if "rtime_last_played" not in sg_cols:
+                        await db.execute(f"ALTER TABLE {table_sg_migr} ADD COLUMN rtime_last_played INTEGER DEFAULT 0")
+                        log.info("v2.3.2 migration: added rtime_last_played column to %s", table_sg_migr)
+                except Exception as e:
+                    log.warning("v2.3.2 migration: %s: %s", table_sg_migr, e)
             await db.commit()
 
         log.info("DB initialized at %s (size=%d bytes)",
@@ -2911,7 +2922,7 @@ async def g_get_steam_games_cached(guild_id: int, user_discord_id: int, limit: i
     """Получить закешированные Steam-игры юзера.
 
     Возвращает (games, fresh):
-    - games: список [{appid, name, playtime_forever_min, playtime_2weeks_min, icon_url}], отсортированный по playtime_2weeks DESC
+    - games: список [{appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, rtime_last_played}], отсортированный по playtime_2weeks DESC
     - fresh: True если кеш свежий (TTL < 1 часа), False если устарел или пуст
 
     Вызывающий код (web.py) решает — сделать refresh или показать устаревший.
@@ -2921,7 +2932,7 @@ async def g_get_steam_games_cached(guild_id: int, user_discord_id: int, limit: i
     fresh = False
     async with _connect() as db:
         async with db.execute(
-            f"SELECT appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, last_fetched_at "
+            f"SELECT appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, last_fetched_at, rtime_last_played "
             f"FROM {table} WHERE user_discord_id = ? "
             f"ORDER BY playtime_2weeks_min DESC, playtime_forever_min DESC LIMIT ?",
             (user_discord_id, limit)
@@ -2948,6 +2959,8 @@ async def g_get_steam_games_cached(guild_id: int, user_discord_id: int, limit: i
                     # Старый код генерировал .ico URL — получали 404. Подменяем расширение для старого кеша.
                     "icon_url": (r[4].replace(".ico", ".jpg")
                                  if r[4] and r[4].endswith(".ico") else r[4]),
+                    # v2.3.2: время последней игры (Unix timestamp, из Steam API rtime_last_played)
+                    "rtime_last_played": r[6] if r[6] else 0,
                 }
                 for r in rows
             ]
@@ -2985,12 +2998,13 @@ async def g_save_steam_games_cache(guild_id: int, user_discord_id: int, games: l
         # Вставляем новый
         for g in games:
             await db.execute(
-                f"INSERT INTO {table} (user_discord_id, appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, last_fetched_at) "
-                f"VALUES (?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO {table} (user_discord_id, appid, name, playtime_forever_min, playtime_2weeks_min, icon_url, last_fetched_at, rtime_last_played) "
+                f"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (user_discord_id, int(g["appid"]), g.get("name", "Unknown"),
                  int(g.get("playtime_forever_min", 0)),
                  int(g.get("playtime_2weeks_min", 0)),
-                 g.get("icon_url"), now)
+                 g.get("icon_url"), now,
+                 int(g.get("rtime_last_played", 0) or 0))
             )
         await db.commit()
 
@@ -3091,26 +3105,41 @@ async def g_get_user_games_merged(guild_id: int, user_discord_id: int, limit: in
     2. Получаем Discord игры (из member_activities, агрегированные по имени)
     3. Merge: если игра есть в Steam — берём Steam playtime (точнее).
        Если игры нет в Steam — берём Discord playtime (non-Steam игры: Honkai Star Rail, GOG, etc.)
-    4. Сортировка: по playtime_forever DESC
+    4. Сортировка: по last_played_at DESC (сначала недавно запущенные).
+       Для Steam-игр last_played_at = rtime_last_played.
+       Для Discord-only — MAX(ended_at) из member_activities.
+       Если нет neither — fallback на playtime_forever DESC.
 
-    Возвращает [{game_name, playtime_forever_sec, playtime_2weeks_sec, source, icon_url}, ...]
+    v2.3.2: добавлено поле is_new — игра появилась в библиотеке за последние 14 дней
+    (rtime_last_played > now - 14 дней, или MAX(ended_at) за последние 14 дней).
+
+    Возвращает [{game_name, playtime_forever_sec, playtime_2weeks_sec, source, icon_url, last_played_at, is_new}, ...]
     source: 'steam' | 'discord'
+    last_played_at: Unix timestamp (seconds) or 0
+    is_new: bool
     """
+    import time as _time
+    now_ts = int(_time.time())
+    NEW_GAME_THRESHOLD = 14 * 24 * 3600  # 14 дней
+
     # 1. Steam игры
     steam_games = await g_get_user_steam_games(guild_id, user_discord_id, limit=50)
     steam_map = {}  # norm_name → game dict
     for g in steam_games:
         norm = _normalize_game_name(g.get("name", "")).lower()
         if norm:
+            rtime = int(g.get("rtime_last_played", 0) or 0)
             steam_map[norm] = {
                 "game_name": g.get("name", "Unknown"),
                 "playtime_forever_sec": int(g.get("playtime_forever_min", 0)) * 60,
                 "playtime_2weeks_sec": int(g.get("playtime_2weeks_min", 0)) * 60,
                 "source": "steam",
                 "icon_url": g.get("icon_url"),
+                "last_played_at": rtime,
+                "is_new": bool(rtime and now_ts - rtime < NEW_GAME_THRESHOLD),
             }
 
-    # 2. Discord игры (агрегированные)
+    # 2. Discord игры (агрегированные) — берём MAX(ended_at) для сортировки
     table = _guild.guild_table(guild_id, "member_activities")
     discord_games = []
     try:
@@ -3118,20 +3147,32 @@ async def g_get_user_games_merged(guild_id: int, user_discord_id: int, limit: in
             async with db.execute(
                 f"SELECT MAX(activity_name) AS display, "
                 f"COALESCE(SUM(duration_seconds), 0) AS total_sec, "
-                f"{_NORM_GAME_SQL} AS norm "
+                f"{_NORM_GAME_SQL} AS norm, "
+                f"MAX(ended_at) AS last_ended "
                 f"FROM {table} WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL "
-                f"GROUP BY norm ORDER BY total_sec DESC",
+                f"GROUP BY norm ORDER BY last_ended DESC",
                 (user_discord_id,)
             ) as cur:
                 rows = await cur.fetchall()
+            # Преобразуем ISO ended_at в Unix timestamp
+            from datetime import datetime as _dt
+            def _iso_to_ts(s):
+                if not s:
+                    return 0
+                try:
+                    return int(_dt.fromisoformat(s).timestamp())
+                except Exception:
+                    return 0
             discord_games = [
                 {
                     "game_name": r[0],
                     "playtime_forever_sec": r[1],
-                    "playtime_2weeks_sec": 0,  # Discord не отслеживает 2 недели
+                    "playtime_2weeks_sec": 0,
                     "source": "discord",
                     "icon_url": None,
                     "_norm": r[2],
+                    "last_played_at": _iso_to_ts(r[3]),
+                    "is_new": bool(r[3] and now_ts - _iso_to_ts(r[3]) < NEW_GAME_THRESHOLD),
                 }
                 for r in rows
             ]
@@ -3153,10 +3194,25 @@ async def g_get_user_games_merged(guild_id: int, user_discord_id: int, limit: in
                 "playtime_2weeks_sec": 0,
                 "source": "discord",
                 "icon_url": None,
+                "last_played_at": dg["last_played_at"],
+                "is_new": dg["is_new"],
             }
+        else:
+            # Игра есть и в Steam, и в Discord — обновим last_played_at если Discord играл позже
+            existing = merged[norm]
+            if dg["last_played_at"] > existing.get("last_played_at", 0):
+                existing["last_played_at"] = dg["last_played_at"]
+                # Если игра была recently в Discord — считаем новой
+                if dg["is_new"]:
+                    existing["is_new"] = True
 
-    # 4. Сортировка по playtime_forever DESC
-    result = sorted(merged.values(), key=lambda x: x.get("playtime_forever_sec", 0), reverse=True)
+    # 4. Сортировка: сначала по last_played_at DESC (recently played — наверх),
+    #    затем по playtime_forever DESC (fallback для never-played)
+    result = sorted(
+        merged.values(),
+        key=lambda x: (x.get("last_played_at", 0), x.get("playtime_forever_sec", 0)),
+        reverse=True
+    )
     return result[:limit]
 
 
