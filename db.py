@@ -2222,9 +2222,20 @@ ACHIEVEMENT_TRIGGERS = {
     "voice_time_solo",        # N секунд в войс-чатах (одиночных)
     "voice_time_with_others", # N секунд в войс-чатах (с другими людьми)
     "game_play_time",         # N секунд играя в любые игры (Discord presence)
-    # v2.3: Steam trigger
+    # v2.3: Steam triggers
     "steam_play_time",        # N минут общего времени в Steam (из GetOwnedGames playtime_forever)
+    # v2.3.2: новые Steam триггеры
+    "steam_games_count",      # N игр в библиотеке Steam
+    "steam_play_time_specific",  # N секунд в конкретной игре (icon_config.game_name)
+    "voice_co_sessions",      # N совместных сессий (был в одном войс-канале с N разными юзерами)
 }
+
+# v2.3.2: Триггеры, чьи пороги в часах (для UI — показать "часов" вместо "раз").
+# Порог в часах конвертируется в секунды/минуты при проверке.
+TRIGGER_TIME_HOURS = {"steam_play_time"}  # threshold в часах, конвертируется в минуты (×60)
+
+# Триггеры, требующие game_name в icon_config (specific game)
+TRIGGER_NEEDS_GAME_NAME = {"game_play_time", "steam_play_time_specific"}
 
 
 async def g_create_achievement(
@@ -2628,8 +2639,9 @@ async def g_get_user_trigger_count(guild_id: int, user_discord_id: int, trigger_
         elif trigger_type == "game_play_time":
             return await g_get_game_play_time(guild_id, user_discord_id)
         elif trigger_type == "steam_play_time":
-            # v2.3: Общее время в Steam (минуты). Берём из кеша user_steam_games.
-            # Порог ачивки тоже в минутах (например 60000 = 1000 часов).
+            # v2.3.2 FIX: было расхождение — фронт множил threshold на 3600, а БД хранит минуты.
+            # Теперь как и для других time-триггеров — возвращаем СЕКУНДЫ (минуты * 60).
+            # Порог тоже хранится в секундах (фронт × 3600 как для voice_time, game_play_time).
             steam_table = _guild.guild_table(guild_id, "user_steam_games")
             try:
                 async with _connect() as db:
@@ -2637,7 +2649,34 @@ async def g_get_user_trigger_count(guild_id: int, user_discord_id: int, trigger_
                         f"SELECT COALESCE(SUM(playtime_forever_min), 0) FROM {steam_table} WHERE user_discord_id = ?",
                         (user_discord_id,)
                     ) as cur:
+                        minutes = (await cur.fetchone())[0] or 0
+                    # Возвращаем секунды (минуты × 60) — консистентно с voice_time/game_play_time
+                    return int(minutes) * 60
+            except Exception:
+                return 0
+        elif trigger_type == "steam_games_count":
+            # v2.3.2: количество игр в библиотеке Steam юзера
+            steam_table = _guild.guild_table(guild_id, "user_steam_games")
+            try:
+                async with _connect() as db:
+                    async with db.execute(
+                        f"SELECT COUNT(*) FROM {steam_table} WHERE user_discord_id = ?",
+                        (user_discord_id,)
+                    ) as cur:
                         return (await cur.fetchone())[0] or 0
+            except Exception:
+                return 0
+        elif trigger_type == "steam_play_time_specific":
+            # v2.3.2: время в конкретной игре (icon_config.game_name). Берём max из Steam кеша и Discord.
+            # Часы (как steam_play_time).
+            # game_name достаётся в g_check_and_grant_auto, тут игнорируем — нужна обработка отдельно.
+            # Здесь возвращаем 0; реальная проверка делается в g_check_and_grant_auto.
+            return 0
+        elif trigger_type == "voice_co_sessions":
+            # v2.3.2: количество уникальных юзеров, с которыми юзер был в одном войс-канале
+            try:
+                co = await g_get_voice_co_occurrence(guild_id, user_discord_id, limit=999)
+                return len(co) if co else 0
             except Exception:
                 return 0
         else:
@@ -2689,6 +2728,16 @@ async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_ty
                 count = await g_get_game_play_time_specific(guild_id, user_discord_id, specific_game)
             else:
                 count = await g_get_game_play_time(guild_id, user_discord_id)
+        # v2.3.2: steam_play_time_specific — конкретная игра в Steam (секунды)
+        elif trigger_type == "steam_play_time_specific":
+            cfg = json.loads(icon_cfg) if icon_cfg else {}
+            specific_game = cfg.get("game_name", "")
+            if specific_game:
+                # g_get_game_play_time_specific уже мержит Steam+Discord, возвращает секунды
+                count = await g_get_game_play_time_specific(guild_id, user_discord_id, specific_game)
+            else:
+                count = 0
+        # v2.3.2: steam_play_time теперь возвращает СЕКУНДЫ (фикс бага) — обрабатывается как обычный time-триггер
         # Для first_* триггеров threshold игнорируем, считаем что порог=1
         if trigger_type in ("first_rating", "first_quote"):
             should_grant = count >= 1

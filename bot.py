@@ -2094,6 +2094,10 @@ async def _check_all_auto_achievements():
         "voice_time_with_others",
         "game_play_time",
         "steam_play_time",
+        # v2.3.2: новые Steam + voice триггеры
+        "steam_games_count",
+        "steam_play_time_specific",
+        "voice_co_sessions",
         # Эти тоже проверяем — на случай если оценка была поставлена через Discord
         # (а не через веб-панель, где проверка уже есть)
         "ratings_count",
