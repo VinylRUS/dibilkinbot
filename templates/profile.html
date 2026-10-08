@@ -124,7 +124,7 @@
       {% endif %}
     </article>
 
-    <h2><img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Steam-профиль</h2>
+    <h2><img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"> Steam-профиль</h2>
     <article class="card">
       {% if steam_profile %}
         {# Профиль указан === #}
@@ -163,13 +163,13 @@
         <div id="steam-validation" style="font-size: 0.82rem; margin: 6px 0 14px;"></div>
         <button type="button" onclick="saveSteamProfile()"
                 style="background: var(--accent); color: var(--accent-text); border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: 600; margin: 0; font-size: 0.9rem;">
-          <img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Проверить и сохранить
+          <img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"> Проверить и сохранить
         </button>
         <div id="steam-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
       {% endif %}
     </article>
 
-    <h2><img src="/static/icons/checkmark.png" alt="" width="16" height="16" class="ui-icon"> Список желаемого</h2>
+    <h2><img src="/static/icons/copy.png" alt="" width="16" height="16" class="ui-icon"> Список желаемого</h2>
     <article class="card">
       <!-- Форма добавления -->
       <form id="watchlist-add-form" class="watchlist-add-form">
@@ -207,7 +207,7 @@
       <div id="pin-achievements-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <span style="color:var(--text-muted);font-size:0.82rem;">Загрузка...</span>
       </div>
-      <button type="button" class="btn-primary" onclick="savePinnedAchievements()" style="margin-top:0;font-size:0.82rem;padding:8px 16px;"><img src="/static/icons/download.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
+      <button type="button" class="btn-primary" onclick="savePinnedAchievements()" style="margin-top:0;font-size:0.82rem;padding:8px 16px;"><img src="/static/icons/check.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
     </article>
   </main>
 

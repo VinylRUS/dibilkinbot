@@ -231,7 +231,7 @@
       </div>
 
       <div class="santa-card">
-        <h3><img src="/static/icons/rocket.png" alt="" width="14" height="14" class="ui-icon"> Создать событие</h3>
+        <h3><img src="/static/icons/refresh.png" alt="" width="14" height="14" class="ui-icon"> Создать событие</h3>
         <p class="santa-hint">
           Любой участник может запустить Тайного Санту. После старта все смогут присоединиться,
           указать свой Steam-профиль и пожелания. Когда все будут готовы — бот распределит сант.
@@ -248,7 +248,7 @@
 
       {% if all_events %}
         <div class="santa-card">
-          <h3><img src="/static/icons/checkmark.png" alt="" width="14" height="14" class="ui-icon"> История событий</h3>
+          <h3><img src="/static/icons/copy.png" alt="" width="14" height="14" class="ui-icon"> История событий</h3>
           {% for ev in all_events %}
             <div class="activity-row">
               <span>
@@ -284,7 +284,7 @@
       {% if not my_participant %}
         {# Юзер ещё не присоединился === #}
         <div class="santa-card">
-          <h3><img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Присоединиться</h3>
+          <h3><img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"> Присоединиться</h3>
           <p class="santa-hint">
             Steam-профиль берётся из вашего <a href="/profile" style="color: var(--accent);">профиля</a>.
             Убедитесь что он указан и публичный.
@@ -405,7 +405,7 @@
           {% endif %}
           {% if my_assignment.recipient_steam_profile_url %}
             <a href="{{ my_assignment.recipient_steam_profile_url }}/wishlist" target="_blank" class="recipient-steam">
-              <img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Вишлист на Steam ↗
+              <img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"> Вишлист на Steam ↗
             </a>
           {% endif %}
           {% if my_assignment.recipient_preferences %}
@@ -420,7 +420,7 @@
             <div style="margin-top: 20px;">
               <label class="santa-label">Послание получателю (опционально)</label>
               <textarea id="gift-note" class="santa-textarea" placeholder="С Новым годом! <img src="/static/icons/santa.png" alt="" width="16" height="16" class="ui-icon">..." style="min-height: 60px;"></textarea>
-              <button type="button" class="santa-btn" onclick="markGiftSent()"><img src="/static/icons/download.png" alt="" width="14" height="14" class="ui-icon"> Подарок отправлен!</button>
+              <button type="button" class="santa-btn" onclick="markGiftSent()"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Подарок отправлен!</button>
               <div id="gift-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
             </div>
           {% endif %}

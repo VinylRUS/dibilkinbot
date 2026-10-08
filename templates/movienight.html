@@ -383,7 +383,7 @@
       </div>
 
       <div class="start-form">
-        <h3 style="margin: 0 0 14px; font-size: 1.05rem;"><img src="/static/icons/rocket.png" alt="" width="14" height="14" class="ui-icon"> Начать сбор</h3>
+        <h3 style="margin: 0 0 14px; font-size: 1.05rem;"><img src="/static/icons/refresh.png" alt="" width="14" height="14" class="ui-icon"> Начать сбор</h3>
         <p class="hint" style="margin-bottom: 16px;">
           Любой участник может начать сбор. После старта в Discord-канале анонсов появится ссылка для всех.
           Каждый участник выбирает ровно <strong>N фильмов</strong> из своего списка желаемого и жмёт «Готов».
@@ -466,7 +466,7 @@
                 <img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Начать крутку колеса
               </button>
               <button type="button" class="org-btn secondary" onclick="startSpin(true)">
-                <img src="/static/icons/lightning.png" alt="" width="16" height="16" class="ui-icon"> Начать принудительно
+                <img src="/static/icons/plus.png" alt="" width="16" height="16" class="ui-icon"> Начать принудительно
               </button>
               <button type="button" class="org-btn danger" onclick="cancelCollection()">
                 <img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Отменить сбор
@@ -520,11 +520,11 @@
       {# Ссылка на сбор для шерингa #}
       {% if is_organizer %}
         <div style="margin-top: 24px; padding: 14px 18px; background: var(--card-alt); border-radius: 8px; font-size: 0.82rem;">
-          <strong><img src="/static/icons/checkmark.png" alt="" width="16" height="16" class="ui-icon"> Ссылка для участников:</strong>
+          <strong><img src="/static/icons/copy.png" alt="" width="16" height="16" class="ui-icon"> Ссылка для участников:</strong>
           <code id="collect-link" style="display: block; margin-top: 8px; padding: 8px 12px; background: var(--bg); border-radius: 4px; word-break: break-all;">
             (нужен panel_base_url в /channels)
           </code>
-          <button type="button" onclick="copyLink()" style="margin-top: 8px; padding: 6px 14px; background: var(--accent); color: var(--accent-text); border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem;"><img src="/static/icons/checkmark.png" alt="" width="16" height="16" class="ui-icon"> Копировать</button>
+          <button type="button" onclick="copyLink()" style="margin-top: 8px; padding: 6px 14px; background: var(--accent); color: var(--accent-text); border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem;"><img src="/static/icons/copy.png" alt="" width="16" height="16" class="ui-icon"> Копировать</button>
         </div>
       {% endif %}
     {% endif %}
