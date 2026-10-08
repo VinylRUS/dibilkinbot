@@ -2944,7 +2944,10 @@ async def g_get_steam_games_cached(guild_id: int, user_discord_id: int, limit: i
                     "name": r[1],
                     "playtime_forever_min": r[2],
                     "playtime_2weeks_min": r[3],
-                    "icon_url": r[4],
+                    # v2.3.1: media.steampowered.com мёртв — подменяем на cdn.cloudflare.steamstatic.com
+                    # для старых закешированных записей, чтобы не было 404 в браузере.
+                    "icon_url": (r[4].replace("media.steampowered.com", "cdn.cloudflare.steamstatic.com")
+                                 if r[4] and "media.steampowered.com" in r[4] else r[4]),
                 }
                 for r in rows
             ]
