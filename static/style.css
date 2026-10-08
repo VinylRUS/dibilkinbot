@@ -1496,36 +1496,22 @@ body.has-sidebar.sidebar-open {
 .sb-user {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.2s;
-  width: 100%;
   justify-content: center;
+  padding: 6px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+  width: 100%;
 }
-.sidebar.open .sb-user {
-  justify-content: flex-start;
-  padding: 8px 12px;
-}
-.sb-user:hover { background: var(--accent-soft); }
+.sb-user:hover { background: var(--accent-soft); transform: scale(1.04); }
 .sb-user-avatar {
-  width: 32px; height: 32px; border-radius: 50%;
+  width: 36px; height: 36px; border-radius: 50%;
   background: var(--accent-soft); border: 2px solid var(--glass-border);
   display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; font-size: 0.9rem; overflow: hidden;
+  flex-shrink: 0; font-size: 1rem; overflow: hidden;
+  position: relative;
 }
 .sb-user-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-.sb-user-info { opacity: 0; transition: opacity 0.15s 0.1s; flex: 1; min-width: 0; overflow: hidden; }
-.sidebar.open .sb-user-info { opacity: 1; }
-.sb-user-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sb-user-action { font-size: 0.72rem; color: var(--text-soft); }
-.sb-admin-badge {
-  display: inline-block; padding: 1px 6px; border-radius: 4px;
-  background: var(--accent-soft); color: var(--accent);
-  font-size: 0.62rem; font-weight: 700; margin-left: 4px;
-  text-transform: uppercase; letter-spacing: 0.03em;
-}
 
 .sb-theme-toggle {
   display: flex; align-items: center; justify-content: center;
@@ -1570,14 +1556,106 @@ body.has-sidebar.sidebar-open {
 .status-item { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-muted); }
 
 /* ===== Дашборд: «Сейчас» ===== */
+.now-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 768px) {
+  .now-grid { grid-template-columns: 1fr; }
+}
 .now-card {
   background: var(--content-bg);
-  border: 1px solid var(--content-border); border-radius: var(--content-radius); padding: 24px;
+  border: 1px solid var(--content-border); border-radius: var(--content-radius); padding: 20px;
   box-shadow: var(--glass-shadow), var(--glass-inset);
-  margin-bottom: 16px; transition: transform 0.25s var(--spring), box-shadow 0.25s var(--smooth);
+  transition: transform 0.25s var(--spring), box-shadow 0.25s var(--smooth);
+  display: flex; flex-direction: column; justify-content: space-between;
 }
 .now-card:hover { transform: translateY(-2px); box-shadow: var(--glass-shadow-hover), var(--glass-inset), 0 0 20px var(--accent-soft); }
+.now-card-games .now-status { margin-bottom: 12px; }
+.now-card-games .now-icon { width: 36px; height: 36px; border-radius: 10px; }
+.now-count {
+  display: inline-block; min-width: 22px; padding: 1px 6px;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 10px; font-size: 0.75rem; margin-left: 4px;
+}
+/* Список «Сейчас играют» */
+.playing-list { list-style: none; padding: 0; margin: 0; }
+.playing-item { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.playing-item:last-child { border-bottom: none; }
+.playing-link {
+  display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text);
+  font-size: 0.82rem; padding: 4px 6px; border-radius: 8px; transition: background 0.15s;
+}
+.playing-link:hover { background: var(--accent-soft); }
+.playing-name { font-weight: 600; min-width: 70px; flex-shrink: 0; }
+.playing-game { color: var(--text-muted); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.playing-more { padding: 6px; text-align: center; color: var(--text-muted); font-size: 0.75rem; }
+.avatar-wrap.xs { width: 24px; height: 24px; position: relative; flex-shrink: 0; }
+.avatar-wrap.xs .status-dot { width: 8px; height: 8px; border-width: 1.5px; bottom: -1px; right: -1px; }
+.playing-avatar-placeholder {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700;
+}
 .now-status { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+
+/* ===== v2.3.2: Совместные сессии ===== */
+.joint-sessions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.joint-session-card {
+  background: var(--content-bg);
+  border: 1px solid var(--content-border);
+  border-radius: var(--content-radius);
+  padding: 14px 16px;
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+  transition: transform 0.2s var(--spring);
+}
+.joint-session-card:hover { transform: translateY(-2px); box-shadow: var(--glass-shadow-hover), var(--glass-inset); }
+.joint-session-game {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; color: var(--text); font-size: 0.92rem;
+  margin-bottom: 4px;
+}
+.joint-game-name {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.joint-mp-badge {
+  display: inline-block; padding: 1px 5px; border-radius: 4px;
+  background: rgba(67, 181, 129, 0.18); color: #43B581;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em;
+}
+.joint-session-channel {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--text-muted); font-size: 0.76rem;
+  margin-bottom: 10px;
+}
+.joint-session-users { display: flex; flex-wrap: wrap; gap: 6px; }
+.joint-user-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 8px 3px 3px;
+  background: var(--accent-soft);
+  border-radius: 14px;
+  text-decoration: none; color: var(--text);
+  font-size: 0.75rem; font-weight: 600;
+  transition: background 0.15s, transform 0.15s;
+}
+.joint-user-chip:hover { background: var(--accent); color: var(--accent-text); transform: scale(1.05); }
+.joint-user-chip img {
+  width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+}
+.joint-avatar-placeholder {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700;
+}
 .now-icon {
   width: 48px; height: 48px; border-radius: 14px;
   background: var(--accent-soft); display: flex; align-items: center; justify-content: center;

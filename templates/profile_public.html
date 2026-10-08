@@ -44,6 +44,29 @@
       flex-shrink: 0;
     }
     .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    /* v2.3.2: wrap для аватара — позиционирование статус-дота и шестерёнки */
+    .profile-avatar-wrap { position: relative; flex-shrink: 0; }
+    /* Шестерёнка — открывает настройки; появляется при наведении, блюрит аватарку */
+    .profile-avatar-gear {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      opacity: 0;
+      transition: opacity 0.18s;
+      text-decoration: none;
+      pointer-events: none;
+    }
+    .profile-avatar-wrap:hover .profile-avatar-gear {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .profile-avatar-gear img { filter: brightness(0) invert(1); opacity: 0.9; }
     .profile-name {
       font-size: 1.3rem;
       font-weight: 800;
@@ -213,6 +236,62 @@
     .recent-games-list .game-source.steam { background: rgba(102, 192, 244, 0.15); color: #66C0F4; }
     .recent-games-list .game-source.discord { background: rgba(88, 101, 242, 0.15); color: #5865F2; }
 
+    /* v2.3.2: Новая игра — золотое свечение текста + плашка 'new' */
+    .recent-games-list li.game-new .game-name {
+      color: var(--gold, #FFB703);
+      text-shadow:
+        0 0 6px rgba(255, 183, 3, 0.55),
+        0 0 12px rgba(255, 183, 3, 0.25);
+      animation: new-game-glow 2.4s ease-in-out infinite;
+    }
+    @keyframes new-game-glow {
+      0%, 100% { text-shadow: 0 0 6px rgba(255, 183, 3, 0.45), 0 0 12px rgba(255, 183, 3, 0.20); }
+      50%      { text-shadow: 0 0 10px rgba(255, 183, 3, 0.75), 0 0 22px rgba(255, 183, 3, 0.35); }
+    }
+    .game-new-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--gold, #FFB703);
+      color: #1a1500;
+      font-size: 0.62rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      box-shadow: 0 0 6px rgba(255, 183, 3, 0.4);
+      flex-shrink: 0;
+    }
+
+    /* v2.3.2: Раскрывающийся список общих игр */
+    .compat-item-expandable { cursor: pointer; transition: background 0.15s; }
+    .compat-item-expandable:hover { background: var(--accent-soft); }
+    .compat-hint {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    .compat-item-expandable .compat-hint::before { content: ' раскрыть →'; }
+    .compat-item-expandable.expanded .compat-hint::before { content: ' свернуть ↑'; }
+    .compat-games-list {
+      display: none;
+      list-style: none;
+      padding: 8px 0 0 0;
+      margin: 6px 0 0 0;
+      border-top: 1px solid var(--border);
+      max-height: 240px;
+      overflow-y: auto;
+      columns: 2;
+      column-gap: 16px;
+    }
+    .compat-item-expandable.expanded .compat-games-list { display: block; }
+    .compat-games-list li {
+      padding: 2px 0;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      break-inside: avoid;
+    }
+    @media (max-width: 480px) { .compat-games-list { columns: 1; } }
+
     .recent-list { list-style: none; padding: 0; margin: 0; }
     .recent-item {
       display: flex; align-items: center; gap: 12px;
@@ -252,9 +331,6 @@
 
   <main class="container">
     <a href="javascript:history.back()" class="back-link">← Назад</a>
-    {% if is_self %}
-    <a href="/profile" class="btn-outline" style="margin-bottom: 12px; margin-left: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 6px 14px;"><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Настройки</a>
-    {% endif %}
 
     {% if not_found %}
       <article class="card" style="text-align:center;padding:32px 20px;">
@@ -267,11 +343,23 @@
     {# === v2.3: Компактный хедер профиля === #}
     <div class="profile-header-card">
       <div class="profile-header-left">
-        <div class="profile-avatar">
-          {% if target.avatar_url %}
-            <img src="{{ target.avatar_url }}" alt="">
-          {% else %}
-            {{ target.display_name[:1] | upper if target.display_name else '?' }}
+        <div class="profile-avatar-wrap avatar-wrap lg">
+          <div class="profile-avatar">
+            {% if target.avatar_url %}
+              <img src="{{ target.avatar_url }}" alt="">
+            {% else %}
+              {{ target.display_name[:1] | upper if target.display_name else '?' }}
+            {% endif %}
+          </div>
+          {# Статус Discord (как на дашборде) #}
+          {% if discord_info and discord_info.status %}
+          <span class="status-dot {{ discord_info.status }}" title="{{ discord_info.status | capitalize }}"></span>
+          {% endif %}
+          {# Шестерёнка — настройки (только для себя) #}
+          {% if is_self %}
+          <a href="/profile" class="profile-avatar-gear" title="Настройки профиля">
+            <img src="/static/icons/settings.png" alt="" width="20" height="20" class="ui-icon">
+          </a>
           {% endif %}
         </div>
         <div>
@@ -319,11 +407,18 @@
       <div class="compat-divider"></div>
       {% endif %}
       {% if game_compat and game_compat.common_count > 0 %}
-      <div class="compat-item">
+      <div class="compat-item compat-item-expandable" onclick="this.classList.toggle('expanded')">
         <img src="/static/icons/controller.png" alt="" width="20" height="20" class="compat-icon ui-icon">
-        <div>
+        <div style="flex:1;">
           <div class="compat-percent">{{ game_compat.compatibility }}%</div>
-          <div class="compat-label">{{ game_compat.common_count }} общих игр</div>
+          <div class="compat-label">{{ game_compat.common_count }} общих игр <span class="compat-hint">— показать</span></div>
+          {% if game_compat.common_games %}
+          <ul class="compat-games-list">
+            {% for gname in game_compat.common_games %}
+            <li>{{ gname }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
         </div>
       </div>
       {% endif %}
@@ -388,13 +483,14 @@
     <article class="card">
       <ul class="recent-games-list">
         {% for g in merged_games %}
-        <li>
+        <li{% if g.is_new %} class="game-new"{% endif %}>
           {% if g.icon_url %}
             <img src="{{ g.icon_url }}" alt="" style="width:20px;height:20px;border-radius:4px;flex-shrink:0;" onerror="this.style.display='none';">
           {% else %}
             <span style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.7rem;"><img src="/static/icons/target.png" alt="" width="16" height="16" class="ui-icon"></span>
           {% endif %}
           <span class="game-name" title="{{ g.game_name }}">{{ g.game_name }}</span>
+          {% if g.is_new %}<span class="game-new-badge">new</span>{% endif %}
           <span class="game-source {{ g.source }}">{{ g.source }}</span>
           {% if (g.playtime_2weeks_sec | default(0)) > 0 %}
           <span class="game-duration">{{ (g.playtime_2weeks_sec / 3600) | round(1) }} ч/2нед</span>
@@ -403,6 +499,34 @@
         </li>
         {% endfor %}
       </ul>
+    </article>
+    {% endif %}
+
+    {# === v2.3.2: Steam-вишлист (опционально) === #}
+    {% if steam_wishlist %}
+    <h3 class="section-title"><img src="/static/icons/heart.png" alt="" width="16" height="16" class="ui-icon"> Steam-вишлист</h3>
+    <article class="card">
+      <ul class="recent-games-list">
+        {% for g in steam_wishlist %}
+        <li>
+          {% if g.capsule %}
+            <img src="{{ g.capsule }}" alt="" style="width:32px;height:16px;border-radius:3px;flex-shrink:0;object-fit:cover;" onerror="this.style.display='none';">
+          {% else %}
+            <span style="width:32px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><img src="/static/icons/target.png" alt="" width="16" height="16" class="ui-icon"></span>
+          {% endif %}
+          <span class="game-name" title="{{ g.name }}">{{ g.name }}</span>
+          {% if g.review_percent and g.review_total %}
+          <span class="game-duration" title="{{ g.review_total }} отзывов">{{ g.review_percent }}%</span>
+          {% endif %}
+          {% if g.release_date %}
+          <span class="game-date mono">{{ g.release_date[:4] }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p style="margin: 10px 0 0; font-size: 0.75rem; color: var(--text-muted);">
+        Показано топ-{{ steam_wishlist|length }} по приоритету в Steam.
+      </p>
     </article>
     {% endif %}
 

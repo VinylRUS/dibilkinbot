@@ -1797,6 +1797,116 @@ async def get_member_discord_info(discord_id: int, guild_id: int = 0) -> dict | 
     }
 
 
+# === v2.3.2: Совместные игровые сессии (voice + одна multiplayer-игра) ===
+
+async def get_joint_play_sessions(guild_id: int = 0) -> list[dict]:
+    """Найти группы юзеров, которые сейчас играют вместе.
+
+    Критерии «вместе»:
+    1. ≥2 юзера в одном голосовом канале
+    2. У всех в Discord presence одна и та же игра (current_game)
+    3. Игра — multiplayer (проверяется через Steam Store API appdetails
+       по appid из кеша user_steam_games). Если игру нельзя найти в Steam —
+       пропускаем проверку (считаем что multiplayer, чтобы не терять сессии).
+
+    Возвращает список dict'ов:
+    [
+        {
+            "game": "Counter-Strike 2",
+            "channel": "Общий войс",
+            "users": [{"discord_id": int, "display_name": str, "avatar_url": str|None}, ...],
+            "channel_id": int,
+            "is_multiplayer_confirmed": bool,  # True если точно проверили через Steam
+        },
+        ...
+    ]
+    """
+    if not _bot_running:
+        return []
+    bot = _get_bot()
+    if not bot:
+        return []
+
+    # Собираем все войс-каналы где есть >= 2 людей с одинаковой игрой
+    sessions_by_channel: dict[tuple[int, str], dict] = {}
+    target_guilds = [bot.get_guild(int(guild_id))] if guild_id else list(bot.guilds)
+    target_guilds = [g for g in target_guilds if g]
+
+    for guild in target_guilds:
+        for channel in guild.voice_channels:
+            # Группируем участников по current_game
+            game_groups: dict[str, list] = {}
+            for m in channel.members:
+                if m.bot:
+                    continue
+                # Получаем текущую игру
+                current_game = None
+                for act in m.activities:
+                    if act.type == discord.ActivityType.playing:
+                        current_game = act.name or None
+                        break
+                if not current_game:
+                    continue
+                game_groups.setdefault(current_game, []).append(m)
+            # Если в канале есть >= 2 юзеров с одинаковой игрой — это сессия
+            for game_name, members in game_groups.items():
+                if len(members) < 2:
+                    continue
+                key = (channel.id, game_name)
+                if key in sessions_by_channel:
+                    # Уже видели в другом guild — мержим
+                    sessions_by_channel[key]["users"].extend([
+                        {
+                            "discord_id": m.id,
+                            "display_name": m.display_name or str(m),
+                            "avatar_url": str(m.display_avatar.url) if m.display_avatar else None,
+                        } for m in members
+                    ])
+                else:
+                    sessions_by_channel[key] = {
+                        "game": game_name,
+                        "channel": channel.name,
+                        "channel_id": channel.id,
+                        "users": [
+                            {
+                                "discord_id": m.id,
+                                "display_name": m.display_name or str(m),
+                                "avatar_url": str(m.display_avatar.url) if m.display_avatar else None,
+                            } for m in members
+                        ],
+                        "is_multiplayer_confirmed": False,  # будет заполнено ниже
+                    }
+
+    if not sessions_by_channel:
+        return []
+
+    # Пробуем подтвердить multiplayer-статус через Steam Store API.
+    # Ищем appid по имени игры в кеше user_steam_games (любого юзера).
+    try:
+        import db as _db
+        import steam as _steam
+        # Нормализуем имя игры для поиска
+        for sess in sessions_by_channel.values():
+            norm = _db._normalize_game_name(sess["game"]).lower()
+            # Ищем appid в любой гильдии — для этого используем guild_id=0 или переданный
+            try:
+                appid = await _db.g_find_appid_by_game_name(sess["game"], guild_id=guild_id)
+                if appid:
+                    is_mp = await _steam.is_multiplayer_game(appid)
+                    sess["is_multiplayer_confirmed"] = bool(is_mp) if is_mp is not None else True
+                else:
+                    # Игры нет в Steam кеше — считаем multiplayer (верим)
+                    sess["is_multiplayer_confirmed"] = True
+            except Exception:
+                sess["is_multiplayer_confirmed"] = True  # не блокируем из-за ошибки
+    except Exception as e:
+        # Если Steam-проверка недоступна — возвращаем сессии как есть (verified=False)
+        import logging
+        logging.getLogger("joint_sessions").warning("Steam MP check failed: %s", e)
+
+    return list(sessions_by_channel.values())
+
+
 # === Еженедельный бэкап БД в Telegram (v1.8.0) ===
 
 async def _db_backup_loop() -> None:
@@ -1984,6 +2094,10 @@ async def _check_all_auto_achievements():
         "voice_time_with_others",
         "game_play_time",
         "steam_play_time",
+        # v2.3.2: новые Steam + voice триггеры
+        "steam_games_count",
+        "steam_play_time_specific",
+        "voice_co_sessions",
         # Эти тоже проверяем — на случай если оценка была поставлена через Discord
         # (а не через веб-панель, где проверка уже есть)
         "ratings_count",
