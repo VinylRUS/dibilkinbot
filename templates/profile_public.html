@@ -281,8 +281,8 @@
             {% if is_self %}<span style="font-size:0.65rem; color: var(--text-muted); font-weight: 500; margin-left: 4px;">(вы)</span>{% endif %}
           </div>
           <div class="profile-meta">
-            {% if target.top_role %}<span>🎭 {{ target.top_role }}</span>{% endif %}
-            {% if target.guild_name %}<span>🏰 {{ target.guild_name }}</span>{% endif %}
+            {% if target.top_role %}<span><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> {{ target.top_role }}</span>{% endif %}
+            {% if target.guild_name %}<span><img src="/static/icons/parallel-tasks.png" alt="" width="16" height="16" class="ui-icon"> {{ target.guild_name }}</span>{% endif %}
             <span class="mono">@{{ target.username or target.discord_id }}</span>
           </div>
         </div>
@@ -352,16 +352,16 @@
           <div style="width: 10px; height: 10px; border-radius: 50%; background: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %}; box-shadow: 0 0 6px currentColor; color: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %};"></div>
           <span style="color: var(--text-muted); font-size: 0.78rem; text-transform: capitalize;">{{ discord_info.status }}</span>
         </div>
-        {% if discord_info.current_game %}<span style="color: var(--text); font-size: 0.82rem;">🎮 Играет в <strong>{{ discord_info.current_game }}</strong></span>{% endif %}
-        {% if discord_info.voice_channel %}<span style="color: var(--accent); font-size: 0.82rem;">🎤 В войсе: {{ discord_info.voice_channel }}</span>{% endif %}
-        {% if discord_info.is_boosting %}<span style="color: var(--accent); font-size: 0.72rem;">💎 Бустит</span>{% endif %}
+        {% if discord_info.current_game %}<span style="color: var(--text); font-size: 0.82rem;"><img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Играет в <strong>{{ discord_info.current_game }}</strong></span>{% endif %}
+        {% if discord_info.voice_channel %}<span style="color: var(--accent); font-size: 0.82rem;"><img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> В войсе: {{ discord_info.voice_channel }}</span>{% endif %}
+        {% if discord_info.is_boosting %}<span style="color: var(--accent); font-size: 0.72rem;"><img src="/static/icons/diamond.png" alt="" width="16" height="16" class="ui-icon"> Бустит</span>{% endif %}
       </div>
     </div>
     {% endif %}
 
     {# Voice stats #}
     {% if voice_stats and voice_stats.total_seconds > 0 %}
-    <h3 class="section-title">🎤 Войс</h3>
+    <h3 class="section-title"><img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> Войс</h3>
     <div class="stats-grid" style="margin-bottom: 12px;">
       <div class="stat-card"><div class="stat-value">{{ (voice_stats.total_seconds / 3600) | round(1) }}</div><div class="stat-label">часов</div></div>
       <div class="stat-card"><div class="stat-value">{{ voice_stats.total_sessions }}</div><div class="stat-label">сессий</div></div>
@@ -370,7 +370,7 @@
     </div>
     {% if voice_co %}
     <div style="background: var(--content-bg); border: 1px solid var(--content-border); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;">
-      <div style="font-weight: 700; color: var(--text); margin-bottom: 8px; font-size: 0.82rem;">🤝 Чаще в войсе с:</div>
+      <div style="font-weight: 700; color: var(--text); margin-bottom: 8px; font-size: 0.82rem;"><img src="/static/icons/groups.png" alt="" width="16" height="16" class="ui-icon"> Чаще в войсе с:</div>
       {% for co in voice_co %}
       <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border);">
         <a href="/u/{{ co.other_user_id }}" style="text-decoration: none;">
@@ -390,7 +390,7 @@
 
     {# === v2.3: Merged games (Steam + Discord) — единый блок === #}
     {% if merged_games %}
-    <h3 class="section-title">🎮 Игры</h3>
+    <h3 class="section-title"><img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Игры</h3>
     <article class="card">
       <ul class="recent-games-list">
         {% for g in merged_games %}
@@ -398,7 +398,7 @@
           {% if g.icon_url %}
             <img src="{{ g.icon_url }}" alt="" style="width:20px;height:20px;border-radius:4px;flex-shrink:0;" onerror="this.style.display='none';">
           {% else %}
-            <span style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.7rem;">🎲</span>
+            <span style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.7rem;"><img src="/static/icons/target.png" alt="" width="16" height="16" class="ui-icon"></span>
           {% endif %}
           <span class="game-name" title="{{ g.game_name }}">{{ g.game_name }}</span>
           <span class="game-source {{ g.source }}">{{ g.source }}</span>
@@ -414,7 +414,7 @@
 
     {# Recent ratings #}
     {% if recent_ratings %}
-    <h3 class="section-title">⭐ Последние оценки</h3>
+    <h3 class="section-title"><img src="/static/icons/star.png" alt="" width="16" height="16" class="ui-icon"> Последние оценки</h3>
     <article class="card">
       <ul class="recent-list">
         {% for r in recent_ratings %}
@@ -430,7 +430,7 @@
 
     {# Recent quotes #}
     {% if recent_quotes %}
-    <h3 class="section-title">💬 Последние цитаты</h3>
+    <h3 class="section-title"><img src="/static/icons/chat.png" alt="" width="16" height="16" class="ui-icon"> Последние цитаты</h3>
     {% for q in recent_quotes %}
     <div class="quote-card">
       <div class="quote-text">{{ q.text }}</div>

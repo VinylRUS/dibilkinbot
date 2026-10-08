@@ -37,7 +37,7 @@
       {# Идёт сбор #}
       <div class="now-card">
         <div class="now-status">
-          <div class="now-icon">🎬</div>
+          <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
           <div class="now-text">
             <div class="now-title">Идёт сбор фильмов</div>
             <div class="now-subtitle">{{ ready_count }} из {{ total_count }} участников готовы{% if my_collection_status %} · Вы: {{ my_collection_status }}{% endif %}</div>
@@ -65,7 +65,7 @@
       {# Победитель определён #}
       <div class="now-card">
         <div class="now-status">
-          <div class="now-icon">🏆</div>
+          <div class="now-icon"><img src="/static/icons/trophy.png" alt="" width="16" height="16" class="ui-icon"></div>
           <div class="now-text">
             <div class="now-title">Последний победитель: {{ recent_winner.lot_name }}</div>
             <div class="now-subtitle">{{ format_msk_short(recent_winner.detected_at) }}</div>
@@ -80,7 +80,7 @@
       {# Ничего нет #}
       <div class="now-card">
         <div class="now-status">
-          <div class="now-icon">🎬</div>
+          <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
           <div class="now-text">
             <div class="now-title">Нет активного киновечера</div>
             <div class="now-subtitle">Начните сбор фильмов чтобы крутить колесо</div>
@@ -144,7 +144,7 @@
     <article class="card">
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 16px; justify-items: center;">
         {% for m in active_members %}
-          <a href="/u/{{ m.discord_id }}" style="text-decoration:none; display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0;" title="{{ m.display_name }}{% if m.current_game %} — 🎮 {{ m.current_game }}{% endif %}{% if m.voice_channel %} — 🎤 {{ m.voice_channel }}{% endif %}">
+          <a href="/u/{{ m.discord_id }}" style="text-decoration:none; display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0;" title="{{ m.display_name }}{% if m.current_game %} — <img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> {{ m.current_game }}{% endif %}{% if m.voice_channel %} — <img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> {{ m.voice_channel }}{% endif %}">
             <div class="avatar-wrap sm" style="width:56px; height:56px;">
               {% if m.avatar_url %}
                 <img src="{{ m.avatar_url }}" alt="" style="width:56px; height:56px; border-radius:50%; object-fit:cover; border: 2px solid {% if m.role == 'superuser' %}var(--accent){% elif m.role == 'junior-admin' %}var(--green){% else %}var(--border){% endif %};">
@@ -187,7 +187,7 @@
     <article class="card">
       {% for w in unrated_winners %}
         <div class="rate-item">
-          <div class="activity-avatar">🎬</div>
+          <div class="activity-avatar"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
           <div class="rate-name">{{ w.lot_name }}</div>
           <div class="rate-badge">{{ w.ratings_count }} из {{ w.total_count }} оценок</div>
           <a href="/winners" class="checklist-link">Оценить →</a>

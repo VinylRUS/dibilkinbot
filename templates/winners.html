@@ -170,7 +170,7 @@
               <a href="#" onclick="showRatingsModal({{ w.id }}, '{{ w.lot_name | replace("'", "\\'") }}'); return false;"
                  style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px;"
                  title="Нажмите чтобы увидеть кто как оценил">
-                <span class="avg-rating">⭐ {{ w.avg_rating }}/5</span>
+                <span class="avg-rating"><img src="/static/icons/star.png" alt="" width="16" height="16" class="ui-icon"> {{ w.avg_rating }}/5</span>
                 <span class="ratings-count">({{ w.ratings_count }} оценк{{ 'а' if w.ratings_count == 1 else ('и' if w.ratings_count < 5 else 'ок') }})</span>
               </a>
             </div>

@@ -54,7 +54,7 @@
   <main class="container">
     <h2>👤 Профиль</h2>
     {% if user.discord_id %}
-    <a href="/u/{{ user.discord_id }}" class="btn-outline" style="margin-bottom: 16px; display: inline-flex; align-items: center; gap: 6px;">👁 Посмотреть публичный профиль</a>
+    <a href="/u/{{ user.discord_id }}" class="btn-outline" style="margin-bottom: 16px; display: inline-flex; align-items: center; gap: 6px;"><img src="/static/icons/eye.png" alt="" width="16" height="16" class="ui-icon"> Посмотреть публичный профиль</a>
     {% endif %}
     <article class="card">
       <div class="activity-row">
@@ -124,7 +124,7 @@
       {% endif %}
     </article>
 
-    <h2>🎮 Steam-профиль</h2>
+    <h2><img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Steam-профиль</h2>
     <article class="card">
       {% if steam_profile %}
         {# Профиль указан === #}
@@ -163,13 +163,13 @@
         <div id="steam-validation" style="font-size: 0.82rem; margin: 6px 0 14px;"></div>
         <button type="button" onclick="saveSteamProfile()"
                 style="background: var(--accent); color: var(--accent-text); border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: 600; margin: 0; font-size: 0.9rem;">
-          🎮 Проверить и сохранить
+          <img src="/static/icons/film.png" alt="" width="16" height="16" class="ui-icon"> Проверить и сохранить
         </button>
         <div id="steam-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
       {% endif %}
     </article>
 
-    <h2>📋 Список желаемого</h2>
+    <h2><img src="/static/icons/checkmark.png" alt="" width="16" height="16" class="ui-icon"> Список желаемого</h2>
     <article class="card">
       <!-- Форма добавления -->
       <form id="watchlist-add-form" class="watchlist-add-form">
@@ -199,7 +199,7 @@
     </article>
 
     {# v2.3: Выбор 3 пинн-ачивок для показа под ником #}
-    <h2>🏅 Ачивки в профиле</h2>
+    <h2><img src="/static/icons/medal.png" alt="" width="16" height="16" class="ui-icon"> Ачивки в профиле</h2>
     <article class="card">
       <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:12px;">
         Выберите до 3 достижений, которые будут отображаться рядом с вашим ником в публичном профиле.
