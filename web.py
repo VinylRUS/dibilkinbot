@@ -1059,6 +1059,7 @@ async def admin_panel_page(request: Request, _user: dict = Depends(require_super
         "features": KNOWN_FEATURES,
         "feature_values": feature_values,
         "guilds": guilds,
+        "role_labels": db.ROLE_LABELS,
         "active_tab": request.query_params.get("tab", "users"),
     })
 

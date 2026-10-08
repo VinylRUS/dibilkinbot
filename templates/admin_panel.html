@@ -169,7 +169,7 @@
           <div class="user-row-info">
             <div class="user-row-name">{{ u_display or u_username or 'Unknown' }}</div>
             <div class="user-row-meta">
-              <span class="role-badge {{ u_role }}">{{ db.ROLE_LABELS.get(u_role, 'Пчела') }}</span>
+              <span class="role-badge {{ u_role }}">{{ role_labels.get(u_role, 'Пчела') }}</span>
               <span class="mono">@{{ u_username or u_did }}</span>
               <span class="steam-badge" id="steam-status-{{ u_did }}">Steam: проверка...</span>
             </div>
