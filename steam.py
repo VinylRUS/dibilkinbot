@@ -168,8 +168,8 @@ async def get_recently_played_games(steam_id64: str, api_key: str, count: int = 
                 "playtime_forever_min": g.get("playtime_forever", 0),
                 "img_icon_url": icon_hash,
                 "img_logo_url": logo_hash,
-                "icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{g['appid']}/{icon_hash}.ico" if icon_hash else None,
-                "logo_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{g['appid']}/{logo_hash}.jpg" if logo_hash else None,
+                "icon_url": f"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{g['appid']}/{icon_hash}.ico" if icon_hash else None,
+                "logo_url": f"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{g['appid']}/{logo_hash}.jpg" if logo_hash else None,
             })
         return result
     except Exception as e:
@@ -221,7 +221,7 @@ async def get_owned_games(steam_id64: str, api_key: str, include_appinfo: bool =
                 "playtime_forever_min": g.get("playtime_forever", 0),
                 "playtime_2weeks_min": g.get("playtime_2weeks", 0),
                 "img_icon_url": icon_hash,
-                "icon_url": f"https://media.steampowered.com/steamcommunity/public/images/apps/{appid}/{icon_hash}.ico" if icon_hash and appid else None,
+                "icon_url": f"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{appid}/{icon_hash}.ico" if icon_hash and appid else None,
             })
         # Сортируем по убыванию playtime_forever — топ игр первыми
         result.sort(key=lambda x: x.get("playtime_forever_min", 0), reverse=True)
