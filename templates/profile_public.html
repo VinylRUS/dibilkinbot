@@ -68,22 +68,58 @@
       gap: 10px;
       flex-wrap: wrap;
     }
-    /* v2.3: Пинн-ачивки в хедере справа */
+    /* v2.3: Пинн-ачивки в хедере справа — с названием под иконкой */
     .profile-pinned-achievements {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       flex-shrink: 0;
     }
     .pinned-ach {
-      width: 44px;
-      height: 44px;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: center;
-      cursor: default;
+      gap: 4px;
+      width: 60px;
+      position: relative;
     }
     .pinned-ach .ach-icon-wrap { width: 44px; height: 44px; }
     .pinned-ach svg { width: 60%; height: 60%; }
+    .pinned-ach-name {
+      font-size: 0.6rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.1;
+      max-width: 60px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pinned-ach-tooltip {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 0.72rem;
+      color: var(--text);
+      white-space: nowrap;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-shadow: var(--glass-shadow), var(--glass-inset);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s var(--smooth);
+      z-index: 100;
+    }
+    .pinned-ach:hover .pinned-ach-tooltip {
+      opacity: 1;
+    }
 
     /* === v2.3: Объединённая карточка совместимости === */
     .compat-card {
@@ -208,17 +244,7 @@
     }
     .back-link:hover { color: var(--accent); }
 
-    /* Достижения в профиле — компактнее */
-    .achievements-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-    .user-achievement {
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      padding: 8px 6px; background: var(--content-bg); border: 1px solid var(--content-border);
-      border-radius: 10px; min-width: 70px; transition: transform 0.2s var(--spring), box-shadow 0.2s var(--smooth);
-    }
-    .user-achievement:hover { transform: translateY(-2px); box-shadow: var(--glass-shadow), var(--glass-inset), 0 0 20px var(--accent-soft); }
-    .user-achievement-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
-    .user-achievement-icon svg { width: 40px; height: 40px; }
-    .user-achievement-name { font-size: 0.68rem; font-weight: 600; color: var(--text); text-align: center; line-height: 1.2; }
+    /* Достижения — стили для пинн-ачивок рендерятся через .pinned-ach выше */
   </style>
 </head>
 <body>
@@ -261,12 +287,16 @@
           </div>
         </div>
       </div>
-      {# v2.3: Пинн-ачивки (3 шт) справа в хедере #}
+      {# v2.3: Пинн-ачивки (3 шт) справа в хедере — иконка + название + tooltip #}
       {% if pinned_achievements %}
       <div class="profile-pinned-achievements">
         {% for ach in pinned_achievements %}
-        <div class="pinned-ach" title="{{ ach.description or ach.name }}">
+        <div class="pinned-ach">
           <div class="user-achievement-icon" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
+          <div class="pinned-ach-name">{{ ach.name }}</div>
+          {% if ach.description %}
+          <div class="pinned-ach-tooltip">{{ ach.description }}</div>
+          {% endif %}
         </div>
         {% endfor %}
       </div>
@@ -380,19 +410,6 @@
         {% endfor %}
       </ul>
     </article>
-    {% endif %}
-
-    {# Achievements — полный список (не пинн) #}
-    {% if user_achievements %}
-    <h3 class="section-title">🏅 Достижения ({{ user_achievements | length }})</h3>
-    <div class="achievements-row">
-      {% for ach in user_achievements %}
-      <div class="user-achievement" title="{{ ach.description or ach.name }}">
-        <div class="user-achievement-icon" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
-        <div class="user-achievement-name">{{ ach.name }}</div>
-      </div>
-      {% endfor %}
-    </div>
     {% endif %}
 
     {# Recent ratings #}
