@@ -7,287 +7,218 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    .profile-hero {
+    /* === v2.3: Компактный хедер профиля === */
+    .profile-header-card {
       display: flex;
-      gap: 20px;
       align-items: center;
-      margin-bottom: 28px;
+      gap: 20px;
+      background: var(--content-bg);
+      border: 1px solid var(--content-border);
+      border-radius: var(--content-radius);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      box-shadow: var(--glass-shadow), var(--glass-inset);
       flex-wrap: wrap;
     }
+    .profile-header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+      min-width: 200px;
+    }
     .profile-avatar {
-      width: 96px;
-      height: 96px;
+      width: 72px;
+      height: 72px;
       border-radius: 50%;
       background: var(--accent-soft);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 2.2rem;
+      font-size: 1.8rem;
       font-weight: 700;
       color: var(--accent);
-      border: 3px solid var(--accent);
-      box-shadow: 0 4px 16px var(--accent-soft);
+      border: 2px solid var(--accent);
+      box-shadow: 0 2px 12px var(--accent-soft);
       overflow: hidden;
       flex-shrink: 0;
     }
-    .profile-avatar img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+    .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
     .profile-name {
-      font-size: 1.5rem;
+      font-size: 1.3rem;
       font-weight: 800;
       color: var(--text);
-      margin-bottom: 4px;
-    }
-    .profile-meta {
-      color: var(--text-muted);
-      font-size: 0.88rem;
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
+      margin-bottom: 2px;
     }
     .profile-badge-admin {
       display: inline-block;
       background: var(--accent);
       color: var(--accent-text);
-      padding: 2px 8px;
-      border-radius: 6px;
-      font-size: 0.75rem;
+      padding: 1px 6px;
+      border-radius: 5px;
+      font-size: 0.7rem;
       font-weight: 700;
-      margin-left: 8px;
+      margin-left: 6px;
       vertical-align: middle;
     }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
-      margin-bottom: 28px;
-    }
-    .stat-card {
-      background: var(--glass-bg);
-      backdrop-filter: var(--glass-blur);
-      border: 1px solid var(--glass-border);
-      border-radius: 14px;
-      padding: 16px;
-      text-align: center;
-    }
-    .stat-card .stat-value {
-      font-size: 1.6rem;
-      font-weight: 800;
-      color: var(--accent);
-      line-height: 1.1;
-      margin-bottom: 4px;
-    }
-    .stat-card .stat-label {
+    .profile-meta {
       color: var(--text-muted);
       font-size: 0.8rem;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
     }
-    .taste-match-card {
+    /* v2.3: Пинн-ачивки в хедере справа */
+    .profile-pinned-achievements {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .pinned-ach {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: default;
+    }
+    .pinned-ach .ach-icon-wrap { width: 44px; height: 44px; }
+    .pinned-ach svg { width: 60%; height: 60%; }
+
+    /* === v2.3: Объединённая карточка совместимости === */
+    .compat-card {
+      display: flex;
+      gap: 16px;
       background: linear-gradient(135deg, var(--accent-soft) 0%, transparent 100%);
       border: 1px solid var(--accent);
       border-radius: 12px;
-      padding: 10px 14px;
+      padding: 12px 16px;
       margin-bottom: 16px;
-      display: flex;
-      gap: 12px;
       align-items: center;
       flex-wrap: wrap;
     }
-    .taste-match-percent {
-      font-size: 1.5rem;
-      font-weight: 800;
-      color: var(--accent);
-      line-height: 1;
-    }
-    .taste-match-text { flex: 1; min-width: 180px; }
-    .taste-match-title { font-weight: 700; color: var(--text); margin-bottom: 2px; font-size: 0.92rem; }
-    .taste-match-sub { color: var(--text-muted); font-size: 0.78rem; }
-    {# Compact compat card for games — smaller sibling of taste-match-card #}
-    .compat-card-mini {
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
-      border-radius: 10px;
-      padding: 8px 12px;
-      margin-bottom: 16px;
+    .compat-item {
       display: flex;
-      gap: 10px;
       align-items: center;
-      flex-wrap: wrap;
+      gap: 8px;
+      flex: 1;
+      min-width: 120px;
     }
-    .compat-card-mini .compat-percent {
+    .compat-icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .compat-percent {
       font-size: 1.2rem;
       font-weight: 800;
       color: var(--accent);
       line-height: 1;
     }
-    .compat-card-mini .compat-text {
-      flex: 1;
-      min-width: 160px;
+    .compat-label {
+      font-size: 0.75rem;
       color: var(--text-muted);
-      font-size: 0.78rem;
+      line-height: 1.2;
     }
-    .compat-card-mini .compat-text strong { color: var(--text); font-size: 0.85rem; }
-    .recent-games-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
+    .compat-divider {
+      width: 1px;
+      height: 28px;
+      background: var(--glass-border);
     }
-    .recent-games-list li {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
+
+    /* === v2.3: Уменьшенные карточки статистики === */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
     }
-    .recent-games-list li:last-child { border-bottom: none; }
-    .recent-games-list .game-name {
-      flex: 1;
-      color: var(--text);
-      font-weight: 600;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    .stat-card {
+      background: var(--content-bg);
+      border: 1px solid var(--content-border);
+      border-radius: 10px;
+      padding: 10px 8px;
+      text-align: center;
     }
-    .recent-games-list .game-duration {
+    .stat-card .stat-value {
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1.1;
+    }
+    .stat-card .stat-label {
       color: var(--text-muted);
-      font-size: 0.78rem;
-      flex-shrink: 0;
+      font-size: 0.7rem;
     }
-    .recent-games-list .game-date {
-      color: var(--text-muted);
-      font-size: 0.72rem;
-      flex-shrink: 0;
-      min-width: 70px;
-      text-align: right;
-    }
+
+    /* === Остальное (без изменений) === */
     .section-title {
-      font-size: 1.1rem;
+      font-size: 1rem;
       font-weight: 700;
       color: var(--text);
-      margin: 24px 0 12px;
+      margin: 20px 0 10px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .recent-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
+    .recent-games-list { list-style: none; padding: 0; margin: 0; }
+    .recent-games-list li {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 0; border-bottom: 1px solid var(--border);
     }
+    .recent-games-list li:last-child { border-bottom: none; }
+    .recent-games-list .game-name {
+      flex: 1; color: var(--text); font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .recent-games-list .game-duration { color: var(--text-muted); font-size: 0.75rem; flex-shrink: 0; }
+    .recent-games-list .game-date { color: var(--text-muted); font-size: 0.7rem; flex-shrink: 0; min-width: 60px; text-align: right; }
+    .recent-games-list .game-source { font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; flex-shrink: 0; }
+    .recent-games-list .game-source.steam { background: rgba(102, 192, 244, 0.15); color: #66C0F4; }
+    .recent-games-list .game-source.discord { background: rgba(88, 101, 242, 0.15); color: #5865F2; }
+
+    .recent-list { list-style: none; padding: 0; margin: 0; }
     .recent-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
     }
     .recent-item:last-child { border-bottom: none; }
-    .recent-item .recent-rating {
-      font-weight: 700;
-      color: var(--accent);
-      min-width: 48px;
-      text-align: right;
-    }
+    .recent-item .recent-rating { font-weight: 700; color: var(--accent); min-width: 40px; text-align: right; }
     .recent-item .recent-title {
-      flex: 1;
-      color: var(--text);
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      flex: 1; color: var(--text); min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .recent-item .recent-title a {
-      color: var(--text);
-      text-decoration: none;
-    }
-    .recent-item .recent-title a:hover {
-      color: var(--accent);
-    }
-    .recent-item .recent-date {
-      color: var(--text-muted);
-      font-size: 0.78rem;
-      flex-shrink: 0;
-    }
+    .recent-item .recent-title a { color: var(--text); text-decoration: none; }
+    .recent-item .recent-title a:hover { color: var(--accent); }
+    .recent-item .recent-date { color: var(--text-muted); font-size: 0.72rem; flex-shrink: 0; }
+
     .quote-card {
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
-      border-radius: 12px;
-      padding: 14px 16px;
-      margin-bottom: 10px;
-      position: relative;
+      background: var(--content-bg); border: 1px solid var(--content-border);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; position: relative;
     }
     .quote-card::before {
-      content: "«";
-      position: absolute;
-      top: 6px;
-      left: 10px;
-      font-size: 1.8rem;
-      color: var(--accent);
-      opacity: 0.3;
+      content: "«"; position: absolute; top: 4px; left: 8px;
+      font-size: 1.6rem; color: var(--accent); opacity: 0.3;
     }
-    .quote-text {
-      font-style: italic;
-      color: var(--text);
-      padding-left: 22px;
-      font-size: 0.92rem;
-      line-height: 1.5;
-    }
-    .quote-author {
-      color: var(--text-muted);
-      font-size: 0.78rem;
-      padding-left: 22px;
-      margin-top: 4px;
-    }
+    .quote-text { font-style: italic; color: var(--text); padding-left: 22px; font-size: 0.88rem; line-height: 1.5; }
+    .quote-author { color: var(--text-muted); font-size: 0.75rem; padding-left: 22px; margin-top: 4px; }
     .back-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.85rem;
-      margin-bottom: 16px;
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--text-muted); text-decoration: none; font-size: 0.85rem; margin-bottom: 12px;
     }
     .back-link:hover { color: var(--accent); }
-    /* Достижения в профиле */
-    .achievements-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-      margin-bottom: 24px;
-    }
+
+    /* Достижения в профиле — компактнее */
+    .achievements-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
     .user-achievement {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      padding: 10px 8px;
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
-      border-radius: 12px;
-      min-width: 80px;
-      transition: transform 0.15s, box-shadow 0.15s;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      padding: 8px 6px; background: var(--content-bg); border: 1px solid var(--content-border);
+      border-radius: 10px; min-width: 70px; transition: transform 0.2s var(--spring), box-shadow 0.2s var(--smooth);
     }
-    .user-achievement:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--glass-shadow);
-    }
-    .user-achievement-icon {
-      width: 48px;
-      height: 48px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .user-achievement-icon svg { width: 48px; height: 48px; }
-    .user-achievement-name {
-      font-size: 0.72rem;
-      font-weight: 600;
-      color: var(--text);
-      text-align: center;
-      line-height: 1.2;
-    }
+    .user-achievement:hover { transform: translateY(-2px); box-shadow: var(--glass-shadow), var(--glass-inset), 0 0 20px var(--accent-soft); }
+    .user-achievement-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+    .user-achievement-icon svg { width: 40px; height: 40px; }
+    .user-achievement-name { font-size: 0.68rem; font-weight: 600; color: var(--text); text-align: center; line-height: 1.2; }
   </style>
 </head>
 <body>
@@ -296,19 +227,20 @@
   <main class="container">
     <a href="javascript:history.back()" class="back-link">← Назад</a>
     {% if is_self %}
-    <a href="/profile" class="btn-outline" style="margin-bottom: 16px; margin-left: 8px; display: inline-flex; align-items: center; gap: 6px;">⚙️ Настройки профиля</a>
+    <a href="/profile" class="btn-outline" style="margin-bottom: 12px; margin-left: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 6px 14px;">⚙️ Настройки</a>
     {% endif %}
 
     {% if not_found %}
-      <article class="card">
-        <div class="empty-state">
-          <div class="empty-state-icon">👻</div>
-          <p class="empty-state-title">Пользователь не найден</p>
-          <p class="empty-state-text">Возможно, он покинул сервер или никогда не входил в панель.</p>
-        </div>
+      <article class="card" style="text-align:center;padding:32px 20px;">
+        <div style="font-size:2rem;margin-bottom:8px;">👻</div>
+        <p style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:4px;">Пользователь не найден</p>
+        <p style="color:var(--text-muted);font-size:0.85rem;">Возможно, он покинул сервер или никогда не входил в панель.</p>
       </article>
     {% else %}
-      <div class="profile-hero">
+
+    {# === v2.3: Компактный хедер профиля === #}
+    <div class="profile-header-card">
+      <div class="profile-header-left">
         <div class="profile-avatar">
           {% if target.avatar_url %}
             <img src="{{ target.avatar_url }}" alt="">
@@ -319,8 +251,8 @@
         <div>
           <div class="profile-name">
             {{ target.display_name }}
-            {% if target.is_superuser %}<span class="profile-badge-admin"> Матка</span>{% elif target.is_admin %}<span class="profile-badge-admin" style="background: var(--green); color: #fff;">Трутень</span>{% endif %}
-            {% if is_self %}<span style="font-size:0.7rem; color: var(--text-muted); font-weight: 500; margin-left: 6px;">(это вы)</span>{% endif %}
+            {% if target.is_superuser %}<span class="profile-badge-admin">Матка</span>{% elif target.is_admin %}<span class="profile-badge-admin" style="background: var(--green); color: #fff;">Трутень</span>{% endif %}
+            {% if is_self %}<span style="font-size:0.65rem; color: var(--text-muted); font-weight: 500; margin-left: 4px;">(вы)</span>{% endif %}
           </div>
           <div class="profile-meta">
             {% if target.top_role %}<span>🎭 {{ target.top_role }}</span>{% endif %}
@@ -329,236 +261,176 @@
           </div>
         </div>
       </div>
-
-      {# Compact taste match + game compat — v2.0.3: убрали лишнюю инфу, плашки стали меньше #}
-      {% if taste_match and taste_match.common_count >= 3 %}
-        <div class="taste-match-card">
-          <div class="taste-match-percent">{{ taste_match.compatibility }}%</div>
-          <div class="taste-match-text">
-            <div class="taste-match-title">🤝 Совпадение вкусов</div>
-            <div class="taste-match-sub">{{ taste_match.common_count }} общих фильмов</div>
-          </div>
+      {# v2.3: Пинн-ачивки (3 шт) справа в хедере #}
+      {% if pinned_achievements %}
+      <div class="profile-pinned-achievements">
+        {% for ach in pinned_achievements %}
+        <div class="pinned-ach" title="{{ ach.description or ach.name }}">
+          <div class="user-achievement-icon" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
         </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {# === v2.3: Объединённая карточка совместимости === #}
+    {% if (taste_match and taste_match.common_count >= 3) or (game_compat and game_compat.common_count > 0) %}
+    <div class="compat-card">
+      {% if taste_match and taste_match.common_count >= 3 %}
+      <div class="compat-item">
+        {# SVG иконка фильма (не эмодзи) #}
+        <svg class="compat-icon" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>
+        </svg>
+        <div>
+          <div class="compat-percent">{{ taste_match.compatibility }}%</div>
+          <div class="compat-label">{{ taste_match.common_count }} общих фильмов</div>
+        </div>
+      </div>
+      {% endif %}
+      {% if (taste_match and taste_match.common_count >= 3) and (game_compat and game_compat.common_count > 0) %}
+      <div class="compat-divider"></div>
       {% endif %}
       {% if game_compat and game_compat.common_count > 0 %}
-        <div class="compat-card-mini">
+      <div class="compat-item">
+        {# SVG иконка геймпада (не эмодзи) #}
+        <svg class="compat-icon" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="18" y1="10" x2="18.01" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.152A4 4 0 0 0 17.32 5z"/>
+        </svg>
+        <div>
           <div class="compat-percent">{{ game_compat.compatibility }}%</div>
-          <div class="compat-text">
-            <strong>🎮 Игры совпадают</strong><br>
-            {{ game_compat.common_count }} общих игр
-            {% if game_compat.common_games %}
-              <span title="{{ game_compat.common_games | join(', ') }}">— {{ game_compat.common_games[:3] | join(', ') }}{% if game_compat.common_games | length > 3 %}…{% endif %}</span>
-            {% endif %}
-          </div>
-        </div>
-      {% endif %}
-
-      {# Stats #}
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.ratings_count }}</div>
-          <div class="stat-label">Оценок</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.avg_rating if stats.ratings_count > 0 else '—' }}</div>
-          <div class="stat-label">Средняя оценка</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.quotes_count }}</div>
-          <div class="stat-label">Цитат</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.watchlist_count }}</div>
-          <div class="stat-label">В вишлисте</div>
+          <div class="compat-label">{{ game_compat.common_count }} общих игр</div>
         </div>
       </div>
+      {% endif %}
+    </div>
+    {% endif %}
 
-      {# Discord live info (v2.0) #}
-      {% if discord_info %}
-      <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 16px; margin-bottom: 24px;">
-        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          {# Status indicator — кружок как в Discord #}
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <div style="width: 10px; height: 10px; border-radius: 50%; background: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %}; box-shadow: 0 0 6px currentColor; color: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %};"></div>
-            <span style="color: var(--text-muted); font-size: 0.82rem; text-transform: capitalize;">{{ discord_info.status }}</span>
-          </div>
-          {% if discord_info.current_game %}
-            <span style="color: var(--text); font-size: 0.88rem;">🎮 Играет в <strong>{{ discord_info.current_game }}</strong></span>
+    {# === v2.3: Уменьшенная статистика === #}
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value">{{ stats.ratings_count }}</div><div class="stat-label">Оценок</div></div>
+      <div class="stat-card"><div class="stat-value">{{ stats.avg_rating if stats.ratings_count > 0 else '—' }}</div><div class="stat-label">Средняя</div></div>
+      <div class="stat-card"><div class="stat-value">{{ stats.quotes_count }}</div><div class="stat-label">Цитат</div></div>
+      <div class="stat-card"><div class="stat-value">{{ stats.watchlist_count }}</div><div class="stat-label">Вишлист</div></div>
+    </div>
+
+    {# Discord live info #}
+    {% if discord_info %}
+    <div style="background: var(--content-bg); border: 1px solid var(--content-border); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; box-shadow: var(--glass-shadow), var(--glass-inset);">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <div style="width: 10px; height: 10px; border-radius: 50%; background: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %}; box-shadow: 0 0 6px currentColor; color: {% if discord_info.status == 'online' %}#43B581{% elif discord_info.status == 'idle' %}#FAA61A{% elif discord_info.status == 'dnd' %}#F04747{% else %}#747F8D{% endif %};"></div>
+          <span style="color: var(--text-muted); font-size: 0.78rem; text-transform: capitalize;">{{ discord_info.status }}</span>
+        </div>
+        {% if discord_info.current_game %}<span style="color: var(--text); font-size: 0.82rem;">🎮 Играет в <strong>{{ discord_info.current_game }}</strong></span>{% endif %}
+        {% if discord_info.voice_channel %}<span style="color: var(--accent); font-size: 0.82rem;">🎤 В войсе: {{ discord_info.voice_channel }}</span>{% endif %}
+        {% if discord_info.is_boosting %}<span style="color: var(--accent); font-size: 0.72rem;">💎 Бустит</span>{% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Voice stats #}
+    {% if voice_stats and voice_stats.total_seconds > 0 %}
+    <h3 class="section-title">🎤 Войс</h3>
+    <div class="stats-grid" style="margin-bottom: 12px;">
+      <div class="stat-card"><div class="stat-value">{{ (voice_stats.total_seconds / 3600) | round(1) }}</div><div class="stat-label">часов</div></div>
+      <div class="stat-card"><div class="stat-value">{{ voice_stats.total_sessions }}</div><div class="stat-label">сессий</div></div>
+      <div class="stat-card"><div class="stat-value">{{ (voice_stats.with_others_seconds / 3600) | round(1) }}</div><div class="stat-label">с другими</div></div>
+      <div class="stat-card"><div class="stat-value">{{ (voice_stats.solo_seconds / 3600) | round(1) }}</div><div class="stat-label">соло</div></div>
+    </div>
+    {% if voice_co %}
+    <div style="background: var(--content-bg); border: 1px solid var(--content-border); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;">
+      <div style="font-weight: 700; color: var(--text); margin-bottom: 8px; font-size: 0.82rem;">🤝 Чаще в войсе с:</div>
+      {% for co in voice_co %}
+      <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border);">
+        <a href="/u/{{ co.other_user_id }}" style="text-decoration: none;">
+          {% if co.avatar_url %}
+            <img src="{{ co.avatar_url }}" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">
+          {% else %}
+            <div style="width:24px;height:24px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;font-size:0.7rem;">{{ co.display_name[:1]|upper }}</div>
           {% endif %}
-          {% if discord_info.voice_channel %}
-            <span style="color: var(--accent); font-size: 0.88rem;">🎤 В войсе: {{ discord_info.voice_channel }}</span>
-            {% if discord_info.voice_with %}
-              <span style="color: var(--text-muted); font-size: 0.8rem;">с: {{ discord_info.voice_with | join(', ') }}</span>
-            {% endif %}
+        </a>
+        <a href="/u/{{ co.other_user_id }}" style="color: var(--text); text-decoration: none; font-weight: 600; flex: 1; font-size: 0.82rem;">{{ co.display_name }}</a>
+        <span style="color: var(--text-muted); font-size: 0.75rem;">{{ (co.co_seconds / 3600) | round(1) }} ч</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# === v2.3: Merged games (Steam + Discord) — единый блок === #}
+    {% if merged_games %}
+    <h3 class="section-title">🎮 Игры</h3>
+    <article class="card">
+      <ul class="recent-games-list">
+        {% for g in merged_games %}
+        <li>
+          {% if g.icon_url %}
+            <img src="{{ g.icon_url }}" alt="" style="width:20px;height:20px;border-radius:4px;flex-shrink:0;" onerror="this.style.display='none';">
+          {% else %}
+            <span style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.7rem;">🎲</span>
           {% endif %}
-          {% if discord_info.is_boosting %}
-            <span style="color: var(--accent); font-size: 0.78rem;">💎 Бустит сервер</span>
+          <span class="game-name" title="{{ g.game_name }}">{{ g.game_name }}</span>
+          <span class="game-source {{ g.source }}">{{ g.source }}</span>
+          {% if (g.playtime_2weeks_sec | default(0)) > 0 %}
+          <span class="game-duration">{{ (g.playtime_2weeks_sec / 3600) | round(1) }} ч/2нед</span>
           {% endif %}
-        </div>
-      </div>
-      {% endif %}
-
-      {# Voice stats (v2.0) #}
-      {% if voice_stats and voice_stats.total_seconds > 0 %}
-      <h3 class="section-title">🎤 Войс-статистика</h3>
-      <div class="stats-grid" style="margin-bottom: 16px;">
-        <div class="stat-card">
-          <div class="stat-value">{{ (voice_stats.total_seconds / 3600) | round(1) }}</div>
-          <div class="stat-label">часов в войсе</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ voice_stats.total_sessions }}</div>
-          <div class="stat-label">сессий</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ (voice_stats.with_others_seconds / 3600) | round(1) }}</div>
-          <div class="stat-label">с другими</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ (voice_stats.solo_seconds / 3600) | round(1) }}</div>
-          <div class="stat-label">в одиночку</div>
-        </div>
-      </div>
-
-      {# Чаще сидел с... (v2.0) #}
-      {% if voice_co %}
-      <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 16px; margin-bottom: 24px;">
-        <div style="font-weight: 700; color: var(--text); margin-bottom: 10px; font-size: 0.92rem;">🤝 Чаще сидел в войсе с:</div>
-        {% for co in voice_co %}
-          <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border);">
-            <a href="/u/{{ co.other_user_id }}" style="text-decoration: none;">
-              {% if co.avatar_url %}
-                <img src="{{ co.avatar_url }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
-              {% else %}
-                <div style="width:28px;height:28px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;font-size:0.8rem;">{{ co.display_name[:1]|upper }}</div>
-              {% endif %}
-            </a>
-            <a href="/u/{{ co.other_user_id }}" style="color: var(--text); text-decoration: none; font-weight: 600; flex: 1;">{{ co.display_name }}</a>
-            <span style="color: var(--text-muted); font-size: 0.82rem;">{{ (co.co_seconds / 3600) | round(1) }} ч</span>
-            {% if co.top_games %}
-              <span style="color: var(--accent); font-size: 0.75rem;">🎮 {{ co.top_games | join(', ') }}</span>
-            {% endif %}
-          </div>
+          <span class="game-date mono">{{ (g.playtime_forever_sec | default(0) / 3600) | round(0) | int }} ч</span>
+        </li>
         {% endfor %}
+      </ul>
+    </article>
+    {% endif %}
+
+    {# Achievements — полный список (не пинн) #}
+    {% if user_achievements %}
+    <h3 class="section-title">🏅 Достижения ({{ user_achievements | length }})</h3>
+    <div class="achievements-row">
+      {% for ach in user_achievements %}
+      <div class="user-achievement" title="{{ ach.description or ach.name }}">
+        <div class="user-achievement-icon" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
+        <div class="user-achievement-name">{{ ach.name }}</div>
       </div>
-      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
 
-      {# Топ игр (v2.0) #}
-      {% if top_games %}
-      <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 16px; margin-bottom: 24px;">
-        <div style="font-weight: 700; color: var(--text); margin-bottom: 10px; font-size: 0.92rem;">🎮 Топ игр:</div>
-        {% for g in top_games %}
-          <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border);">
-            <span style="flex: 1; color: var(--text); font-weight: 600;">{{ g.game_name }}</span>
-            <span style="color: var(--text-muted); font-size: 0.82rem;">{{ (g.total_seconds / 3600) | round(1) }} ч · {{ g.sessions }} сессий</span>
-          </div>
+    {# Recent ratings #}
+    {% if recent_ratings %}
+    <h3 class="section-title">⭐ Последние оценки</h3>
+    <article class="card">
+      <ul class="recent-list">
+        {% for r in recent_ratings %}
+        <li class="recent-item">
+          <div class="recent-rating">{{ r.rating }}/5</div>
+          <div class="recent-title"><a href="/winners?q={{ r.lot_name }}">{{ r.lot_name }}</a></div>
+          <div class="recent-date mono">{{ format_msk(r.updated_at) }}</div>
+        </li>
         {% endfor %}
-      </div>
-      {% endif %}
+      </ul>
+    </article>
+    {% endif %}
 
-      {# Последние игры (v2.0.3) — во что играл недавно в Discord #}
-      {% if recent_games %}
-        <h3 class="section-title">🎮 Последние игры <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">в Discord</span></h3>
-        <article class="card">
-          <ul class="recent-games-list">
-            {% for g in recent_games %}
-              <li>
-                <span class="game-name" title="{{ g.game_name }}">{{ g.game_name }}</span>
-                <span class="game-duration">{{ (g.total_seconds / 60) | round(0) | int }} мин</span>
-                <span class="game-date mono">{{ format_msk(g.ended_at) }}</span>
-              </li>
-            {% endfor %}
-          </ul>
-        </article>
-      {% endif %}
-      {% endif %}
+    {# Recent quotes #}
+    {% if recent_quotes %}
+    <h3 class="section-title">💬 Последние цитаты</h3>
+    {% for q in recent_quotes %}
+    <div class="quote-card">
+      <div class="quote-text">{{ q.text }}</div>
+      <div class="quote-author">— {{ q.author }} · {{ format_msk(q.recorded_at) }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
 
-      {# Steam игры (v2.1.0) — последние 2 недели + общее время #}
-      {% if recent_steam_games %}
-        <h3 class="section-title">🎮 Steam <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">за 2 недели</span></h3>
-        <article class="card">
-          <ul class="recent-games-list">
-            {% for g in recent_steam_games %}
-              <li>
-                {% if g.icon_url %}
-                  <img src="{{ g.icon_url }}" alt="" style="width:24px;height:24px;border-radius:4px;flex-shrink:0;"
-                       onerror="this.style.display='none';">
-                {% else %}
-                  <span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.8rem;">🎲</span>
-                {% endif %}
-                <span class="game-name" title="{{ g.name }}">{{ g.name }}</span>
-                {# v2.1.2: используем default(0) чтобы не упасть если поле отсутствует #}
-                {% if (g.playtime_2weeks_min | default(0)) > 0 %}
-                  <span class="game-duration" title="за 2 недели">{{ (g.playtime_2weeks_min | default(0) / 60) | round(1) }} ч (2 нед)</span>
-                {% endif %}
-                <span class="game-date mono" title="всего">{{ ((g.playtime_forever_min | default(0)) / 60) | round(0) | int }} ч всего</span>
-              </li>
-            {% endfor %}
-          </ul>
-        </article>
-      {% elif has_steam_linked %}
-        <h3 class="section-title">🎮 Steam <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">за 2 недели</span></h3>
-        <article class="card" style="text-align:center;padding:24px;color:var(--text-muted);font-size:0.85rem;">
-          Нет недавно сыгранных игр за последние 2 недели
-        </article>
-      {% endif %}
-
-      {# Achievements #}
-      {% if user_achievements %}
-        <h3 class="section-title">🏅 Достижения</h3>
-        <div class="achievements-row">
-          {% for ach in user_achievements %}
-            <div class="user-achievement" title="{{ ach.description or ach.name }}">
-              <div class="user-achievement-icon" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
-              <div class="user-achievement-name">{{ ach.name }}</div>
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-
-      {# Recent ratings #}
-      {% if recent_ratings %}
-        <h3 class="section-title">⭐ Последние оценки</h3>
-        <article class="card">
-          <ul class="recent-list">
-            {% for r in recent_ratings %}
-              <li class="recent-item">
-                <div class="recent-rating">{{ r.rating }}/5</div>
-                <div class="recent-title">
-                  <a href="/winners?q={{ r.lot_name }}">{{ r.lot_name }}</a>
-                </div>
-                <div class="recent-date mono">{{ format_msk(r.updated_at) }}</div>
-              </li>
-            {% endfor %}
-          </ul>
-        </article>
-      {% endif %}
-
-      {# Recent quotes #}
-      {% if recent_quotes %}
-        <h3 class="section-title">💬 Последние цитаты</h3>
-        {% for q in recent_quotes %}
-          <div class="quote-card">
-            <div class="quote-text">{{ q.text }}</div>
-            <div class="quote-author">— {{ q.author }} · {{ format_msk(q.recorded_at) }}</div>
-          </div>
-        {% endfor %}
-      {% endif %}
-
-      {% if not recent_ratings and not recent_quotes %}
-        <article class="card">
-          <div class="empty-state">
-            <div class="empty-state-icon">🎬</div>
-            <p class="empty-state-title">Пока нет активности</p>
-            <p class="empty-state-text">{{ target.display_name }} ещё не поставил оценок и не записал цитат.</p>
-          </div>
-        </article>
-      {% endif %}
+    {% if not recent_ratings and not recent_quotes %}
+    <article class="card" style="text-align:center;padding:24px;">
+      <p style="color:var(--text-muted);font-size:0.85rem;">Пока нет активности</p>
+    </article>
+    {% endif %}
     {% endif %}
   </main>
   <script>
-    // v2.1.0: renderAchievementSVG теперь возвращает HTML-обёртку (span.ach-icon-wrap)
-    // со встроенным SVG внутри — не нужно оборачивать во внешний <svg>.
+    // v2.3: рендерим иконки ачивок (пинн + полный список)
     document.querySelectorAll('.user-achievement-icon[data-icon-config]').forEach(el => {
       const config = JSON.parse(el.dataset.iconConfig);
       el.innerHTML = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';

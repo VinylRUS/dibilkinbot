@@ -3537,3 +3537,14 @@ async def api_get_achievement_users(
     guild_id = get_current_guild_id(_user)
     users = await db.g_get_users_with_achievement(guild_id, ach_id)
     return JSONResponse({"users": users, "count": len(users)})
+
+
+@app.get("/api/achievements/my_grants")
+async def api_get_my_grants(_user: dict = Depends(require_user)):
+    """v2.3: Список ачивок текущего юзера — для выбора пинн-ачивок в /profile."""
+    guild_id = get_current_guild_id(_user)
+    discord_id = _user.get("discord_id")
+    if not discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+    achievements = await db.g_list_user_achievements(guild_id, discord_id, active_only=True)
+    return JSONResponse({"achievements": achievements, "count": len(achievements)})
