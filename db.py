@@ -2184,7 +2184,9 @@ ACHIEVEMENT_TRIGGERS = {
     "voice_time",             # N секунд в войс-чатах (любых)
     "voice_time_solo",        # N секунд в войс-чатах (одиночных)
     "voice_time_with_others", # N секунд в войс-чатах (с другими людьми)
-    "game_play_time",         # N секунд играя в любые игры
+    "game_play_time",         # N секунд играя в любые игры (Discord presence)
+    # v2.3: Steam trigger
+    "steam_play_time",        # N минут общего времени в Steam (из GetOwnedGames playtime_forever)
 }
 
 
@@ -2588,6 +2590,19 @@ async def g_get_user_trigger_count(guild_id: int, user_discord_id: int, trigger_
             return await g_get_voice_time(guild_id, user_discord_id, solo_only=solo, with_others_only=with_others)
         elif trigger_type == "game_play_time":
             return await g_get_game_play_time(guild_id, user_discord_id)
+        elif trigger_type == "steam_play_time":
+            # v2.3: Общее время в Steam (минуты). Берём из кеша user_steam_games.
+            # Порог ачивки тоже в минутах (например 60000 = 1000 часов).
+            steam_table = _guild.guild_table(guild_id, "user_steam_games")
+            try:
+                async with _connect() as db:
+                    async with db.execute(
+                        f"SELECT COALESCE(SUM(playtime_forever_min), 0) FROM {steam_table} WHERE user_discord_id = ?",
+                        (user_discord_id,)
+                    ) as cur:
+                        return (await cur.fetchone())[0] or 0
+            except Exception:
+                return 0
         else:
             return 0
         row = await (await db.execute(sql, (user_discord_id,))).fetchone()
