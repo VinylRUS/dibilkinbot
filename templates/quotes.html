@@ -207,7 +207,7 @@
     {% endif %}
 
     <form method="get" action="/quotes" class="search-form">
-      <input type="text" name="q" value="{{ search }}" placeholder="<img src="/static/icons/search.png" alt="" width="16" height="16" class="ui-icon"> Поиск по автору или тексту...">
+      <input type="text" name="q" value="{{ search }}" placeholder="Поиск по автору или тексту...">
       <button type="submit">Искать</button>
       {% if search %}
         <a href="/quotes" style="padding:8px 14px;align-self:center;color:var(--text-muted);text-decoration:none;">×</a>
