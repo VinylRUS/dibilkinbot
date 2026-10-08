@@ -197,6 +197,18 @@
         {% endfor %}
       {% endif %}
     </article>
+
+    {# v2.3: Выбор 3 пинн-ачивок для показа под ником #}
+    <h2>🏅 Ачивки в профиле</h2>
+    <article class="card">
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:12px;">
+        Выберите до 3 достижений, которые будут отображаться рядом с вашим ником в публичном профиле.
+      </p>
+      <div id="pin-achievements-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <span style="color:var(--text-muted);font-size:0.82rem;">Загрузка...</span>
+      </div>
+      <button type="button" class="btn-primary" onclick="savePinnedAchievements()" style="margin-top:0;font-size:0.82rem;padding:8px 16px;">💾 Сохранить</button>
+    </article>
   </main>
 
   <script>
@@ -397,6 +409,83 @@
         alert('Сетевая ошибка: ' + e.message);
       }
     }
+
+    // === v2.3: Пинн-ачивки ===
+    let pinSelected = new Set();
+    let pinAchievements = [];
+
+    async function loadPinAchievements() {
+      try {
+        const r = await fetch('/api/achievements/my_grants');
+        const data = await r.json();
+        pinAchievements = data.achievements || [];
+        // Загружаем текущие пины
+        const pr = await fetch('/u/{{ user.discord_id }}');
+        // Не парсим HTML — просто запросим пины через API (пока нет отдельного API, используем данные страницы)
+        // Для простоты — пока не загружаем текущие пины, юзер выбирает заново
+        renderPinList();
+      } catch (e) {
+        document.getElementById('pin-achievements-list').innerHTML = '<span style="color:var(--text-muted);font-size:0.82rem;">Нет ачивок</span>';
+      }
+    }
+
+    function renderPinList() {
+      const container = document.getElementById('pin-achievements-list');
+      if (!pinAchievements.length) {
+        container.innerHTML = '<span style="color:var(--text-muted);font-size:0.82rem;">У вас нет ачивок</span>';
+        return;
+      }
+      container.innerHTML = '';
+      pinAchievements.forEach(ach => {
+        const div = document.createElement('div');
+        div.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--content-bg);border:1px solid var(--content-border);border-radius:8px;cursor:pointer;transition:all 0.15s;';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.style.cssText = 'accent-color:var(--accent);';
+        checkbox.dataset.achId = ach.achievement_id;
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) {
+            if (pinSelected.size >= 3) {
+              checkbox.checked = false;
+              showToast('Максимум 3 ачивки', 'error');
+              return;
+            }
+            pinSelected.add(ach.achievement_id);
+            div.style.borderColor = 'var(--accent)';
+            div.style.background = 'var(--accent-soft)';
+          } else {
+            pinSelected.delete(ach.achievement_id);
+            div.style.borderColor = 'var(--content-border)';
+            div.style.background = 'var(--content-bg)';
+          }
+        });
+        const label = document.createElement('span');
+        label.textContent = ach.name;
+        label.style.cssText = 'font-size:0.82rem;color:var(--text);';
+        div.appendChild(checkbox);
+        div.appendChild(label);
+        container.appendChild(div);
+      });
+    }
+
+    async function savePinnedAchievements() {
+      const ids = Array.from(pinSelected).join(',');
+      try {
+        const fd = new FormData();
+        fd.append('achievement_ids', ids);
+        const r = await fetch('/api/profile/pin_achievements', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok) {
+          showToast('✓ Ачивки сохранены', 'success');
+        } else {
+          showToast(data.error || 'Ошибка', 'error');
+        }
+      } catch (e) {
+        showToast('Сетевая ошибка: ' + e.message, 'error');
+      }
+    }
+
+    loadPinAchievements();
   </script>
 {% include "_footer.html" %}
 </body>

@@ -1792,6 +1792,19 @@ async def public_profile_page(
         logging.getLogger("steam").warning("Steam games fetch failed for %s: %s",
                                             target_discord_id, e)
 
+    # v2.3: Merged games (Steam приоритет + Discord доп) + pinned achievements
+    merged_games = None
+    pinned_achievements = None
+    try:
+        merged_games = await db.g_get_user_games_merged(guild_id, target_discord_id, limit=10)
+    except Exception as e:
+        import logging
+        logging.getLogger("games").warning("Merged games fetch failed for %s: %s", target_discord_id, e)
+    try:
+        pinned_achievements = await db.g_get_pinned_achievements(guild_id, target_discord_id)
+    except Exception:
+        pass
+
     # v2.0.3: Если юзер смотрит свой профиль — отмечаем ачивки как просмотренные
     if is_self and current_discord_id:
         try:
@@ -1830,6 +1843,8 @@ async def public_profile_page(
         "game_compat": game_compat,
         "recent_steam_games": recent_steam_games,
         "has_steam_linked": bool(steam_profile_check and steam_profile_check.get("steam_id64")),
+        "merged_games": merged_games,
+        "pinned_achievements": pinned_achievements,
     })
 
 
@@ -3472,10 +3487,32 @@ async def api_refresh_discord_roles(_user: dict = Depends(require_admin)):
 
 @app.get("/api/achievements/server_games")
 async def api_get_server_games(_user: dict = Depends(require_admin)):
-    """Список всех игр в которые играли на сервере (для триггеров ачивок)."""
+    """Список всех игр в которые играли на сервере (для триггеров ачивок).
+    v2.3: использует merged список (Steam + Discord)."""
     guild_id = get_current_guild_id(_user)
-    games = await db.g_list_server_games(guild_id)
+    games = await db.g_list_server_games_merged(guild_id)
     return JSONResponse({"games": games})
+
+
+@app.post("/api/profile/pin_achievements")
+async def api_pin_achievements(
+    _user: dict = Depends(require_user),
+    achievement_ids: str = Form(""),
+):
+    """v2.3: Установить пинн-ачивки (до 3 штук) для показа под ником."""
+    discord_id = _user.get("discord_id")
+    if not discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+    guild_id = get_current_guild_id(_user)
+    # Парсим "1,2,3" → [1, 2, 3]
+    try:
+        ids = [int(x.strip()) for x in achievement_ids.split(",") if x.strip().isdigit()]
+    except Exception:
+        ids = []
+    if len(ids) > 3:
+        return JSONResponse({"error": "max 3 achievements"}, status_code=400)
+    await db.g_set_pinned_achievements(guild_id, discord_id, ids)
+    return JSONResponse({"ok": True, "pinned_count": len(ids)})
 
 
 @app.post("/api/achievements/mark_read")
@@ -3500,3 +3537,14 @@ async def api_get_achievement_users(
     guild_id = get_current_guild_id(_user)
     users = await db.g_get_users_with_achievement(guild_id, ach_id)
     return JSONResponse({"users": users, "count": len(users)})
+
+
+@app.get("/api/achievements/my_grants")
+async def api_get_my_grants(_user: dict = Depends(require_user)):
+    """v2.3: Список ачивок текущего юзера — для выбора пинн-ачивок в /profile."""
+    guild_id = get_current_guild_id(_user)
+    discord_id = _user.get("discord_id")
+    if not discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+    achievements = await db.g_list_user_achievements(guild_id, discord_id, active_only=True)
+    return JSONResponse({"achievements": achievements, "count": len(achievements)})

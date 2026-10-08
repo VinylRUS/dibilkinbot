@@ -2459,6 +2459,59 @@ async def g_mark_achievements_viewed(user_discord_id: int) -> None:
         await db.commit()
 
 
+# === v2.3: Pinned achievements (3 chosen by user to show under nickname) ===
+
+async def g_set_pinned_achievements(guild_id: int, user_discord_id: int, achievement_ids: list[int]) -> None:
+    """Установить пинн-ачивки юзера (максимум 3). Полностью заменяет предыдущие."""
+    table = _guild.guild_table(guild_id, "user_pinned_achievements")
+    now = datetime.utcnow().isoformat()
+    # Ограничиваем до 3
+    achievement_ids = achievement_ids[:3]
+    async with _connect() as db:
+        # Удаляем все старые пины
+        await db.execute(f"DELETE FROM {table} WHERE user_discord_id = ?", (user_discord_id,))
+        # Вставляем новые
+        for i, ach_id in enumerate(achievement_ids):
+            await db.execute(
+                f"INSERT INTO {table} (user_discord_id, achievement_id, position, pinned_at) VALUES (?, ?, ?, ?)",
+                (user_discord_id, ach_id, i, now)
+            )
+        await db.commit()
+
+
+async def g_get_pinned_achievements(guild_id: int, user_discord_id: int) -> list[dict]:
+    """Получить пинн-ачивки юзера (до 3 штук, отсортированных по position).
+
+    Возвращает список achievement dict'ов с name, description, icon_config.
+    Если юзер не выбирал — возвращаем пустой список (UI решает что показывать).
+    """
+    table_pin = _guild.guild_table(guild_id, "user_pinned_achievements")
+    table_ua = _guild.guild_table(guild_id, "user_achievements")
+    table_a = _guild.guild_table(guild_id, "achievements")
+    import json
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT p.achievement_id, p.position, a.name, a.description, a.icon_config "
+            f"FROM {table_pin} p "
+            f"JOIN {table_a} a ON p.achievement_id = a.id "
+            f"JOIN {table_ua} ua ON p.achievement_id = ua.achievement_id AND ua.user_discord_id = ? AND ua.is_active = 1 "
+            f"WHERE p.user_discord_id = ? "
+            f"ORDER BY p.position",
+            (user_discord_id, user_discord_id)
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {
+            "achievement_id": r[0],
+            "position": r[1],
+            "name": r[2],
+            "description": r[3],
+            "icon_config": json.loads(r[4]) if r[4] else {},
+        }
+        for r in rows
+    ]
+
+
 async def g_has_achievement(guild_id: int, achievement_id: int, user_discord_id: int) -> bool:
     """Проверить, есть ли у юзера активная ачивка."""
     table_ua = _guild.guild_table(guild_id, "user_achievements")
@@ -2980,9 +3033,24 @@ async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, gam
 
     v2.0.2: сравнение по нормализованному имени — ловит дубликаты типа
     «CS2», «CS2 », «cs2».
+    v2.3: берёт максимум из Steam кеша и Discord activities.
     """
-    table = _guild.guild_table(guild_id, "member_activities")
+    # Сначала пробуем Steam кеш
+    steam_table = _guild.guild_table(guild_id, "user_steam_games")
     norm = _normalize_game_name(game_name).lower()
+    steam_seconds = 0
+    try:
+        async with _connect() as db:
+            async with db.execute(
+                f"SELECT COALESCE(SUM(playtime_forever_min), 0) * 60 FROM {steam_table} "
+                f"WHERE user_discord_id = ? AND LOWER(name) = ?",
+                (user_discord_id, norm)
+            ) as cur:
+                steam_seconds = (await cur.fetchone())[0] or 0
+    except Exception:
+        pass
+    # Потом Discord activities
+    table = _guild.guild_table(guild_id, "member_activities")
     async with _connect() as db:
         async with db.execute(
             f"SELECT COALESCE(SUM(duration_seconds), 0) FROM {table} "
@@ -2990,7 +3058,128 @@ async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, gam
             f"AND {_NORM_GAME_SQL} = ?",
             (user_discord_id, norm)
         ) as cur:
-            return (await cur.fetchone())[0] or 0
+            discord_seconds = (await cur.fetchone())[0] or 0
+    # Возвращаем максимум — Steam приоритет, но если Discord больше (маловероятно), берём его
+    return max(steam_seconds, discord_seconds)
+
+
+# === v2.3: Merged games (Steam приоритет + Discord доп) ===
+
+async def g_get_user_games_merged(guild_id: int, user_discord_id: int, limit: int = 10) -> list[dict]:
+    """Получить объединённый список игр юзера — Steam приоритет + Discord дополнительно.
+
+    Логика:
+    1. Получаем Steam игры (из кеша, lazy refresh)
+    2. Получаем Discord игры (из member_activities, агрегированные по имени)
+    3. Merge: если игра есть в Steam — берём Steam playtime (точнее).
+       Если игры нет в Steam — берём Discord playtime (non-Steam игры: Honkai Star Rail, GOG, etc.)
+    4. Сортировка: по playtime_forever DESC
+
+    Возвращает [{game_name, playtime_forever_sec, playtime_2weeks_sec, source, icon_url}, ...]
+    source: 'steam' | 'discord'
+    """
+    # 1. Steam игры
+    steam_games = await g_get_user_steam_games(guild_id, user_discord_id, limit=50)
+    steam_map = {}  # norm_name → game dict
+    for g in steam_games:
+        norm = _normalize_game_name(g.get("name", "")).lower()
+        if norm:
+            steam_map[norm] = {
+                "game_name": g.get("name", "Unknown"),
+                "playtime_forever_sec": int(g.get("playtime_forever_min", 0)) * 60,
+                "playtime_2weeks_sec": int(g.get("playtime_2weeks_min", 0)) * 60,
+                "source": "steam",
+                "icon_url": g.get("icon_url"),
+            }
+
+    # 2. Discord игры (агрегированные)
+    table = _guild.guild_table(guild_id, "member_activities")
+    discord_games = []
+    try:
+        async with _connect() as db:
+            async with db.execute(
+                f"SELECT MAX(activity_name) AS display, "
+                f"COALESCE(SUM(duration_seconds), 0) AS total_sec, "
+                f"{_NORM_GAME_SQL} AS norm "
+                f"FROM {table} WHERE user_discord_id = ? AND activity_type = 'playing' AND ended_at IS NOT NULL "
+                f"GROUP BY norm ORDER BY total_sec DESC",
+                (user_discord_id,)
+            ) as cur:
+                rows = await cur.fetchall()
+            discord_games = [
+                {
+                    "game_name": r[0],
+                    "playtime_forever_sec": r[1],
+                    "playtime_2weeks_sec": 0,  # Discord не отслеживает 2 недели
+                    "source": "discord",
+                    "icon_url": None,
+                    "_norm": r[2],
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        log.warning("g_get_user_games_merged: Discord games query failed: %s", e)
+
+    # 3. Merge
+    merged = {}
+    # Сначала Steam (приоритет)
+    for norm, g in steam_map.items():
+        merged[norm] = g
+    # Потом Discord — только если игры нет в Steam
+    for dg in discord_games:
+        norm = dg["_norm"]
+        if norm not in merged:
+            merged[norm] = {
+                "game_name": dg["game_name"],
+                "playtime_forever_sec": dg["playtime_forever_sec"],
+                "playtime_2weeks_sec": 0,
+                "source": "discord",
+                "icon_url": None,
+            }
+
+    # 4. Сортировка по playtime_forever DESC
+    result = sorted(merged.values(), key=lambda x: x.get("playtime_forever_sec", 0), reverse=True)
+    return result[:limit]
+
+
+async def g_list_server_games_merged(guild_id: int) -> list[dict]:
+    """Список всех игр на сервере — мерж Steam + Discord, для dropdown в конструкторе ачивок.
+
+    Возвращает [{game_name}, ...] отсортированный по имени.
+    v2.3: заменяет g_list_server_games — использует merged данные.
+    """
+    # Steam игры (из кеша всех юзеров)
+    steam_table = _guild.guild_table(guild_id, "user_steam_games")
+    discord_table = _guild.guild_table(guild_id, "member_activities")
+
+    games = set()
+    try:
+        async with _connect() as db:
+            # Steam кеш
+            try:
+                async with db.execute(
+                    f"SELECT DISTINCT name FROM {steam_table}"
+                ) as cur:
+                    for row in await cur.fetchall():
+                        if row[0]:
+                            games.add(row[0])
+            except Exception:
+                pass
+            # Discord activities
+            try:
+                async with db.execute(
+                    f"SELECT DISTINCT activity_name FROM {discord_table} "
+                    f"WHERE activity_type = 'playing' AND ended_at IS NOT NULL"
+                ) as cur:
+                    for row in await cur.fetchall():
+                        if row[0]:
+                            games.add(row[0])
+            except Exception:
+                pass
+    except Exception as e:
+        log.warning("g_list_server_games_merged failed: %s", e)
+
+    return [{"game_name": g} for g in sorted(games)]
 
 
 def _normalize_game_name(name: str) -> str:
