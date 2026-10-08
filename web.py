@@ -1215,6 +1215,12 @@ async def api_add_to_watched(
     if not added:
         return JSONResponse({"error": "failed to add"}, status_code=500)
 
+    # v2.3: Проверка авто-ачивок после добавления в бэклог
+    try:
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "watched_count")
+    except Exception:
+        pass
+
     return JSONResponse({"ok": True, "title": title})
 
 
@@ -1896,6 +1902,11 @@ async def api_watchlist_add(
             "error": f"Фильм «{name}» уже в вашем списке желаемого.",
             "error_code": "already_yours",
         }, status_code=409)
+    # v2.3: Проверка авто-ачивок после добавления в вишлист
+    try:
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "watchlist_count")
+    except Exception:
+        pass
     return JSONResponse({"ok": True, "id": watchlist_id, "title": name})
 
 
@@ -2456,6 +2467,12 @@ async def api_collection_start(
         import logging
         logging.getLogger("web").warning("TG notify collection_started failed: %s", e)
 
+    # v2.3: Проверка авто-ачивок после создания сбора
+    try:
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "collections_started")
+    except Exception:
+        pass
+
     return JSONResponse({"ok": True, "collection": collection})
 
 
@@ -2882,6 +2899,12 @@ async def api_santa_join(
         steam_avatar_url=steam_profile["steam_avatar_url"],
         preferences=preferences.strip() or None,
     )
+
+    # v2.3: Проверка авто-ачивок после присоединения к Сайте
+    try:
+        await db.g_check_and_grant_auto(guild_id, user_discord_id, "santa_participations")
+    except Exception:
+        pass
 
     return JSONResponse({
         "ok": True,
