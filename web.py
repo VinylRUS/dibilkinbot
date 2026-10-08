@@ -1028,6 +1028,128 @@ async def features_save(
     return RedirectResponse(url="/features?saved=1", status_code=303)
 
 
+# === Admin panel (v2.3.1 — только для Матка) ===
+
+@app.get("/adminpanel", response_class=HTMLResponse)
+async def admin_panel_page(request: Request, _user: dict = Depends(require_superuser)):
+    """Единая админ-панель с табами: Юзеры, Токены, Каналы, Фичи, Серверы."""
+    guild_id = get_current_guild_id(_user)
+    # Данные для вкладки Юзеры
+    users = await db.list_users()
+    # Данные для вкладки Токены
+    saved_tokens = {}
+    for key, _label in KNOWN_TOKENS:
+        v = await db.get_setting(key)
+        saved_tokens[key] = bool(v)
+    # Данные для вкладки Каналы
+    channel_values = {key: (await db.get_setting(key) or "") for key, _label in KNOWN_CHANNELS}
+    # Данные для вкладки Фичи
+    feature_values = {key: (await db.get_setting(key) or default) for key, _label, default in KNOWN_FEATURES}
+    # Данные для вкладки Серверы
+    import guild as guild_module
+    guilds = await guild_module.list_guilds(approved_only=False)
+
+    return templates.TemplateResponse(request, "admin_panel.html", {
+        "user": _user,
+        "users": users,
+        "tokens": KNOWN_TOKENS,
+        "saved_tokens": saved_tokens,
+        "channels": KNOWN_CHANNELS,
+        "channel_values": channel_values,
+        "features": KNOWN_FEATURES,
+        "feature_values": feature_values,
+        "guilds": guilds,
+        "active_tab": request.query_params.get("tab", "users"),
+    })
+
+
+@app.post("/api/admin/add_user")
+async def api_add_user(
+    _user: dict = Depends(require_superuser),
+    discord_id: str = Form(...),
+    username: str = Form(""),
+):
+    """Добавить юзера вручную по Discord ID."""
+    discord_id = discord_id.strip()
+    if not discord_id.isdigit():
+        return JSONResponse({"error": "Discord ID должен быть числом"}, status_code=400)
+    discord_id = int(discord_id)
+    # Проверяем не существует ли уже
+    existing = await db.get_user(discord_id)
+    if existing:
+        return JSONResponse({"error": "Юзер уже существует"}, status_code=409)
+    await db.upsert_user(discord_id, username=username or f"User {discord_id}", display_name=username or None)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/delete_user")
+async def api_delete_user(
+    _user: dict = Depends(require_superuser),
+    discord_id: int = Form(...),
+):
+    """Удалить юзера из БД."""
+    # Нельзя удалить env-админа
+    if settings.admin_discord_id and discord_id == int(settings.admin_discord_id):
+        return JSONResponse({"error": "Нельзя удалить env-админа"}, status_code=400)
+    async with db._connect() as conn:
+        await conn.execute("DELETE FROM users WHERE discord_id = ?", (discord_id,))
+        await conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/set_steam")
+async def api_admin_set_steam(
+    _user: dict = Depends(require_superuser),
+    discord_id: int = Form(...),
+    steam_url: str = Form(...),
+):
+    """Установить Steam-профиль юзеру через ссылку."""
+    import steam
+    steam_url = steam_url.strip()
+    if not steam_url:
+        # Очищаем
+        await db.set_user_steam_profile(discord_id, None, None, None, None)
+        return JSONResponse({"ok": True, "cleared": True})
+    validation = await steam.validate_steam_profile(steam_url)
+    if not validation["valid"]:
+        return JSONResponse({"error": validation.get("error", "Невалидный профиль")}, status_code=400)
+    await db.set_user_steam_profile(
+        discord_id,
+        validation["steam_profile_url"],
+        validation["steam_id64"],
+        validation["steam_persona"],
+        validation["steam_avatar_url"],
+    )
+    return JSONResponse({"ok": True, "persona": validation.get("steam_persona", "")})
+
+
+@app.post("/api/admin/set_role")
+async def api_admin_set_role(
+    _user: dict = Depends(require_superuser),
+    discord_id: int = Form(...),
+    role: str = Form(...),
+):
+    """Изменить роль юзера."""
+    if role not in ("superuser", "junior-admin", "user"):
+        return JSONResponse({"error": "Неверная роль"}, status_code=400)
+    # Нельзя понизить env-админа
+    if settings.admin_discord_id and discord_id == int(settings.admin_discord_id) and role != "superuser":
+        return JSONResponse({"error": "Нельзя понизить env-админа"}, status_code=400)
+    await db.set_user_role(discord_id, role)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/profile/steam_status")
+async def api_steam_status(_user: dict = Depends(require_superuser), discord_id: int = 0):
+    """Проверить привязан ли Steam-профиль к юзеру (для админ-панели)."""
+    if not discord_id:
+        return JSONResponse({"linked": False})
+    profile = await db.get_user_steam_profile(discord_id)
+    if profile and profile.get("steam_id64"):
+        return JSONResponse({"linked": True, "persona": profile.get("steam_persona", "")})
+    return JSONResponse({"linked": False})
+
+
 # === Winners page (для всех залогиненных) ===
 
 @app.get("/winners", response_class=HTMLResponse)

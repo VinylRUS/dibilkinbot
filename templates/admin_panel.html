@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Админ-панель · DeeBeelkin</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .admin-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+      overflow-x: auto;
+    }
+    .admin-tab {
+      padding: 10px 18px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: none;
+      border-radius: 10px 10px 0 0;
+      transition: all 0.15s;
+      white-space: nowrap;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .admin-tab:hover { color: var(--text); background: var(--content-bg); }
+    .admin-tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Юзеры */
+    .user-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .user-row:hover { background: var(--content-bg-hover); }
+    .user-row:last-child { border-bottom: none; }
+    .user-row-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--accent-soft); display: flex; align-items: center; justify-content: center;
+      color: var(--accent); font-weight: 700; font-size: 0.9rem; flex-shrink: 0; overflow: hidden;
+    }
+    .user-row-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .user-row-info { flex: 1; min-width: 0; }
+    .user-row-name { font-weight: 600; color: var(--text); font-size: 0.88rem; }
+    .user-row-meta { color: var(--text-muted); font-size: 0.75rem; display: flex; gap: 8px; flex-wrap: wrap; }
+    .role-badge { padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; }
+    .role-badge.superuser { background: var(--accent); color: var(--accent-text); }
+    .role-badge.junior-admin { background: var(--green); color: #fff; }
+    .role-badge.user { background: var(--border-strong); color: var(--text-muted); }
+    .steam-badge { font-size: 0.68rem; }
+    .steam-badge.linked { color: var(--green); }
+    .steam-badge.unlinked { color: var(--text-soft); }
+    .user-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .user-edit-panel {
+      background: var(--content-bg);
+      border: 1px solid var(--content-border);
+      border-radius: 10px;
+      padding: 16px;
+      margin: 8px 0 16px;
+      display: none;
+    }
+    .user-edit-panel.open { display: block; }
+    .edit-row { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .edit-row label { font-size: 0.78rem; color: var(--text-muted); min-width: 60px; }
+    .edit-row input, .edit-row select {
+      flex: 1; min-width: 150px; padding: 6px 10px; background: var(--input-bg);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.82rem;
+    }
+    .edit-row select { -webkit-appearance: none; appearance: none; }
+
+    /* Токены */
+    .token-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .token-row label { font-weight: 600; color: var(--text); font-size: 0.85rem; min-width: 160px; }
+    .token-row input { flex: 1; min-width: 200px; padding: 8px 12px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.82rem; }
+    .token-status { font-size: 0.75rem; font-weight: 600; }
+    .token-status.ok { color: var(--green); }
+    .token-status.no { color: var(--text-soft); }
+
+    /* Каналы */
+    .channel-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .channel-row label { font-size: 0.82rem; color: var(--text-muted); min-width: 220px; }
+    .channel-row input { flex: 1; min-width: 200px; padding: 8px 12px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.82rem; }
+
+    /* Фичи */
+    .feature-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .feature-row:last-child { border-bottom: none; }
+    .feature-row label { flex: 1; color: var(--text); font-size: 0.85rem; }
+    .toggle-switch { position: relative; width: 44px; height: 24px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--border-strong); border-radius: 24px; transition: 0.2s;
+    }
+    .toggle-slider::before {
+      content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px;
+      background: white; border-radius: 50%; transition: 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+    /* Серверы */
+    .guild-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .guild-row:last-child { border-bottom: none; }
+
+    .search-box { padding: 8px 12px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.82rem; min-width: 200px; }
+  </style>
+</head>
+<body>
+  {% include "sidebar.html" %}
+
+  <main class="container">
+    <h2>Админ-панель</h2>
+
+    <div class="admin-tabs">
+      <a class="admin-tab {% if active_tab == 'users' %}active{% endif %}" href="/adminpanel?tab=users"><img src="/static/icons/users.png" alt="" width="16" height="16" class="ui-icon"> Юзеры</a>
+      <a class="admin-tab {% if active_tab == 'tokens' %}active{% endif %}" href="/adminpanel?tab=tokens"><img src="/static/icons/key.png" alt="" width="16" height="16" class="ui-icon"> Токены</a>
+      <a class="admin-tab {% if active_tab == 'channels' %}active{% endif %}" href="/adminpanel?tab=channels"><img src="/static/icons/megaphone.png" alt="" width="16" height="16" class="ui-icon"> Каналы</a>
+      <a class="admin-tab {% if active_tab == 'features' %}active{% endif %}" href="/adminpanel?tab=features"><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Фичи</a>
+      <a class="admin-tab {% if active_tab == 'guilds' %}active{% endif %}" href="/adminpanel?tab=guilds"><img src="/static/icons/database.png" alt="" width="16" height="16" class="ui-icon"> Серверы</a>
+    </div>
+
+    {# === Вкладка Юзеры === #}
+    <div class="tab-content {% if active_tab == 'users' %}active{% endif %}" id="tab-users">
+      <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+        <input type="text" id="user-search" class="search-box" placeholder="Поиск по имени или ID..." oninput="filterUsers()">
+        <button class="btn-primary" onclick="showAddUser()" style="margin-top:0;font-size:0.82rem;padding:8px 14px;"><img src="/static/icons/plus.png" alt="" width="16" height="16" class="ui-icon"> Добавить</button>
+      </div>
+
+      {# Форма добавления (скрытая) #}
+      <div id="add-user-form" class="user-edit-panel">
+        <div class="edit-row">
+          <label>Discord ID</label>
+          <input type="text" id="new-user-id" placeholder="123456789012345678">
+        </div>
+        <div class="edit-row">
+          <label>Имя</label>
+          <input type="text" id="new-user-name" placeholder="Никнейм (опционально)">
+        </div>
+        <button class="btn-primary" onclick="addUser()" style="margin-top:0;font-size:0.82rem;padding:6px 14px;"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Создать</button>
+        <button class="btn-ghost" onclick="hideAddUser()" style="font-size:0.82rem;padding:6px 14px;">Отмена</button>
+      </div>
+
+      <article class="card">
+        {% for u in users %}
+        {% set u_did = u[0] %}
+        {% set u_username = u[1] %}
+        {% set u_display = u[2] or u[1] %}
+        {% set u_is_admin = u[3] %}
+        {% set u_avatar = u[5] %}
+        {% set u_role = u[8] if u|length > 8 and u[8] else 'user' %}
+        <div class="user-row" id="user-{{ u_did }}" data-name="{{ (u_display or u_username or '')|lower }}">
+          <div class="user-row-avatar">
+            {% if u_avatar %}<img src="{{ u_avatar }}" alt="">{% else %}{{ (u_display or '?')[:1]|upper }}{% endif %}
+          </div>
+          <div class="user-row-info">
+            <div class="user-row-name">{{ u_display or u_username or 'Unknown' }}</div>
+            <div class="user-row-meta">
+              <span class="role-badge {{ u_role }}">{{ db.ROLE_LABELS.get(u_role, 'Пчела') }}</span>
+              <span class="mono">@{{ u_username or u_did }}</span>
+              <span class="steam-badge" id="steam-status-{{ u_did }}">Steam: проверка...</span>
+            </div>
+          </div>
+          <div class="user-row-actions">
+            <button class="btn-icon" onclick="toggleEdit({{ u_did }})" title="Редактировать"><img src="/static/icons/edit.png" alt="" width="16" height="16" class="ui-icon"></button>
+          </div>
+        </div>
+        {# Inline панель редактирования #}
+        <div class="user-edit-panel" id="edit-{{ u_did }}">
+          <div class="edit-row">
+            <label>Роль</label>
+            <select id="role-{{ u_did }}">
+              <option value="user" {% if u_role == 'user' %}selected{% endif %}>Пчела</option>
+              <option value="junior-admin" {% if u_role == 'junior-admin' %}selected{% endif %}>Трутень</option>
+              <option value="superuser" {% if u_role == 'superuser' %}selected{% endif %}>Матка</option>
+            </select>
+            <button class="btn-ghost" onclick="saveRole({{ u_did }})" style="font-size:0.78rem;padding:4px 10px;">Сменить роль</button>
+          </div>
+          <div class="edit-row">
+            <label>Steam</label>
+            <input type="text" id="steam-{{ u_did }}" placeholder="https://steamcommunity.com/id/..." value="">
+            <button class="btn-ghost" onclick="saveSteam({{ u_did }})" style="font-size:0.78rem;padding:4px 10px;">Проверить</button>
+            <button class="btn-ghost" onclick="clearSteam({{ u_did }})" style="font-size:0.78rem;padding:4px 10px;">Убрать</button>
+          </div>
+          <div style="margin-top:8px;">
+            <button class="btn-danger" onclick="deleteUser({{ u_did }}, '{{ (u_display or u_username or '')|replace("'", "\\'") }}')" style="font-size:0.78rem;padding:4px 10px;"><img src="/static/icons/trash.png" alt="" width="14" height="14" class="ui-icon"> Удалить юзера</button>
+          </div>
+        </div>
+        {% endfor %}
+      </article>
+    </div>
+
+    {# === Вкладка Токены === #}
+    <div class="tab-content {% if active_tab == 'tokens' %}active{% endif %}" id="tab-tokens">
+      <form method="post" action="/tokens">
+        {% for key, label in tokens %}
+        <div class="token-row">
+          <label>{{ label }}</label>
+          <input type="password" name="{{ key }}" placeholder="{{ 'Сохранён' if saved_tokens.get(key) else 'Не задан' }}">
+          <span class="token-status {{ 'ok' if saved_tokens.get(key) else 'no' }}">{{ '✓ сохранён' if saved_tokens.get(key) else '✗ не задан' }}</span>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn-primary" style="margin-top:8px;"><img src="/static/icons/check.png" alt="" width="16" height="16" class="ui-icon"> Сохранить токены</button>
+      </form>
+      <p style="color:var(--text-muted);font-size:0.78rem;margin-top:12px;">Перезапустите бота после изменения токенов.</p>
+    </div>
+
+    {# === Вкладка Каналы === #}
+    <div class="tab-content {% if active_tab == 'channels' %}active{% endif %}" id="tab-channels">
+      <form method="post" action="/channels">
+        {% for key, label in channels %}
+        <div class="channel-row">
+          <label>{{ label }}</label>
+          <input type="text" name="{{ key }}" value="{{ channel_values.get(key, '') }}" placeholder="Введите значение...">
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn-primary" style="margin-top:8px;"><img src="/static/icons/check.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
+      </form>
+    </div>
+
+    {# === Вкладка Фичи === #}
+    <div class="tab-content {% if active_tab == 'features' %}active{% endif %}" id="tab-features">
+      <form method="post" action="/features">
+        {% for key, label, default in features %}
+        <div class="feature-row">
+          <label>{{ label }}</label>
+          <div class="toggle-switch">
+            <input type="checkbox" name="{{ key }}" {% if feature_values.get(key) == '1' %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+          </div>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn-primary" style="margin-top:8px;"><img src="/static/icons/check.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
+      </form>
+    </div>
+
+    {# === Вкладка Серверы === #}
+    <div class="tab-content {% if active_tab == 'guilds' %}active{% endif %}" id="tab-guilds">
+      <article class="card">
+        {% for g in guilds %}
+        <div class="guild-row">
+          <div style="flex:1;">
+            <div style="font-weight:600;color:var(--text);font-size:0.88rem;">{{ g.name }}</div>
+            <div style="color:var(--text-muted);font-size:0.72rem;">ID: {{ g.guild_id }} · {{ g.member_count }} юзеров</div>
+          </div>
+          {% if g.approved %}
+          <span class="token-status ok">одобрен</span>
+          <form method="post" action="/guilds/{{ g.guild_id }}/reject" style="display:inline;">
+            <button class="btn-ghost" style="font-size:0.78rem;padding:4px 10px;color:var(--red);border-color:var(--red);">Отозвать</button>
+          </form>
+          {% else %}
+          <span class="token-status no">ожидание</span>
+          <form method="post" action="/guilds/{{ g.guild_id }}/approve" style="display:inline;">
+            <button class="btn-ghost" style="font-size:0.78rem;padding:4px 10px;color:var(--green);border-color:var(--green);">Одобрить</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </article>
+    </div>
+  </main>
+
+  <script>
+    // Табы
+    // (управляется через URL ?tab=X, JS не нужен — обычные ссылки)
+
+    // Поиск юзеров
+    function filterUsers() {
+      const q = document.getElementById('user-search').value.toLowerCase();
+      document.querySelectorAll('.user-row').forEach(row => {
+        const name = row.dataset.name || '';
+        row.style.display = name.includes(q) ? '' : 'none';
+      });
+    }
+
+    // Добавление юзера
+    function showAddUser() { document.getElementById('add-user-form').classList.add('open'); }
+    function hideAddUser() { document.getElementById('add-user-form').classList.remove('open'); }
+
+    async function addUser() {
+      const did = document.getElementById('new-user-id').value.trim();
+      const name = document.getElementById('new-user-name').value.trim();
+      if (!did) { showToast('Введите Discord ID', 'error'); return; }
+      try {
+        const fd = new FormData();
+        fd.append('discord_id', did);
+        fd.append('username', name);
+        const r = await fetch('/api/admin/add_user', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok) { showToast('Юзер добавлен', 'success'); setTimeout(() => location.reload(), 600); }
+        else { showToast(data.error || 'Ошибка', 'error'); }
+      } catch (e) { showToast('Сетевая ошибка', 'error'); }
+    }
+
+    // Inline редактирование
+    function toggleEdit(did) {
+      const panel = document.getElementById('edit-' + did);
+      panel.classList.toggle('open');
+    }
+
+    async function saveRole(did) {
+      const role = document.getElementById('role-' + did).value;
+      try {
+        const fd = new FormData();
+        fd.append('discord_id', did);
+        fd.append('role', role);
+        const r = await fetch('/api/admin/set_role', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok) { showToast('Роль изменена', 'success'); setTimeout(() => location.reload(), 600); }
+        else { showToast(data.error || 'Ошибка', 'error'); }
+      } catch (e) { showToast('Сетевая ошибка', 'error'); }
+    }
+
+    async function saveSteam(did) {
+      const url = document.getElementById('steam-' + did).value.trim();
+      if (!url) { showToast('Введите ссылку', 'error'); return; }
+      showToast('Проверяю Steam-профиль...', 'info');
+      try {
+        const fd = new FormData();
+        fd.append('discord_id', did);
+        fd.append('steam_url', url);
+        const r = await fetch('/api/admin/set_steam', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok) { showToast('Steam привязан: ' + (data.persona || 'OK'), 'success'); setTimeout(() => location.reload(), 800); }
+        else { showToast(data.error || 'Ошибка', 'error'); }
+      } catch (e) { showToast('Сетевая ошибка', 'error'); }
+    }
+
+    async function clearSteam(did) {
+      try {
+        const fd = new FormData();
+        fd.append('discord_id', did);
+        fd.append('steam_url', '');
+        const r = await fetch('/api/admin/set_steam', { method: 'POST', body: fd });
+        if (r.ok) { showToast('Steam убран', 'success'); setTimeout(() => location.reload(), 600); }
+      } catch (e) { showToast('Сетевая ошибка', 'error'); }
+    }
+
+    async function deleteUser(did, name) {
+      if (!confirm('Удалить юзера «' + name + '»? Это действие необратимо.')) return;
+      try {
+        const fd = new FormData();
+        fd.append('discord_id', did);
+        const r = await fetch('/api/admin/delete_user', { method: 'POST', body: fd });
+        if (r.ok) { showToast('Юзер удалён', 'success'); setTimeout(() => location.reload(), 600); }
+        else { const d = await r.json(); showToast(d.error || 'Ошибка', 'error'); }
+      } catch (e) { showToast('Сетевая ошибка', 'error'); }
+    }
+
+    // Загружаем Steam-статус для каждого юзера
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('[id^="steam-status-"]').forEach(el => {
+        const did = el.id.replace('steam-status-', '');
+        // Проверяем через API есть ли Steam у юзера
+        fetch('/api/profile/steam_status?discord_id=' + did)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && data.linked) {
+              el.className = 'steam-badge linked';
+              el.textContent = 'Steam: ' + (data.persona || 'привязан');
+            } else {
+              el.className = 'steam-badge unlinked';
+              el.textContent = 'Steam: не привязан';
+            }
+          })
+          .catch(() => {
+            el.className = 'steam-badge unlinked';
+            el.textContent = 'Steam: —';
+          });
+      });
+    });
+  </script>
+{% include "_footer.html" %}
+</body>
+</html>
