@@ -281,7 +281,7 @@
                 <div class="ach-icon" id="ach-icon-{{ ach.id }}" data-icon-config='{{ ach.icon_config | tojson | safe }}'></div>
                 <div class="ach-info">
                   <div class="ach-name">{{ ach.name }}</div>
-                  {% if ach.description %}<div class="ach-desc">{{ ach.description }}{% endif %}</div>
+                  {% if ach.description %}<div class="ach-desc">{{ ach.description }}</div>{% endif %}
                   <div class="ach-meta">
                     <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' and ach.trigger_type not in ('first_rating', 'first_quote') %} ≥ {% if ach.trigger_threshold >= 3600 %}{{ (ach.trigger_threshold / 3600) | round(1) }} ч{% elif ach.trigger_threshold >= 60 %}{{ (ach.trigger_threshold / 60) | round(0) }} мин{% else %}{{ ach.trigger_threshold }} сек{% endif %}{% endif %}</span>
                     {% if ach.discord_role_id %}<span class="ach-tag role">Discord роль</span>{% endif %}
