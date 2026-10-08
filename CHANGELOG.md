@@ -1,5 +1,76 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.3.2 (62fa9ea)
+
+#НОВЫЕ_ФИЧИ#
+- Дашборд: «Быстрые действия» перенесены наверх — теперь всегда под рукой. Блок «Сейчас» стал двухколоночным: слева статус киновечера, справа новый блок «Сейчас играют» — кто прямо сейчас в игре, со статусом и названием игры
+- Новый блок «Вместе играют» на дашборде: бот находит группы юзеров, которые сидят в одном войс-канале и запустили одну и ту же игру. Проверяет через Steam, что игра мультиплеерная — чтобы не считать совместной игру в синглплеер
+- Сайдбар стал компактнее: убраны ник, роль и надпись «Настройки». Осталась только кликабельная аватарка — открывает публичный профиль
+- Публичный профиль: аватар теперь показывает Discord-статус (онлайн/AFK/не беспокоить/офлайн) — такой же цветной индикатор, как на дашборде. При наведении на свою аватарку появляется полупрозрачная шестерёнка — открывает настройки
+- Игры в профиле отсортированы по последним запущенным — свежее сверху, а не по общему времени. Новые игры (за последние 14 дней) подсвечиваются золотым свечением и плашкой «new»
+- Совместимость по играм: вместо сухого «47 общих игр» теперь раскрывающийся список названий — кликаешь и видишь все общие игры в две колонки
+- Steam-вишлист: в настройках появился переключатель «показывать вишлист в публичном профиле». При включении — топ-10 игр из вашего Steam-вишлиста с обложками, оценкой и годом релиза. С предупреждением: если профиль приватный — вишлист недоступен
+
+#АДМИНСКИЕ_ФИЧИ#
+- Новые триггеры достижений:
+  * «Steam — количество игр» — ачивка за N игр в библиотеке
+  * «Steam — время в конкретной игре» — порог по конкретной игре (выбирается из списка)
+  * «Совместных сессий» — за N разных юзеров, с которыми юзер делил войс-канал
+- Исправлен баг с триггером «Steam — общее время»: порог считался в 60 раз больше чем нужно (расхождение минут и секунд). Ачивка на 1000 часов требовала 60 000 часов — теперь работает корректно
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- Миграции БД:
+  * `user_steam_games.rtime_last_played INTEGER DEFAULT 0` (для всех гильдий, ALTER TABLE)
+  * `users.show_wishlist INTEGER DEFAULT 0` (миграция через existing_cols)
+- steam.py:
+  * `get_app_details(appid)` — Steam Store API `/appdetails`, публичный (без API key)
+  * `is_multiplayer_game(appid)` — кеширует результат на 7 дней (in-memory dict). Проверяет категории: Multi-player, Co-op, Online Co-op, PvP, LAN PvP, Cross-Platform Multiplayer, Shared/Split Screen
+  * `get_owned_games` и `get_recently_played_games` теперь захватывают `rtime_last_played` из ответа Steam API
+  * FIX (из v2.3.1): иконки Steam-игр используют `.jpg` расширение (не `.ico`), домен `media.steampowered.com` подтверждён как рабочий по docs.steamapis.com
+- db.py:
+  * `g_save_steam_games_cache` / `g_get_steam_games_cached` — сохраняют/читают `rtime_last_played`
+  * `g_get_user_games_merged` переписан: сортировка по `last_played_at DESC` (max из Steam rtime_last_played и Discord MAX(ended_at)), fallback на playtime. Новое поле `is_new` (last_played за 14 дней)
+  * `g_find_appid_by_game_name(game_name, guild_id=0)` — поиск appid по нормализованному имени во всех гильдиях (для joint_play_sessions)
+  * `get_user_show_wishlist` / `set_user_show_wishlist` — настройки видимости вишлиста
+  * `g_get_user_trigger_count` — `steam_play_time` теперь возвращает секунды (раньше минуты — был баг); добавлены ветки для `steam_games_count`, `steam_play_time_specific`, `voice_co_sessions`
+  * `g_check_and_grant_auto` — обработка `steam_play_time_specific` через `icon_config.game_name` и `g_get_game_play_time_specific`
+  * Новые константы: `TRIGGER_TIME_HOURS`, `TRIGGER_NEEDS_GAME_NAME`
+  * `ACHIEVEMENT_TRIGGERS` расширен 3 новыми триггерами
+- bot.py:
+  * `get_joint_play_sessions(guild_id)` — сканирует все войс-каналы, группирует участников по `discord.ActivityType.playing`, для групп ≥2 юзеров ищет appid через `g_find_appid_by_game_name` и проверяет multiplayer через `steam.is_multiplayer_game`. Если игра не в Steam кеше — считает multiplayer (better false-positive than false-negative)
+  * `_check_all_auto_achievements` — `PERIODIC_TRIGGERS` расширен 3 новыми триггерами
+- web.py:
+  * `/` route — добавлен вызов `bot_module.get_joint_play_sessions`, результат в контекст как `joint_sessions`
+  * `/u/{discord_id}` — если `show_wishlist=True` и Steam API key задан, запрашивается `steam.get_top_wishlist_games` (топ-10)
+  * `/profile` — добавлен `show_wishlist` в контекст
+  * Новый endpoint `POST /api/profile/show_wishlist` — установка флага (требует Steam profile)
+- templates/sidebar.html:
+  * Футер упрощён: `.sb-user-info` удалён, осталась только `.sb-user-avatar` внутри `<a href="/u/{discord_id}">`
+- templates/profile_public.html:
+  * Аватар обёрнут в `.profile-avatar-wrap avatar-wrap lg` (position: relative)
+  * `<span class="status-dot {{ discord_info.status }}">` — Discord-статус
+  * `<a class="profile-avatar-gear">` — шестерёнка настроек, `opacity: 0` → `1` при hover, `backdrop-filter: blur(3px)`
+  * Кнопка «Настройки» рядом с «Назад» убрана
+  * Игры: `<li class="game-new">` + `<span class="game-new-badge">new</span>` + CSS `@keyframes new-game-glow` (2.4s infinite)
+  * `compat-item-expandable` — клик toggles `expanded`, `.compat-games-list` с `columns: 2`
+  * Новый блок «Steam-вишлист» с капсулами, % отзывов, годом
+- templates/panel.html:
+  * `quick-links` перенесены перед `h2 Сейчас`
+  * Блок «Сейчас» обёрнут в `.now-grid` (grid 1.4fr 1fr, mobile stack)
+  * Новый блок «Вместе играют» с `.joint-session-card` для каждой сессии
+- templates/profile.html:
+  * Чекбокс `show-wishlist-toggle` с inline success/error feedback через `toggleShowWishlist()`
+- templates/achievements.html:
+  * Dropdown `trigger_type` расширен 3 новыми опциями
+  * `TIME_TRIGGERS` и `TIME_TRIGGERS_EDIT` включают `steam_play_time_specific`
+  * `game-select-row` показывается для `game_play_time` И `steam_play_time_specific`
+  * Новый `TRIGGERS_NEED_GAME` set
+- static/style.css:
+  * `.now-grid` + `.playing-list` + `.avatar-wrap.xs` + `.playing-*` стили
+  * `.joint-sessions` grid + `.joint-session-card` + `.joint-mp-badge` + `.joint-user-chip`
+  * `.sb-user` упрощён (без info блока), `.sb-user-avatar` увеличен до 36×36 с hover-зумом
+  * `.profile-avatar-gear` + `.profile-avatar-wrap:hover` + `@keyframes new-game-glow`
+
 ## v2.3.1
 ### Новое
 - Управление пользователями: добавление и удаление профилей вручную, изменение ролей (Матка/Трутень/Пчела), привязка Steam-профиля через ссылку прямо из панели — больше не нужно просить каждого юзера настраивать Steam самостоятельно
