@@ -36,6 +36,30 @@
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
+    /* Модалка редактирования */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      display: none; align-items: center; justify-content: center; z-index: 1000;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--content-bg); border: 1px solid var(--content-border);
+      border-radius: 16px; padding: 24px; max-width: 480px; width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal h3 { margin: 0 0 4px; font-size: 1.05rem; color: var(--text); }
+    .modal-sub { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 18px; }
+    .modal-section { padding: 14px 0; border-top: 1px solid var(--border); }
+    .modal-section:first-of-type { border-top: none; padding-top: 0; }
+    .modal-section-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+    .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; padding: 4px; line-height: 1; }
+    .modal-close:hover { color: var(--text); }
+    .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+
     /* Юзеры */
     .user-row {
       display: flex;
@@ -71,9 +95,7 @@
       border-radius: 10px;
       padding: 16px;
       margin: 8px 0 16px;
-      display: none;
     }
-    .user-edit-panel.open { display: block; }
     .edit-row { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
     .edit-row label { font-size: 0.78rem; color: var(--text-muted); min-width: 60px; }
     .edit-row input, .edit-row select {
@@ -159,10 +181,9 @@
         {% set u_did = u[0] %}
         {% set u_username = u[1] %}
         {% set u_display = u[2] or u[1] %}
-        {% set u_is_admin = u[3] %}
         {% set u_avatar = u[5] %}
         {% set u_role = u[8] if u|length > 8 and u[8] else 'user' %}
-        <div class="user-row" id="user-{{ u_did }}" data-name="{{ (u_display or u_username or '')|lower }}">
+        <div class="user-row" data-name="{{ (u_display or u_username or '')|lower }}">
           <div class="user-row-avatar">
             {% if u_avatar %}<img src="{{ u_avatar }}" alt="">{% else %}{{ (u_display or '?')[:1]|upper }}{% endif %}
           </div>
@@ -175,32 +196,50 @@
             </div>
           </div>
           <div class="user-row-actions">
-            <button class="btn-icon" onclick="toggleEdit({{ u_did }})" title="Редактировать"><img src="/static/icons/edit.png" alt="" width="16" height="16" class="ui-icon"></button>
-          </div>
-        </div>
-        {# Inline панель редактирования #}
-        <div class="user-edit-panel" id="edit-{{ u_did }}">
-          <div class="edit-row">
-            <label>Роль</label>
-            <select id="role-{{ u_did }}">
-              <option value="user" {% if u_role == 'user' %}selected{% endif %}>Пчела</option>
-              <option value="junior-admin" {% if u_role == 'junior-admin' %}selected{% endif %}>Трутень</option>
-              <option value="superuser" {% if u_role == 'superuser' %}selected{% endif %}>Матка</option>
-            </select>
-            <button class="btn-ghost" onclick="saveRole({{ u_did }})" style="font-size:0.78rem;padding:4px 10px;">Сменить роль</button>
-          </div>
-          <div class="edit-row">
-            <label>Steam</label>
-            <input type="text" id="steam-{{ u_did }}" placeholder="https://steamcommunity.com/id/..." value="">
-            <button class="btn-ghost" onclick="saveSteam({{ u_did }})" style="font-size:0.78rem;padding:4px 10px;">Проверить</button>
-            <button class="btn-ghost" onclick="clearSteam({{ u_did }})" style="font-size:0.78rem;padding:4px 10px;">Убрать</button>
-          </div>
-          <div style="margin-top:8px;">
-            <button class="btn-danger" onclick="deleteUser({{ u_did }}, '{{ (u_display or u_username or '')|replace("'", "\\'") }}')" style="font-size:0.78rem;padding:4px 10px;"><img src="/static/icons/trash.png" alt="" width="14" height="14" class="ui-icon"> Удалить юзера</button>
+            <button class="btn-icon" onclick="openEditModal('{{ u_did }}', '{{ u_role }}', '{{ (u_display or u_username or '')|replace("'", "\\'") }}')" title="Редактировать"><img src="/static/icons/edit.png" alt="" width="16" height="16" class="ui-icon"></button>
           </div>
         </div>
         {% endfor %}
       </article>
+    </div>
+
+    {# Модалка редактирования юзера #}
+    <div class="modal-overlay" id="edit-modal" onclick="if(event.target===this)closeEditModal()">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h3 id="edit-modal-name">Юзер</h3>
+            <div class="modal-sub" id="edit-modal-id">ID: —</div>
+          </div>
+          <button class="modal-close" onclick="closeEditModal()">×</button>
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-label">Роль</div>
+          <div class="edit-row">
+            <select id="edit-role">
+              <option value="user">Пчела</option>
+              <option value="junior-admin">Трутень</option>
+              <option value="superuser">Матка</option>
+            </select>
+            <button class="btn-primary" onclick="saveRole()" style="margin-top:0;font-size:0.78rem;padding:6px 12px;">Сменить роль</button>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-label">Steam профиль</div>
+          <div class="edit-row">
+            <input type="text" id="edit-steam" placeholder="https://steamcommunity.com/id/...">
+            <button class="btn-ghost" onclick="saveSteam()" style="font-size:0.78rem;padding:6px 12px;">Проверить</button>
+            <button class="btn-ghost" onclick="clearSteam()" style="font-size:0.78rem;padding:6px 12px;">Убрать</button>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-label" style="color:var(--red);">Опасная зона</div>
+          <button class="btn-danger" onclick="deleteUser()" style="font-size:0.78rem;padding:6px 12px;"><img src="/static/icons/trash.png" alt="" width="14" height="14" class="ui-icon"> Удалить юзера</button>
+        </div>
+      </div>
     </div>
 
     {# === Вкладка Токены === #}
@@ -305,17 +344,35 @@
       } catch (e) { showToast('Сетевая ошибка', 'error'); }
     }
 
-    // Inline редактирование
-    function toggleEdit(did) {
-      const panel = document.getElementById('edit-' + did);
-      panel.classList.toggle('open');
+    // === Модалка редактирования юзера ===
+    let _currentEditDid = null;
+
+    function openEditModal(did, role, name) {
+      _currentEditDid = did;
+      document.getElementById('edit-modal-name').textContent = name || ('Юзер ' + did);
+      document.getElementById('edit-modal-id').textContent = 'ID: ' + did;
+      document.getElementById('edit-role').value = role || 'user';
+      // Текущий Steam не загружаем — поле остаётся пустым, юзер вводит новый URL.
+      // Если надо — можно позже подгрузить через отдельный API.
+      document.getElementById('edit-steam').value = '';
+      document.getElementById('edit-modal').classList.add('open');
     }
 
-    async function saveRole(did) {
-      const role = document.getElementById('role-' + did).value;
+    function closeEditModal() {
+      document.getElementById('edit-modal').classList.remove('open');
+      _currentEditDid = null;
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeEditModal();
+    });
+
+    async function saveRole() {
+      if (!_currentEditDid) return;
+      const role = document.getElementById('edit-role').value;
       try {
         const fd = new FormData();
-        fd.append('discord_id', did);
+        fd.append('discord_id', _currentEditDid);
         fd.append('role', role);
         const r = await fetch('/api/admin/set_role', { method: 'POST', body: fd });
         const data = await r.json();
@@ -324,13 +381,14 @@
       } catch (e) { showToast('Сетевая ошибка', 'error'); }
     }
 
-    async function saveSteam(did) {
-      const url = document.getElementById('steam-' + did).value.trim();
+    async function saveSteam() {
+      if (!_currentEditDid) return;
+      const url = document.getElementById('edit-steam').value.trim();
       if (!url) { showToast('Введите ссылку', 'error'); return; }
       showToast('Проверяю Steam-профиль...', 'info');
       try {
         const fd = new FormData();
-        fd.append('discord_id', did);
+        fd.append('discord_id', _currentEditDid);
         fd.append('steam_url', url);
         const r = await fetch('/api/admin/set_steam', { method: 'POST', body: fd });
         const data = await r.json();
@@ -339,23 +397,26 @@
       } catch (e) { showToast('Сетевая ошибка', 'error'); }
     }
 
-    async function clearSteam(did) {
+    async function clearSteam() {
+      if (!_currentEditDid) return;
       try {
         const fd = new FormData();
-        fd.append('discord_id', did);
+        fd.append('discord_id', _currentEditDid);
         fd.append('steam_url', '');
         const r = await fetch('/api/admin/set_steam', { method: 'POST', body: fd });
         if (r.ok) { showToast('Steam убран', 'success'); setTimeout(() => location.reload(), 600); }
       } catch (e) { showToast('Сетевая ошибка', 'error'); }
     }
 
-    async function deleteUser(did, name) {
+    async function deleteUser() {
+      if (!_currentEditDid) return;
+      const name = document.getElementById('edit-modal-name').textContent;
       if (!confirm('Удалить юзера «' + name + '»? Это действие необратимо.')) return;
       try {
         const fd = new FormData();
-        fd.append('discord_id', did);
+        fd.append('discord_id', _currentEditDid);
         const r = await fetch('/api/admin/delete_user', { method: 'POST', body: fd });
-        if (r.ok) { showToast('Юзер удалён', 'success'); setTimeout(() => location.reload(), 600); }
+        if (r.ok) { showToast('Юзер удалён', 'success'); closeEditModal(); setTimeout(() => location.reload(), 600); }
         else { const d = await r.json(); showToast(d.error || 'Ошибка', 'error'); }
       } catch (e) { showToast('Сетевая ошибка', 'error'); }
     }
