@@ -427,8 +427,14 @@ class KinovecherBot(commands.Bot):
         # === Запуск cron-задачи: еженедельный бэкап БД в Telegram ===
         asyncio.create_task(_db_backup_loop())
 
+        # === v2.3: Периодическая проверка авто-ачивок (раз в 30 минут) ===
+        asyncio.create_task(_auto_achievements_loop())
+
         # === v2.0: Автосоздание профилей для всех НЕ-ботов сервера ===
         await _auto_create_member_profiles()
+
+        # === v2.3: Первичная проверка всех авто-ачивок при старте ===
+        await _check_all_auto_achievements()
 
     async def on_voice_state_update(self, member, before, after):
         """v2.0: Трекинг войс-сессий. Записывает join/leave в БД."""
@@ -1615,6 +1621,14 @@ async def _handle_voice_state_change(member, before, after):
                 )
                 await conn.commit()
 
+            # v2.3: Проверка авто-ачивок после завершения войс-сессии
+            try:
+                await db.g_check_and_grant_auto(guild_id, member.id, "voice_time")
+                await db.g_check_and_grant_auto(guild_id, member.id, "voice_time_solo")
+                await db.g_check_and_grant_auto(guild_id, member.id, "voice_time_with_others")
+            except Exception:
+                pass
+
 
 async def _handle_presence_change(before, after):
     """Обработать изменение активности — записать начало/конец игры в БД."""
@@ -1675,6 +1689,12 @@ async def _handle_presence_change(before, after):
                         (now, duration, act_id),
                     )
                     await conn.commit()
+
+                    # v2.3: Проверка авто-ачивок после завершения игровой сессии
+                    try:
+                        await db.g_check_and_grant_auto(guild_id, after.id, "game_play_time")
+                    except Exception:
+                        pass
         except Exception as e:
             log.warning("Failed to log game end %s for %s: %s", game, after.id, e)
 
@@ -1933,3 +1953,76 @@ async def handle_tg_link_message(text: str, tg_user_id: int, tg_username: str | 
                 f"Ваш Discord ID: <code>{discord_id}</code>")
     else:
         return "❌ Код недействителен или истёк. Сгенерируйте новый через /linktg в Discord."
+
+
+# === v2.3: Авто-проверка ачивок — при старте + раз в 30 минут ===
+
+async def _check_all_auto_achievements():
+    """Проверить все авто-ачивки для всех юзеров во всех гильдиях.
+
+    Запускается:
+    - При старте бота (on_ready)
+    - Раз в 30 минут через _auto_achievements_loop
+
+    Проверяет все триггеры, которые НЕ вызываются в реальном времени
+    (voice_time, game_play_time, watchlist_count, watched_count, etc.).
+    Триггеры ratings_count/first_rating/quotes_count/first_quote уже
+    проверяются в реальном времени при оценке/цитате.
+    """
+    import guild as guild_module
+    log = logging.getLogger("achievements")
+
+    # Все триггеры которые нужно проверять периодически
+    PERIODIC_TRIGGERS = [
+        "watchlist_count",
+        "watched_count",
+        "wheel_wins",
+        "collections_started",
+        "santa_participations",
+        "voice_time",
+        "voice_time_solo",
+        "voice_time_with_others",
+        "game_play_time",
+        # Эти тоже проверяем — на случай если оценка была поставлена через Discord
+        # (а не через веб-панель, где проверка уже есть)
+        "ratings_count",
+        "first_rating",
+        "quotes_count",
+        "first_quote",
+    ]
+
+    try:
+        guilds = await guild_module.list_guilds(approved_only=True)
+        total_granted = 0
+        for g in guilds:
+            gid = g["guild_id"]
+            try:
+                user_ids = await db.list_guild_user_ids(gid)
+                for user_did in user_ids:
+                    for trigger_type in PERIODIC_TRIGGERS:
+                        try:
+                            granted = await db.g_check_and_grant_auto(gid, user_did, trigger_type)
+                            if granted:
+                                total_granted += len(granted)
+                        except Exception:
+                            pass  # ошибки отдельных юзеров не должны валить весь цикл
+            except Exception as e:
+                log.warning("Auto-achievements check failed for guild %s: %s", gid, e)
+        if total_granted > 0:
+            log.info("Auto-achievements: granted %d total across all guilds", total_granted)
+    except Exception as e:
+        log.error("Auto-achievements check failed: %s", e, exc_info=True)
+
+
+async def _auto_achievements_loop():
+    """Фоновый цикл: проверяет авто-ачивки раз в 30 минут."""
+    log = logging.getLogger("achievements")
+    INTERVAL = 1800  # 30 минут
+    # Небольшая задержка перед первым запуском (чтобы бот полностью стартовал)
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await _check_all_auto_achievements()
+        except Exception as e:
+            log.error("Auto-achievements loop error: %s", e, exc_info=True)
+        await asyncio.sleep(INTERVAL)
