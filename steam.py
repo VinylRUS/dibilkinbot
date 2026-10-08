@@ -233,6 +233,87 @@ async def get_owned_games(steam_id64: str, api_key: str, include_appinfo: bool =
         return None
 
 
+async def get_app_details(appid: int) -> dict | None:
+    """Получить метаданные игры из Steam Store API.
+
+    Endpoint: https://store.steampowered.com/api/appdetails?appids={appid}
+    Не требует API key — публичный.
+
+    Возвращает dict с полями:
+    - success: bool
+    - name: str
+    - type: str ('game' | 'dlc' | 'demo' | 'mod' | ...)
+    - categories: list[dict] — каждая {'id': int, 'description': str}
+      нас интересуют категории с description:
+      'Single-player', 'Multi-player', 'Co-op', 'Cross-Platform Multiplayer',
+      'Online Co-op', 'PvP', 'LAN PvP', 'Shared/Split Screen PvP', etc.
+    - genres: list[dict]
+    - capsule_image: str — URL капсулы (можно для preview)
+
+    Возвращает None при ошибке/таймауте.
+    """
+    if not appid:
+        return None
+    url = f"{STEAM_STORE_BASE}/appdetails"
+    params = {"appids": str(appid), "l": "english"}  # english чтобы categories были стандартные
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; DeeBeelkinBot/1.0)"}
+        async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+            r = await client.get(url, params=params)
+        if r.status_code != 200:
+            log.warning("Steam appdetails HTTP %s for appid %s", r.status_code, appid)
+            return None
+        data = r.json()
+        if not isinstance(data, dict) or str(appid) not in data:
+            return None
+        entry = data[str(appid)]
+        if not entry.get("success"):
+            return None
+        return entry.get("data", {})
+    except Exception as e:
+        log.warning("Steam appdetails failed for appid %s: %s", appid, e)
+        return None
+
+
+# Кэш для is_multiplayer_game (appid → bool), чтобы не дёргать API каждый раз
+_APP_MULTIPLAYER_CACHE: dict[int, tuple[bool, float]] = {}
+_APP_CACHE_TTL = 7 * 24 * 3600  # 7 дней — категории редко меняются
+
+
+async def is_multiplayer_game(appid: int) -> bool | None:
+    """Проверить, является ли игра мультиплеерной.
+
+    Возвращает True если в категориях есть 'Multi-player' или любой вид Co-op/PvP.
+    Возвращает False если только Single-player или других solo-категорий.
+    Возвращает None если метаданные недоступны (ошибка API, неизвестная игра и т.д.)
+
+    Кэширует результат на 7 дней.
+    """
+    import time as _time
+    if not appid:
+        return None
+    now = _time.time()
+    cached = _APP_MULTIPLAYER_CACHE.get(appid)
+    if cached and (now - cached[1]) < _APP_CACHE_TTL:
+        return cached[0]
+    details = await get_app_details(appid)
+    if details is None:
+        return None
+    categories = details.get("categories", []) or []
+    cat_descriptions = {c.get("description", "").lower() for c in categories if isinstance(c, dict)}
+    # Категории которые говорят «это multiplayer»
+    multi_keywords = {
+        "multi-player", "cross-platform multiplayer",
+        "online co-op", "lan co-op", "co-op",
+        "pvp", "lan pvp", "shared/split screen pvp",
+        "shared/split screen co-op",
+        "online pvp",
+    }
+    is_mp = bool(cat_descriptions & multi_keywords)
+    _APP_MULTIPLAYER_CACHE[appid] = (is_mp, now)
+    return is_mp
+
+
 async def get_wishlist(steam_id64: str) -> list[dict] | None:
     """Получить wishlist игр Steam-профиля.
 

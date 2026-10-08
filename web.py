@@ -863,6 +863,14 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
     except Exception:
         pass
 
+    # v2.3.2: Совместные игровые сессии (только если бот запущен)
+    joint_sessions = []
+    try:
+        joint_sessions = await bot_module.get_joint_play_sessions(int(guild_id))
+    except Exception as e:
+        import logging
+        logging.getLogger("dashboard").warning("joint_play_sessions failed: %s", e)
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
         "current_guild_id": guild_id,
@@ -882,6 +890,7 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         "unrated_winners": unrated_winners,
         "stats": stats,
         "active_members": active_members,
+        "joint_sessions": joint_sessions,
     })
 
 

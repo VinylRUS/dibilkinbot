@@ -3123,6 +3123,47 @@ async def g_get_game_play_time_specific(guild_id: int, user_discord_id: int, gam
 
 # === v2.3: Merged games (Steam приоритет + Discord доп) ===
 
+async def g_find_appid_by_game_name(game_name: str, guild_id: int = 0) -> int | None:
+    """Найти Steam appid по нормализованному имени игры в кеше user_steam_games.
+
+    Ищет в указанной гильдии (или во всех если guild_id=0).
+    Возвращает appid (int) или None если игра не найдена.
+
+    Используется для joint_play_sessions (проверка multiplayer через Steam appdetails).
+    """
+    if not game_name:
+        return None
+    norm = _normalize_game_name(game_name).lower()
+    if not norm:
+        return None
+    # Определяем в каких гильдиях искать
+    guild_ids_to_check = []
+    if guild_id:
+        guild_ids_to_check.append(int(guild_id))
+    else:
+        async with _connect() as db:
+            async with db.execute("SELECT guild_id FROM guilds") as cur:
+                guild_ids_to_check = [int(row[0]) for row in await cur.fetchall()]
+        if 0 not in guild_ids_to_check:
+            guild_ids_to_check.append(0)
+    # Ищем в каждой гильдии
+    for gid in guild_ids_to_check:
+        table = _guild.guild_table(gid, "user_steam_games")
+        try:
+            async with _connect() as db:
+                async with db.execute(
+                    f"SELECT appid FROM {table} WHERE LOWER(name) = ? OR "
+                    f"{_NORM_GAME_SQL} = ? LIMIT 1",
+                    (norm, norm)
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        return int(row[0])
+        except Exception as e:
+            log.warning("g_find_appid_by_game_name failed for guild %s: %s", gid, e)
+    return None
+
+
 async def g_get_user_games_merged(guild_id: int, user_discord_id: int, limit: int = 10) -> list[dict]:
     """Получить объединённый список игр юзера — Steam приоритет + Discord дополнительно.
 

@@ -143,6 +143,40 @@
       </div>
     </div>
 
+    {# ===== v2.3.2: Сейчас вместе играют (multiplayer + войс) ===== #}
+    {% if joint_sessions %}
+    <h2><img src="/static/icons/groups.png" alt="" width="16" height="16" class="ui-icon"> Вместе играют</h2>
+    <div class="joint-sessions">
+      {% for sess in joint_sessions[:4] %}
+      <div class="joint-session-card">
+        <div class="joint-session-game">
+          <img src="/static/icons/controller.png" alt="" width="14" height="14" class="ui-icon">
+          <span class="joint-game-name" title="{{ sess.game }}">{{ sess.game }}</span>
+          {% if sess.is_multiplayer_confirmed %}
+          <span class="joint-mp-badge" title="Multiplayer подтверждён через Steam">MP</span>
+          {% endif %}
+        </div>
+        <div class="joint-session-channel">
+          <img src="/static/icons/microphone.png" alt="" width="12" height="12" class="ui-icon">
+          {{ sess.channel }}
+        </div>
+        <div class="joint-session-users">
+          {% for u in sess.users %}
+          <a href="/u/{{ u.discord_id }}" class="joint-user-chip" title="{{ u.display_name }}">
+            {% if u.avatar_url %}
+              <img src="{{ u.avatar_url }}" alt="">
+            {% else %}
+              <span class="joint-avatar-placeholder">{{ u.display_name[:1]|upper if u.display_name else '?' }}</span>
+            {% endif %}
+            <span class="joint-user-name">{{ u.display_name }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     {# ===== Чек-лист настроек ===== #}
     <h2>Ваш профиль</h2>
     <article class="card">
