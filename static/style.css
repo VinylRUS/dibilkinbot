@@ -1496,36 +1496,22 @@ body.has-sidebar.sidebar-open {
 .sb-user {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.2s;
-  width: 100%;
   justify-content: center;
+  padding: 6px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+  width: 100%;
 }
-.sidebar.open .sb-user {
-  justify-content: flex-start;
-  padding: 8px 12px;
-}
-.sb-user:hover { background: var(--accent-soft); }
+.sb-user:hover { background: var(--accent-soft); transform: scale(1.04); }
 .sb-user-avatar {
-  width: 32px; height: 32px; border-radius: 50%;
+  width: 36px; height: 36px; border-radius: 50%;
   background: var(--accent-soft); border: 2px solid var(--glass-border);
   display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; font-size: 0.9rem; overflow: hidden;
+  flex-shrink: 0; font-size: 1rem; overflow: hidden;
+  position: relative;
 }
 .sb-user-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-.sb-user-info { opacity: 0; transition: opacity 0.15s 0.1s; flex: 1; min-width: 0; overflow: hidden; }
-.sidebar.open .sb-user-info { opacity: 1; }
-.sb-user-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sb-user-action { font-size: 0.72rem; color: var(--text-soft); }
-.sb-admin-badge {
-  display: inline-block; padding: 1px 6px; border-radius: 4px;
-  background: var(--accent-soft); color: var(--accent);
-  font-size: 0.62rem; font-weight: 700; margin-left: 4px;
-  text-transform: uppercase; letter-spacing: 0.03em;
-}
 
 .sb-theme-toggle {
   display: flex; align-items: center; justify-content: center;

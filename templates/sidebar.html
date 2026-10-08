@@ -113,8 +113,9 @@
   </nav>
 
   <div class="sidebar-footer">
-    <!-- Профиль (кнопка) -->
-    <a href="/profile" class="sb-user" style="text-decoration:none; color:inherit;" title="Профиль">
+    <!-- Аватарка (кликается → публичный профиль) -->
+    {% if user.discord_id %}
+    <a href="/u/{{ user.discord_id }}" class="sb-user" style="text-decoration:none; color:inherit;" title="Мой профиль">
       <div class="sb-user-avatar">
         {% if user.avatar_url %}
           <img src="{{ user.avatar_url }}" alt="">
@@ -122,18 +123,6 @@
           👤
         {% endif %}
       </div>
-      <div class="sb-user-info">
-        <div class="sb-user-name">
-          {{ user.username }}
-          {% if user.is_superuser %}<span class="sb-admin-badge"> Матка</span>{% elif user.is_admin %}<span class="sb-admin-badge" style="background: var(--green); color: #fff;">Трутень</span>{% endif %}
-        </div>
-        <div class="sb-user-action">Настройки →</div>
-      </div>
-    </a>
-    <!-- Мой публичный профиль (кнопка) -->
-    {% if user.discord_id %}
-    <a href="/u/{{ user.discord_id }}" class="sb-theme-toggle" title="Мой профиль" style="text-decoration:none; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent);">
-      👁
     </a>
     {% endif %}
     <!-- Смена темы (кнопка) -->
