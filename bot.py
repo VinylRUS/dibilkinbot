@@ -419,37 +419,57 @@ class KinovecherBot(commands.Bot):
                         await channel.send(embed=embed)
                         log.info("Changelog posted to channel %s", updates_channel_id_str)
 
-                # v2.3.2: Админские фичи — отдельным сообщением в личку админу
+                # v2.3.2: Админские фичи — отдельным сообщением
+                # Приоритет: 1) канал channel_admin_updates_id (если задан)
+                #            2) DM админу (если admin_discord_id задан и юзер найден)
                 if entry and entry.admin_sections:
+                    admin_embed = discord.Embed(
+                        title=f"🛠 Админские фичи {current_version}",
+                        color=0x5865F2,  # Discord Blurple
+                        timestamp=datetime.utcnow(),
+                    )
+                    for section_title, items in entry.admin_sections.items():
+                        text = "\n".join(f"• {item}" for item in items[:15])
+                        if len(text) > 1000:
+                            text = text[:1000] + "…"
+                        admin_embed.add_field(name=section_title, value=text, inline=False)
+                    admin_embed.set_footer(text=f"DeeBeelkin {current_version} · только для админов")
+
+                    admin_sent = False
+                    # 1) Пробуем админский канал (если задан)
                     try:
-                        admin_id = settings.admin_discord_id
-                        if admin_id:
-                            admin_user = self.get_user(int(admin_id))
-                            if admin_user is None:
-                                # Пробуем fetch — иногда get_user не находит если кеш не прогрет
-                                admin_user = await self.fetch_user(int(admin_id))
-                            if admin_user:
-                                admin_embed = discord.Embed(
-                                    title=f"🛠 Админские фичи {current_version}",
-                                    color=0x5865F2,  # Discord Blurple
-                                    timestamp=datetime.utcnow(),
-                                )
-                                for section_title, items in entry.admin_sections.items():
-                                    text = "\n".join(f"• {item}" for item in items[:15])
-                                    if len(text) > 1000:
-                                        text = text[:1000] + "…"
-                                    admin_embed.add_field(name=section_title, value=text, inline=False)
-                                admin_embed.set_footer(text=f"DeeBeelkin {current_version} · только для админов")
-                                await admin_user.send(embed=admin_embed)
-                                log.info("Admin changelog sent to admin DM (%s)", admin_id)
+                        admin_channel_id_str = await db.get_setting("channel_admin_updates_id")
+                        if admin_channel_id_str and admin_channel_id_str.isdigit():
+                            admin_channel = self.get_channel(int(admin_channel_id_str))
+                            if admin_channel is not None:
+                                await admin_channel.send(embed=admin_embed)
+                                log.info("Admin changelog posted to channel %s", admin_channel_id_str)
+                                admin_sent = True
                             else:
-                                log.warning("Admin user %s not found — skipping admin changelog DM", admin_id)
-                        else:
-                            log.info("admin_discord_id not configured — skipping admin changelog DM")
-                    except discord.Forbidden:
-                        log.warning("Cannot DM admin %s — DM forbidden. Skipping admin changelog.", settings.admin_discord_id)
+                                log.warning("channel_admin_updates_id %s set but channel not found", admin_channel_id_str)
                     except Exception as e:
-                        log.warning("Admin changelog DM failed: %s", e, exc_info=True)
+                        log.warning("Admin changelog channel post failed: %s", e)
+
+                    # 2) Fallback: DM админу (если канал не задан или не найден)
+                    if not admin_sent:
+                        try:
+                            admin_id = settings.admin_discord_id
+                            if admin_id:
+                                admin_user = self.get_user(int(admin_id))
+                                if admin_user is None:
+                                    admin_user = await self.fetch_user(int(admin_id))
+                                if admin_user:
+                                    await admin_user.send(embed=admin_embed)
+                                    log.info("Admin changelog sent to admin DM (%s)", admin_id)
+                                    admin_sent = True
+                                else:
+                                    log.warning("Admin user %s not found — skipping admin changelog DM", admin_id)
+                            else:
+                                log.info("admin_discord_id not configured and channel_admin_updates_id not set — skipping admin changelog")
+                        except discord.Forbidden:
+                            log.warning("Cannot DM admin %s — DM forbidden. Skipping admin changelog.", settings.admin_discord_id)
+                        except Exception as e:
+                            log.warning("Admin changelog DM failed: %s", e, exc_info=True)
 
                 # Сохраняем текущую версию как последнюю объявленную
                 await db.set_setting("last_announced_version", current_version, is_secret=False)
