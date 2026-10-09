@@ -1532,42 +1532,55 @@ class SettingsCog(commands.Cog):
         version = get_latest_version("CHANGELOG.md")
         entry = get_latest_changelog("CHANGELOG.md")
 
-        embed = discord.Embed(
-            title=f"🐝 DeeBeelkin {version}",
-            color=0xFFB703,
-            timestamp=datetime.utcnow(),
-        )
+        # v2.3.2: команда зеркалит логику автопоста — разделяем на 2 embed'а:
+        # 1) публичный (только #НОВЫЕ_ФИЧИ#) — в текущий канал, видят все
+        # 2) админский (только #АДМИНСКИЕ_ФИЧИ#) — отдельным ephemeral сообщением, видит только админ
+        # Техническая информация не показывается никому.
 
-        # v2.3.2: фильтруем секции по ролям
-        # - Обычные юзеры видят только public_sections (Новое, Исправлено, etc.)
-        # - Админы (superuser/junior-admin) видят + admin_sections
-        # - Техническая информация не видна никому через slash-команду (только в CHANGELOG.md)
         is_admin = False
         try:
             user_role = await db.get_user_role(interaction.user.id)
             is_admin = user_role in ('superuser', 'junior-admin')
         except Exception:
             pass
-        # Также проверяем env admin
         if not is_admin and settings.admin_discord_id and interaction.user.id == int(settings.admin_discord_id):
             is_admin = True
 
-        sections_to_show = dict(entry.public_sections) if entry else {}
-        if is_admin and entry:
-            sections_to_show.update(entry.admin_sections)
-
-        if sections_to_show:
-            for section_title, items in sections_to_show.items():
-                emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() else "🛠" if "админ" in section_title.lower() else "📋"
+        # 1) Публичный embed — для всех
+        public_embed = discord.Embed(
+            title=f"🐝 DeeBeelkin {version}",
+            color=0xFFB703,
+            timestamp=datetime.utcnow(),
+        )
+        if entry and entry.public_sections:
+            for section_title, items in entry.public_sections.items():
+                emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() or "улучш" in section_title.lower() else "📋"
                 text = "\n".join(f"{emoji} {item}" for item in items[:10])
                 if len(text) > 1000:
                     text = text[:1000] + "…"
-                embed.add_field(name=section_title, value=text, inline=False)
+                public_embed.add_field(name=section_title, value=text, inline=False)
         else:
-            embed.description = "Changelog не найден."
+            public_embed.description = "Changelog не найден."
+        public_embed.set_footer(text=f"DeeBeelkin {version}")
 
-        embed.set_footer(text=f"DeeBeelkin {version}")
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        # Ответ на interaction — один публичный embed
+        await interaction.response.send_message(embed=public_embed, ephemeral=False)
+
+        # 2) Админский embed — отдельным сообщением, виден только админу (ephemeral)
+        if is_admin and entry and entry.admin_sections:
+            admin_embed = discord.Embed(
+                title=f"🛠 Админские фичи {version}",
+                color=0x5865F2,  # Discord Blurple
+                timestamp=datetime.utcnow(),
+            )
+            for section_title, items in entry.admin_sections.items():
+                text = "\n".join(f"• {item}" for item in items[:15])
+                if len(text) > 1000:
+                    text = text[:1000] + "…"
+                admin_embed.add_field(name=section_title, value=text, inline=False)
+            admin_embed.set_footer(text=f"DeeBeelkin {version} · только для админов")
+            # followup — отдельное сообщение после основного, ephemeral=True (видит только админ)
+            await interaction.followup.send(embed=admin_embed, ephemeral=True)
 
 
 # === COG: TG Link ===
