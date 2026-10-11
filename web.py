@@ -2336,16 +2336,24 @@ async def api_load_from_watchlist(_user: dict = Depends(require_user)):
 
 
 @app.post("/api/wheel/spin")
-async def api_spin_wheel(_user: dict = Depends(require_user)):
-    """Запустить спин (классический режим — один победитель)."""
+async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Form(5)):
+    """Запустить спин (классический режим — один победитель).
+
+    v2.3.3: duration — длительность анимации в секундах (3-15).
+    Backend ждёт это время перед постингом в Discord/TG, чтобы пост
+    появился ПОСЛЕ того как колесо докрутится (а не во время).
+    """
     import random
     guild_id = get_current_guild_id(_user)
 
     # v2.3.3: Тестовый режим — используем test-функции для пометки записей
     is_test = await _is_wheel_test_mode(int(guild_id))
-    list_fn = db.g_list_test_wheel_items if is_test else db.g_list_wheel_items
-    list_args = () if is_test else (True,)  # g_list_wheel_items принимает active_only
     remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
+
+    async def _list_items():
+        if is_test:
+            return await db.g_list_test_wheel_items(int(guild_id))
+        return await db.g_list_wheel_items(guild_id, active_only=True)
 
     # v2.3.3: Lock против race condition — два одновременных POST могли выбрать
     # один и тот же item и дважды его удалить (второй remove возвращал 0 rows,
@@ -2376,7 +2384,7 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
                         "winner": recent_winner,
                     }, status_code=400)
 
-        items = await list_fn(*list_args) if not is_test else await list_fn()
+        items = await _list_items()
         if len(items) < 2:
             return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
 
@@ -2390,6 +2398,7 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
                 "mode": "classic", "spin_id": spin_id,
                 "items_before": [{"id": it["id"], "name": it["name"]} for it in items],
                 "winner": {"id": winner["id"], "name": winner["name"]},
+                "duration_sec": duration,
             })
 
         # Рассылаем событие спина (клиенты начинают анимацию)
@@ -2408,10 +2417,13 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
             await db.g_reassign_colors(guild_id)
 
         # Финальный список после удаления победителя
-        remaining = await list_fn(*list_args) if not is_test else await list_fn()
+        remaining = await _list_items()
 
-        # Задержка чтобы дать анимации докрутиться (5 секунд)
-        asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id, is_test=is_test))
+        # v2.3.3: Ждём duration секунд перед постингом в Discord/TG —
+        # чтобы пост появился ПОСЛЕ завершения анимации колеса, а не во время.
+        # + 0.5с буфер чтобы анимация точно завершилась.
+        delay_sec = max(1, min(int(duration), 30)) + 0.5
+        asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id, is_test=is_test, delay_sec=delay_sec))
 
         return JSONResponse({
             "spin_id": spin_id,
@@ -2421,14 +2433,17 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
         })
 
 
-async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str, is_test: bool = False) -> None:
-    """Через 5 секунд разослать финальный результат спина.
+async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str,
+                                is_test: bool = False, delay_sec: float = 5.0) -> None:
+    """Через delay_sec секунд разослать финальный результат спина + постинг в Discord/TG.
 
     v2.3.3: НЕ слать автоматически wheel_updated — он ломает анимацию на других клиентах
     если spinDuration > 5с. Frontend сам вызовет fetchItems() после завершения анимации.
+
+    v2.3.3: delay_sec = длительность анимации + 0.5с буфер.
+    Пост в Discord/TG идёт ПОСЛЕ завершения анимации (Вариант C).
     """
-    import asyncio
-    await asyncio.sleep(5)
+    await asyncio.sleep(delay_sec)
     await ws_manager.broadcast_spin_result(winner, spin_id)
 
     # Уведомить Discord через бота (в тестовом режиме — с префиксом [TEST])
@@ -2445,16 +2460,22 @@ async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str
 
 
 @app.post("/api/wheel/spin_elimination")
-async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
-    """Режим 'на выбывание'."""
+async def api_spin_wheel_elimination(_user: dict = Depends(require_user), duration: int = Form(5)):
+    """Режим 'на выбывание'.
+
+    v2.3.3: duration — длительность анимации в секундах (как в /api/wheel/spin).
+    """
     import random
     guild_id = get_current_guild_id(_user)
 
     # v2.3.3: Тестовый режим
     is_test = await _is_wheel_test_mode(int(guild_id))
-    list_fn = db.g_list_test_wheel_items if is_test else db.g_list_wheel_items
-    list_args = () if is_test else (True,)
     remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
+
+    async def _list_items():
+        if is_test:
+            return await db.g_list_test_wheel_items(int(guild_id))
+        return await db.g_list_wheel_items(guild_id, active_only=True)
 
     # v2.3.3: Lock против race condition (см. /api/wheel/spin)
     lock = _wheel_spin_locks.setdefault(int(guild_id), asyncio.Lock())
@@ -2482,7 +2503,7 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
                         "winner": recent_winner,
                     }, status_code=400)
 
-        items = await list_fn(*list_args) if not is_test else await list_fn()
+        items = await _list_items()
         if len(items) < 2:
             return JSONResponse({"error": "need at least 2 items"}, status_code=400)
 
@@ -2518,7 +2539,7 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
             await ws_manager.broadcast_spin_started(items, spin_id)
             remaining = []  # колесо пустое
 
-            asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id, is_test=is_test))
+            asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id, is_test=is_test, delay_sec=max(1, min(int(duration), 30)) + 0.5))
 
             return JSONResponse({
                 "spin_id": spin_id,
@@ -2534,7 +2555,7 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
         await remove_fn(guild_id, eliminated["id"])
         if not is_test:
             await db.g_reassign_colors(guild_id)
-        remaining = await list_fn(*list_args) if not is_test else await list_fn()
+        remaining = await _list_items()
 
         if is_test:
             wheel_test_log.log_event("spin", {
@@ -2547,7 +2568,7 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
         # Broadcast: спин начался (для анимации), затем обновлённый список
         await ws_manager.broadcast_spin_started(items, spin_id)
 
-        asyncio.create_task(_delayed_elimination_result(eliminated, remaining, spin_id))
+        asyncio.create_task(_delayed_elimination_result(eliminated, remaining, spin_id, delay_sec=max(1, min(int(duration), 30)) + 0.5))
 
         return JSONResponse({
             "spin_id": spin_id,
@@ -2558,16 +2579,17 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
         })
 
 
-async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], spin_id: str) -> None:
-    """Через 5 секунд разослать результат elimination-спина (кого удалили).
+async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], spin_id: str, delay_sec: float = 5.0) -> None:
+    """Через delay_sec секунд разослать результат elimination-спина (кого удалили).
 
     v2.3.3: НЕ слать автоматически wheel_updated — он ломает анимацию на других клиентах
     (если spinDuration > 5с, сектора скачут в середине анимации). Frontend сам вызовет
     fetchItems() после завершения анимации и обновит список.
     Только шлём elimination_result event для уведомления других клиентов.
+
+    v2.3.3: delay_sec = длительность анимации + 0.5с буфер.
     """
-    import asyncio
-    await asyncio.sleep(5)
+    await asyncio.sleep(delay_sec)
     await ws_manager.broadcast(
         "elimination_result",
         {"eliminated": _anonymize_items([eliminated])[0] if eliminated else None,
