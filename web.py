@@ -2343,9 +2343,12 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
 
     # v2.3.3: Тестовый режим — используем test-функции для пометки записей
     is_test = await _is_wheel_test_mode(int(guild_id))
-    list_fn = db.g_list_test_wheel_items if is_test else db.g_list_wheel_items
-    list_args = () if is_test else (True,)  # g_list_wheel_items принимает active_only
     remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
+
+    async def _list_items():
+        if is_test:
+            return await db.g_list_test_wheel_items(int(guild_id))
+        return await db.g_list_wheel_items(guild_id, active_only=True)
 
     # v2.3.3: Lock против race condition — два одновременных POST могли выбрать
     # один и тот же item и дважды его удалить (второй remove возвращал 0 rows,
@@ -2376,7 +2379,7 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
                         "winner": recent_winner,
                     }, status_code=400)
 
-        items = await list_fn(*list_args) if not is_test else await list_fn()
+        items = await _list_items()
         if len(items) < 2:
             return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
 
@@ -2408,7 +2411,7 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
             await db.g_reassign_colors(guild_id)
 
         # Финальный список после удаления победителя
-        remaining = await list_fn(*list_args) if not is_test else await list_fn()
+        remaining = await _list_items()
 
         # Задержка чтобы дать анимации докрутиться (5 секунд)
         asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id, is_test=is_test))
@@ -2452,9 +2455,12 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
 
     # v2.3.3: Тестовый режим
     is_test = await _is_wheel_test_mode(int(guild_id))
-    list_fn = db.g_list_test_wheel_items if is_test else db.g_list_wheel_items
-    list_args = () if is_test else (True,)
     remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
+
+    async def _list_items():
+        if is_test:
+            return await db.g_list_test_wheel_items(int(guild_id))
+        return await db.g_list_wheel_items(guild_id, active_only=True)
 
     # v2.3.3: Lock против race condition (см. /api/wheel/spin)
     lock = _wheel_spin_locks.setdefault(int(guild_id), asyncio.Lock())
@@ -2482,7 +2488,7 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
                         "winner": recent_winner,
                     }, status_code=400)
 
-        items = await list_fn(*list_args) if not is_test else await list_fn()
+        items = await _list_items()
         if len(items) < 2:
             return JSONResponse({"error": "need at least 2 items"}, status_code=400)
 
@@ -2534,7 +2540,7 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
         await remove_fn(guild_id, eliminated["id"])
         if not is_test:
             await db.g_reassign_colors(guild_id)
-        remaining = await list_fn(*list_args) if not is_test else await list_fn()
+        remaining = await _list_items()
 
         if is_test:
             wheel_test_log.log_event("spin", {
