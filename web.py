@@ -2336,12 +2336,17 @@ async def api_load_from_watchlist(_user: dict = Depends(require_user)):
 
 
 @app.post("/api/wheel/spin")
-async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Form(5)):
+async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Form(5),
+                          client_spin_id: str = Form("")):
     """Запустить спин (классический режим — один победитель).
 
     v2.3.3: duration — длительность анимации в секундах (3-15).
     Backend ждёт это время перед постингом в Discord/TG, чтобы пост
     появился ПОСЛЕ того как колесо докрутится (а не во время).
+
+    v2.3.3: client_spin_id — опциональный ID генерируемый на клиенте,
+    чтобы инициатор спина мог отличить WS spin_started от своего спина
+    (WS приходит раньше HTTP-ответа).
     """
     import random
     guild_id = get_current_guild_id(_user)
@@ -2390,7 +2395,9 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
 
         # Случайный победитель
         winner = random.choice(items)
-        spin_id = str(uuid.uuid4())[:8]
+        # v2.3.3: используем client_spin_id если задан — чтобы инициатор
+        # мог отличить WS spin_started от своего спина (WS раньше HTTP).
+        spin_id = client_spin_id.strip() if client_spin_id.strip() else str(uuid.uuid4())[:8]
 
         # Логируем спин
         if is_test:
@@ -2401,8 +2408,15 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
                 "duration_sec": duration,
             })
 
-        # Рассылаем событие спина (клиенты начинают анимацию)
-        await ws_manager.broadcast_spin_started(items, spin_id)
+        # Рассылаем событие спина (ВСЕ клиенты начинают анимацию к target_item)
+        await ws_manager.broadcast_spin_started(
+            items, spin_id,
+            target_item=winner,
+            mode="classic",
+            winner=winner,
+            eliminated=None,
+            duration=duration,
+        )
 
         # Записываем в БД как confirmed (мы точно знаем победителя)
         await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed", is_test=is_test)
@@ -2434,7 +2448,9 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
 
 
 async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str,
-                                is_test: bool = False, delay_sec: float = 5.0) -> None:
+                                is_test: bool = False, delay_sec: float = 5.0,
+                                mode: str = "classic",
+                                eliminated: dict | None = None) -> None:
     """Через delay_sec секунд разослать финальный результат спина + постинг в Discord/TG.
 
     v2.3.3: НЕ слать автоматически wheel_updated — он ломает анимацию на других клиентах
@@ -2442,9 +2458,12 @@ async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str
 
     v2.3.3: delay_sec = длительность анимации + 0.5с буфер.
     Пост в Discord/TG идёт ПОСЛЕ завершения анимации (Вариант C).
+
+    v2.3.3: mode + eliminated — для elimination_final чтобы другие клиенты
+    показали правильный баннер «выбыл X / победитель Y».
     """
     await asyncio.sleep(delay_sec)
-    await ws_manager.broadcast_spin_result(winner, spin_id)
+    await ws_manager.broadcast_spin_result(winner, spin_id, mode=mode, eliminated=eliminated)
 
     # Уведомить Discord через бота (в тестовом режиме — с префиксом [TEST])
     try:
@@ -2460,10 +2479,12 @@ async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str
 
 
 @app.post("/api/wheel/spin_elimination")
-async def api_spin_wheel_elimination(_user: dict = Depends(require_user), duration: int = Form(5)):
+async def api_spin_wheel_elimination(_user: dict = Depends(require_user), duration: int = Form(5),
+                                       client_spin_id: str = Form("")):
     """Режим 'на выбывание'.
 
     v2.3.3: duration — длительность анимации в секундах (как в /api/wheel/spin).
+    v2.3.3: client_spin_id — опциональный ID от клиента для дедупликации WS.
     """
     import random
     guild_id = get_current_guild_id(_user)
@@ -2508,7 +2529,8 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user), durati
             return JSONResponse({"error": "need at least 2 items"}, status_code=400)
 
 
-        spin_id = str(uuid.uuid4())[:8]
+        # v2.3.3: используем client_spin_id если задан (см. /api/wheel/spin)
+        spin_id = client_spin_id.strip() if client_spin_id.strip() else str(uuid.uuid4())[:8]
 
         # Если ровно 2 — финальный раунд, победитель = тот кто ОСТАЛСЯ
         if len(items) == 2:
@@ -2535,11 +2557,24 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user), durati
                     "winner": {"id": winner["id"], "name": winner["name"]},
                 })
 
-            # Рассылаем события
-            await ws_manager.broadcast_spin_started(items, spin_id)
+            # Рассылаем события — финал elimination, target = eliminated
+            await ws_manager.broadcast_spin_started(
+                items, spin_id,
+                target_item=eliminated,
+                mode="elimination_final",
+                winner=winner,
+                eliminated=eliminated,
+                duration=duration,
+            )
             remaining = []  # колесо пустое
 
-            asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id, is_test=is_test, delay_sec=max(1, min(int(duration), 30)) + 0.5))
+            asyncio.create_task(_delayed_spin_result(
+                winner, remaining, spin_id,
+                is_test=is_test,
+                delay_sec=max(1, min(int(duration), 30)) + 0.5,
+                mode="elimination_final",
+                eliminated=eliminated,
+            ))
 
             return JSONResponse({
                 "spin_id": spin_id,
@@ -2565,8 +2600,15 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user), durati
                 "remaining_count": len(remaining),
             })
 
-        # Broadcast: спин начался (для анимации), затем обновлённый список
-        await ws_manager.broadcast_spin_started(items, spin_id)
+        # Broadcast: спин начался (для анимации у ВСЕХ клиентов), затем обновлённый список
+        await ws_manager.broadcast_spin_started(
+            items, spin_id,
+            target_item=eliminated,
+            mode="elimination",
+            winner=None,
+            eliminated=eliminated,
+            duration=duration,
+        )
 
         asyncio.create_task(_delayed_elimination_result(eliminated, remaining, spin_id, delay_sec=max(1, min(int(duration), 30)) + 0.5))
 

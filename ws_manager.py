@@ -57,14 +57,48 @@ async def broadcast_wheel_updated(items: list[dict]) -> None:
     await broadcast("wheel_updated", {"items": items, "count": len(items)})
 
 
-async def broadcast_spin_started(items: list[dict], spin_id: str) -> None:
-    """Сообщить клиентам что спин начался (можно крутить анимацию)."""
-    await broadcast("spin_started", {"items": items, "spin_id": spin_id})
+async def broadcast_spin_started(items: list[dict], spin_id: str,
+                                 target_item: dict | None = None,
+                                 mode: str = "classic",
+                                 winner: dict | None = None,
+                                 eliminated: dict | None = None,
+                                 duration: int = 5) -> None:
+    """Сообщить клиентам что спин начался.
+
+    v2.3.3: расширено для синхронизации анимации у ВСЕХ клиентов:
+    - target_item: к какому сектору крутить (winner в classic, eliminated в elimination)
+    - mode: 'classic' | 'elimination' | 'elimination_final'
+    - winner: для elimination_final — финальный победитель
+    - eliminated: для elimination/elimination_final — кто выбывает
+    - duration: длительность анимации в секундах (чтобы все клиенты крутились синхронно)
+
+    Все клиенты получив это событие должны запустить animateSpin к target_item.
+    """
+    await broadcast("spin_started", {
+        "items": items,
+        "spin_id": spin_id,
+        "target_item": target_item,
+        "mode": mode,
+        "winner": winner,
+        "eliminated": eliminated,
+        "duration": duration,
+    })
 
 
-async def broadcast_spin_result(winner: dict, spin_id: str) -> None:
-    """Сообщить клиентам что спин завершён, победитель известен."""
-    await broadcast("spin_result", {"winner": winner, "spin_id": spin_id})
+async def broadcast_spin_result(winner: dict, spin_id: str,
+                                 mode: str = "classic",
+                                 eliminated: dict | None = None) -> None:
+    """Сообщить клиентам что спин завершён, победитель известен.
+
+    v2.3.3: добавлены mode + eliminated — клиенты могут показать правильный
+    баннер (финал elimination — два события: выбыл + победитель).
+    """
+    await broadcast("spin_result", {
+        "winner": winner,
+        "spin_id": spin_id,
+        "mode": mode,
+        "eliminated": eliminated,
+    })
 
 
 # === Collection events ===
