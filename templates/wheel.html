@@ -97,11 +97,12 @@
       gap: 24px;
     }
     .wheel-title {
-      font-size: 2rem;
+      font-size: 1.6rem;
       font-weight: 800;
       color: var(--accent);
       text-align: center;
       text-shadow: 0 0 20px rgba(255, 183, 3, 0.5);
+      margin: 4px 0;
     }
     /* v2.3.3: Бейдж тестового режима */
     .test-mode-badge {
@@ -122,21 +123,23 @@
       background: var(--content-bg);
       border: 1px solid var(--content-border);
       border-radius: 10px;
-      padding: 12px 16px;
-      margin: 12px 0;
+      padding: 8px 14px;
+      margin: 4px 0 8px;
       box-shadow: var(--glass-shadow), var(--glass-inset);
+      max-width: 600px;
+      width: 100%;
     }
     .test-mode-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
-      font-size: 0.85rem;
+      margin-bottom: 6px;
+      font-size: 0.78rem;
     }
     .test-mode-status {
       padding: 2px 8px;
       border-radius: 6px;
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       font-weight: 600;
     }
     .test-mode-status:not(.active) {
@@ -149,14 +152,14 @@
     }
     .test-mode-controls {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
       align-items: center;
     }
     .test-mode-msg {
-      margin-top: 8px;
-      font-size: 0.78rem;
-      padding: 6px 10px;
+      margin-top: 6px;
+      font-size: 0.74rem;
+      padding: 4px 8px;
       border-radius: 6px;
       background: var(--accent-soft);
       color: var(--text);
@@ -165,8 +168,8 @@
     .test-mode-msg.success { background: rgba(67, 181, 129, 0.15); color: var(--green); }
     .wheel-canvas-wrap {
       position: relative;
-      width: 600px;
-      height: 600px;
+      width: 500px;
+      height: 500px;
       max-width: 90vw;
       max-height: 90vw;
     }
@@ -273,6 +276,31 @@
       width: 80px;
       accent-color: var(--accent);
     }
+    /* v2.3.3: Слайдер громкости тиков */
+    .sound-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #B0B0B0;
+      font-size: 0.82rem;
+    }
+    .sound-toggle input[type="range"] {
+      width: 60px;
+      accent-color: var(--accent);
+    }
+    .sound-toggle button {
+      background: transparent;
+      border: 1px solid var(--border, rgba(255,255,255,0.15));
+      color: #B0B0B0;
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .sound-toggle button:hover { color: var(--accent); border-color: var(--accent); }
+    .sound-toggle button.muted { opacity: 0.45; }
     .winner-banner {
       background: var(--accent);
       color: #1A1A1A;
@@ -289,6 +317,32 @@
     @keyframes pulse {
       0% { transform: scale(0.5); opacity: 0; }
       100% { transform: scale(1); opacity: 1; }
+    }
+    /* v2.3.3: Pointer bounce при тике */
+    .pointer.bouncing {
+      animation: pointer-bounce 0.08s ease-out;
+    }
+    @keyframes pointer-bounce {
+      0% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+      50% { transform: translateX(-50%) translateY(-3px) rotate(-3deg); }
+      100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+    }
+    /* v2.3.3: Компактная раскладка кнопок */
+    .controls-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 600px;
+      width: 100%;
+    }
+    .controls-bar > * {
+      flex-shrink: 0;
+    }
+    .controls-bar .spin-btn {
+      flex: 1 1 auto;
+      min-width: 140px;
     }
     .wheel-sidebar {
       background: var(--card);
@@ -488,10 +542,10 @@
       {% endif %}
 
       <div class="wheel-canvas-wrap">
-        <div class="pointer"></div>
-        <canvas id="wheel-canvas" width="600" height="600"></canvas>
+        <div class="pointer" id="pointer"></div>
+        <canvas id="wheel-canvas" width="500" height="500"></canvas>
       </div>
-      <div class="buttons-row">
+      <div class="controls-bar">
         <div class="mode-switcher">
           <button id="mode-normal" class="mode-btn active" onclick="setMode('normal')">Классический</button>
           <button id="mode-elimination" class="mode-btn" onclick="setMode('elimination')">На выбывание</button>
@@ -500,6 +554,10 @@
         <div class="spin-duration">
           <label for="duration-slider">⏱ <span id="duration-label">5</span>с</label>
           <input type="range" id="duration-slider" min="3" max="15" value="5" step="1" oninput="updateDuration(this.value)">
+        </div>
+        <div class="sound-toggle">
+          <button id="sound-btn" onclick="toggleSound()" title="Звук тиков">🔊</button>
+          <input type="range" id="volume-slider" min="0" max="100" value="40" oninput="setVolume(this.value)" title="Громкость">
         </div>
       </div>
       <div id="winner-banner" class="winner-banner"></div>
@@ -522,6 +580,11 @@
     let currentRotation = 0;
     let currentMode = 'normal'; // 'normal' | 'elimination'
     let spinDuration = 5000; // ms
+    // v2.3.3: Звук тиков через Web Audio API (синтез, без mp3)
+    let audioCtx = null;
+    let tickVolume = 0.4; // 0..1
+    let soundEnabled = true;
+    let lastSectorUnderPointer = -1;
 
     function setMode(mode) {
       currentMode = mode;
@@ -534,15 +597,81 @@
       document.getElementById('duration-label').textContent = val;
     }
 
+    // v2.3.3: Звук тиков — синтез через Web Audio API
+    function ensureAudio() {
+      if (!audioCtx) {
+        try {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+          audioCtx = null;
+        }
+      }
+      // Браузеры требуют resume() после user gesture
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playTick() {
+      if (!soundEnabled || tickVolume <= 0 || !audioCtx) return;
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        // Короткий высокий тик — как механическое колесо
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.03);
+        // Очень короткий (30мс) с экспоненциальным затуханием — не мерзкий
+        gain.gain.setValueAtTime(tickVolume * 0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.05);
+      } catch (e) {
+        // silent
+      }
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      const btn = document.getElementById('sound-btn');
+      btn.textContent = soundEnabled ? '🔊' : '🔇';
+      btn.classList.toggle('muted', !soundEnabled);
+      if (soundEnabled) ensureAudio();
+    }
+
+    function setVolume(val) {
+      tickVolume = Math.min(1, Math.max(0, parseInt(val) / 100));
+      // Если громкость 0 — считаем что выключено
+      if (tickVolume === 0) {
+        const btn = document.getElementById('sound-btn');
+        if (soundEnabled) {
+          soundEnabled = false;
+          btn.textContent = '🔇';
+          btn.classList.add('muted');
+        }
+      } else if (!soundEnabled) {
+        // Если громкость > 0 и звук был выключен — включаем
+        soundEnabled = true;
+        const btn = document.getElementById('sound-btn');
+        btn.textContent = '🔊';
+        btn.classList.remove('muted');
+        ensureAudio();
+      }
+    }
+
     // === Canvas ===
     const canvas = document.getElementById('wheel-canvas');
     const ctx = canvas.getContext('2d');
-    const canvasSize = 600;
+    const canvasSize = 500;
     canvas.width = canvasSize;
     canvas.height = canvasSize;
 
     const center = canvasSize / 2;
     const radius = canvasSize / 2 - 20;
+    // v2.3.3: индекс подсвеченного сектора (золотая обводка в конце анимации)
+    let highlightIdx = -1;
 
     function drawWheel(rotation = 0) {
       ctx.clearRect(0, 0, canvasSize, canvasSize);
@@ -572,6 +701,7 @@
       for (let i = 0; i < items.length; i++) {
         const startAngle = i * anglePer;
         const endAngle = startAngle + anglePer;
+        const isHighlighted = (i === highlightIdx);
 
         // Сектор
         ctx.beginPath();
@@ -584,16 +714,38 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
+        // v2.3.3: Подсветка winner-сектора золотой обводкой
+        if (isHighlighted) {
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, radius, startAngle, endAngle);
+          ctx.closePath();
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 5;
+          ctx.stroke();
+          // Внутренний glow
+          ctx.shadowColor = '#FFD700';
+          ctx.shadowBlur = 15;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, radius * 0.95, startAngle, endAngle);
+          ctx.closePath();
+          ctx.strokeStyle = 'rgba(255, 215, 0, 0.4)';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
+
         // Текст
         ctx.save();
         ctx.rotate(startAngle + anglePer / 2);
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#1A1A1A';
-        const fontSize = items.length > 15 ? 12 : (items.length > 8 ? 14 : 16);
+        ctx.fillStyle = isHighlighted ? '#FFD700' : '#1A1A1A';
+        const fontSize = items.length > 15 ? 11 : (items.length > 8 ? 13 : 15);
         ctx.font = `bold ${fontSize}px sans-serif`;
         const name = items[i].name.length > 30 ? items[i].name.slice(0, 28) + '…' : items[i].name;
-        ctx.fillText(name, radius - 20, 0);
+        ctx.fillText(name, radius - 18, 0);
         ctx.restore();
       }
 
@@ -705,21 +857,78 @@
     }
 
     // === Spin animation ===
+    // v2.3.3: Multi-stage easing — разгон / плато / долгое торможение
+    // Это даёт ощущение реального механического колеса: быстро набирает
+    // скорость, крутится равномерно, потом долго плавно тормозит.
+    function wheelEase(t) {
+      // t = 0..1 (прогресс анимации)
+      // 0-15%: быстрый разгон (easeInQuad)
+      // 15-65%: почти линейное вращение (плато)
+      // 65-100%: долгое торможение (easeOutQuint — 5-я степень)
+      if (t < 0.15) {
+        // Разгон: квадратичная — медленно старт, быстро набирает
+        const t1 = t / 0.15;
+        return 0.10 * (t1 * t1);
+      } else if (t < 0.65) {
+        // Плато: линейное вращение
+        return 0.10 + (t - 0.15) * (0.65 / 0.50);
+      } else {
+        // Торможение: easeOutQuint — долгий плавный финиш
+        const t3 = (t - 0.65) / 0.35;
+        return 0.75 + 0.25 * (1 - Math.pow(1 - t3, 5));
+      }
+    }
+
     function easeOutCubic(t) {
       return 1 - Math.pow(1 - t, 3);
     }
 
-    function animateSpin(targetRotation, duration, onComplete) {
+    // v2.3.3: Проверка какой сектор под указателем — для тиков
+    function getSectorUnderPointer(rotation, itemsCount) {
+      if (itemsCount === 0) return -1;
+      const anglePer = (Math.PI * 2) / itemsCount;
+      // Указатель сверху = угол -π/2 в стандартной canvas системе (12 часов)
+      // Колесо повернуто на `rotation` → сектор i находится на угле (i * anglePer + rotation)
+      // Сектор под указателем = тот у которого (i * anglePer + rotation) ≈ -π/2 (mod 2π)
+      // → i = (-π/2 - rotation) / anglePer (mod itemsCount)
+      let normalized = (-Math.PI / 2 - rotation) % (Math.PI * 2);
+      if (normalized < 0) normalized += Math.PI * 2;
+      const idx = Math.floor(normalized / anglePer) % itemsCount;
+      return idx;
+    }
+
+    function bouncePointer() {
+      const p = document.getElementById('pointer');
+      if (!p) return;
+      p.classList.remove('bouncing');
+      // force reflow чтобы анимация перезапустилась
+      void p.offsetWidth;
+      p.classList.add('bouncing');
+    }
+
+    function animateSpin(targetRotation, duration, onComplete, snapshotItemsCount) {
       const startRotation = currentRotation;
       const totalRotation = targetRotation - startRotation;
       const startTime = performance.now();
+      lastSectorUnderPointer = getSectorUnderPointer(currentRotation, snapshotItemsCount);
 
       function frame(now) {
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const eased = easeOutCubic(progress);
+        const eased = wheelEase(progress);
         currentRotation = startRotation + totalRotation * eased;
         drawWheel(currentRotation);
+
+        // v2.3.3: Тик при прохождении сектора под указателем
+        if (snapshotItemsCount > 0) {
+          const currentSector = getSectorUnderPointer(currentRotation, snapshotItemsCount);
+          if (currentSector !== lastSectorUnderPointer && currentSector >= 0) {
+            lastSectorUnderPointer = currentSector;
+            playTick();
+            bouncePointer();
+          }
+        }
+
         if (progress < 1) {
           requestAnimationFrame(frame);
         } else {
@@ -734,14 +943,22 @@
       spinning = true;
       document.getElementById('spin-btn').disabled = true;
       document.getElementById('winner-banner').classList.remove('show');
+      highlightIdx = -1;
 
-      // Скрываем результат от клиента — он узнает победителя по завершении анимации
-      // Сервер уже выбрал победителя и recorded в БД, нам только нужно показать анимацию
+      // v2.3.3: активируем аудио (нужно для тиков после user gesture)
+      ensureAudio();
 
-      const r = await fetch('/api/wheel/spin', { method: 'POST' });
+      // Сnapshot ДО fetch — WS может заменить items пока ждём ответа
+      const itemsSnapshot = items.slice();
+      const snapshotCount = itemsSnapshot.length;
+
+      // v2.3.3: передаём duration в backend чтобы постинг в Discord/TG
+      // шёл ПОСЛЕ завершения анимации (а не через hardcoded 5 секунд)
+      const formData = new FormData();
+      formData.append('duration', Math.round(spinDuration / 1000).toString());
+      const r = await fetch('/api/wheel/spin', { method: 'POST', body: formData });
       const data = await r.json();
       if (!r.ok) {
-        // Если победитель уже определён или активный сбор — предложим /movienight
         if (data.error_code === 'winner_already_determined' || data.error_code === 'active_collection_exists') {
           alert(data.error + '\n\nНажмите OK чтобы перейти к /movienight.');
           window.location.href = '/movienight';
@@ -754,37 +971,44 @@
       }
 
       const winner = data.winner;
-      // Найти индекс победителя в текущем массиве items (до того как сервер его удалит)
-      const winnerIdx = items.findIndex(it => it.id === winner.id);
+      const winnerIdx = itemsSnapshot.findIndex(it => it.id === winner.id);
       if (winnerIdx === -1) {
-        // Что-то не так — просто обновим состояние
         await fetchItems();
         spinning = false;
         document.getElementById('spin-btn').disabled = false;
         return;
       }
 
-      // Рассчитать угол, чтобы победитель остановился сверху (под указателем)
-      const anglePer = (Math.PI * 2) / items.length;
+      // v2.3.3: Подсветка winner-сектора в конце анимации (последние 25%)
+      setTimeout(() => { highlightIdx = winnerIdx; }, spinDuration * 0.75);
+
+      // v2.3.3: Рассчитать угол к winner сектору.
+      // Гарантируем минимум 5 полных оборотов (раньше могло получиться <1 если
+      // currentRotation уже близко к нужному углу).
+      const anglePer = (Math.PI * 2) / snapshotCount;
       const winnerCenterAngle = winnerIdx * anglePer + anglePer / 2;
-      // Указатель сверху (угол = -PI/2 в стандартной системе canvas, но у нас rotate начинается с 0 справа)
-      // Хотим чтобы winnerCenterAngle оказался сверху → нужно повернуть на (-PI/2 - winnerCenterAngle)
-      // Плюс несколько полных оборотов (5-7)
-      const extraTurns = 5 + Math.floor(Math.random() * 3); // 5-7 полных оборотов
-      const targetRotation = currentRotation + extraTurns * Math.PI * 2
-        + (-Math.PI / 2 - winnerCenterAngle) - (currentRotation % (Math.PI * 2));
+      // Целевая позиция: winnerCenter под указателем (верх = -π/2)
+      // rotation должен быть такой чтобы (winnerCenterAngle + rotation) ≡ -π/2 (mod 2π)
+      // → rotation ≡ (-π/2 - winnerCenterAngle) (mod 2π)
+      const desiredFinalRotation = -Math.PI / 2 - winnerCenterAngle;
+      // Текущий "выровненный" rotation относительно desired (mod 2π)
+      let deltaToTarget = desiredFinalRotation - (currentRotation % (Math.PI * 2));
+      // Нормализуем в [0, 2π) — хотим крутить ВПЕРЁД
+      while (deltaToTarget < 0) deltaToTarget += Math.PI * 2;
+      // 5-7 полных оборотов + delta
+      const extraTurns = 5 + Math.floor(Math.random() * 3);
+      const targetRotation = currentRotation + extraTurns * Math.PI * 2 + deltaToTarget;
 
       animateSpin(targetRotation, spinDuration, () => {
-        // Анимация завершена — показать победителя
         const banner = document.getElementById('winner-banner');
         banner.textContent = `🎉 Победитель: ${winner.name}!`;
         banner.classList.add('show');
-
-        // Обновить список (победитель удалён на сервере)
         fetchItems();
         spinning = false;
         document.getElementById('spin-btn').disabled = items.length < 2;
-      });
+        // Снять подсветку через 3 сек после завершения
+        setTimeout(() => { highlightIdx = -1; }, 3000);
+      }, snapshotCount);
     }
 
     // === Load from watchlist (убрано в v1.8.3 — заменено сбором фильмов) ===
@@ -874,16 +1098,23 @@
       spinning = true;
       document.getElementById('spin-btn').disabled = true;
       document.getElementById('winner-banner').classList.remove('show');
+      highlightIdx = -1;
 
-      // v2.3.3: СНАПШОТ items ДО fetch. WS spin_started/wheel_updated могут прийти
+      // v2.3.3: активируем аудио для тиков
+      ensureAudio();
+
+      // СНАПШОТ items ДО fetch. WS spin_started/wheel_updated могут прийти
       // во время ожидания ответа и заменить items — тогда findIndex не найдёт
-      // eliminated.id и анимация тихо оборвётся (был баг «не работает»).
+      // eliminated.id и анимация тихо оборвётся.
       const itemsSnapshot = items.slice();
+      const snapshotCount = itemsSnapshot.length;
 
-      const r = await fetch('/api/wheel/spin_elimination', { method: 'POST' });
+      const r = await fetch('/api/wheel/spin_elimination', {
+        method: 'POST',
+        body: (() => { const fd = new FormData(); fd.append('duration', Math.round(spinDuration / 1000).toString()); return fd; })()
+      });
       const data = await r.json();
       if (!r.ok) {
-        // Если победитель уже определён или активный сбор — предложим /movienight
         if (data.error_code === 'winner_already_determined' || data.error_code === 'active_collection_exists') {
           alert(data.error + '\n\nНажмите OK чтобы перейти к /movienight.');
           window.location.href = '/movienight';
@@ -899,15 +1130,12 @@
       const isFinal = data.mode === 'elimination_final';
       const winner = data.winner;
 
-      // v2.3.3: В финале крутим к ПОБЕДИТЕЛЮ (как в классическом режиме),
-      // в промежуточном раунде — к ВЫБЫВШЕМУ. Раньше в финале крутили к выбывшему,
-      // а баннер объявлял победителя — визуальное противоречие.
+      // В финале крутим к ПОБЕДИТЕЛЮ (как в классическом режиме),
+      // в промежуточном раунде — к ВЫБЫВШЕМУ.
       const targetItem = isFinal ? winner : eliminated;
 
-      // Найти индекс в СНАПШОТЕ (не в текущем items — он мог измениться из-за WS)
       const targetIdx = itemsSnapshot.findIndex(it => it.id === targetItem.id);
       if (targetIdx === -1) {
-        // Снапшот устарел — просто покажем баннер без анимации
         await fetchItems();
         const banner = document.getElementById('winner-banner');
         if (isFinal) {
@@ -928,21 +1156,24 @@
         return;
       }
 
-      // Анимация — крутим к targetItem сектору
-      const anglePer = (Math.PI * 2) / itemsSnapshot.length;
+      // v2.3.3: Подсветка target-сектора в конце анимации
+      setTimeout(() => { highlightIdx = targetIdx; }, spinDuration * 0.75);
+
+      // v2.3.3: Гарантированные 5+ оборотов (как в spin())
+      const anglePer = (Math.PI * 2) / snapshotCount;
       const targetCenterAngle = targetIdx * anglePer + anglePer / 2;
+      const desiredFinalRotation = -Math.PI / 2 - targetCenterAngle;
+      let deltaToTarget = desiredFinalRotation - (currentRotation % (Math.PI * 2));
+      while (deltaToTarget < 0) deltaToTarget += Math.PI * 2;
       const extraTurns = 5 + Math.floor(Math.random() * 3);
-      const targetRotation = currentRotation + extraTurns * Math.PI * 2
-        + (-Math.PI / 2 - targetCenterAngle) - (currentRotation % (Math.PI * 2));
+      const targetRotation = currentRotation + extraTurns * Math.PI * 2 + deltaToTarget;
 
       animateSpin(targetRotation, spinDuration, () => {
         const banner = document.getElementById('winner-banner');
         if (isFinal) {
-          // Финал — победитель объявлен
           banner.textContent = `🏆 Финальный победитель: ${winner.name}!`;
           banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
         } else {
-          // Промежуточный раунд — кого выбили
           banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${data.remaining_count})`;
           banner.style.background = 'var(--red)';
           banner.style.color = '#fff';
@@ -953,12 +1184,12 @@
         spinning = false;
         document.getElementById('spin-btn').disabled = items.length < 2;
 
-        // Сбросить стиль баннера через 5 сек
         setTimeout(() => {
           banner.style.background = '';
           banner.style.color = '';
+          highlightIdx = -1;
         }, 5000);
-      });
+      }, snapshotCount);
     }
 
     // === v2.3.3: Тестовый режим (только для Матки) ===

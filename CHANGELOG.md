@@ -1,5 +1,53 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.3.3 (8dd2ef8)
+
+#НОВЫЕ_ФИЧИ#
+- Колесо фортуны полностью переработано: новая физика анимации с тремя стадиями (быстрый разгон → равномерное вращение → долгое плавное торможение) — колесо ощущается как настоящее механическое
+- Звук тиков при прохождении секторов мимо указателя — синтезируется через Web Audio API (без mp3-файла), с регулировкой громкости и кнопкой вкл/выкл
+- Указатель лёгко подпрыгивает при каждом тике — визуальная отдача как у настоящего колеса
+- В финале анимации сектор победителя подсвечивается золотой обводкой со свечением
+- Пост победителя в Discord и Telegram теперь появляется строго ПОСЛЕ завершения анимации колеса, а не во время неё — раньше при длинной анимации пост мог прийти до того как колесо докрутится
+- Гарантированные минимум 5 полных оборотов при каждом спине (раньше при определённой стартовой позиции могло получиться меньше одного)
+- Тестовый режим колеса для роли Матка: можно прогнать полный цикл (спин → постинг в Discord/TG → проверка данных) без загрязнения реальных данных. Все тестовые записи помечаются и удаляются по завершении, лог сохраняется для анализа
+
+#АДМИНСКИЕ_ФИЧИ#
+- Тестовый режим колеса: запуск через кнопку на странице /wheel (видна только Матке). Все записи в БД помечаются is_test=1, посты в Discord/TG идут с префиксом [TEST] и серым цветом embed'а. По завершении — hard delete всех тестовых wheel_items + winners + ratings. Лог-файлы сохраняются в /app/data/wheel_test_logs/
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- templates/wheel.html:
+  * canvas уменьшен с 600×600 до 500×500 чтобы всё влезало в экран с новой панелью управления
+  * controls-bar: все кнопки (mode-switcher, spin-btn, duration-slider, sound-toggle) в одной строке через flex-wrap
+  * sound-toggle: кнопка 🔊/🔇 + слайдер громкости 0-100%
+  * drawWheel: параметр highlightIdx для подсветки сектора золотом (#FFD700) с тенью
+  * wheelEase(t): multi-stage easing — 0-15% easeInQuad (разгон), 15-65% linear (плато), 65-100% easeOutQuint (торможение)
+  * getSectorUnderPointer(rotation, itemsCount): вычисление сектора под указателем для тиков
+  * bouncePointer(): CSS-анимация pointer-bounce (0.08s, translateY + rotate)
+  * playTick(): Web Audio API, triangle wave, 1800Hz → 800Hz exponential ramp, 30ms, gain 0.3×volume
+  * ensureAudio(): создаёт AudioContext после первого user gesture (требование браузеров)
+  * spin()/spinElimination(): snapshot items ДО fetch, гарантия 5+ оборотов через нормализацию deltaToTarget в [0, 2π)
+- web.py:
+  * /api/wheel/spin и /spin_elimination: новый параметр duration (sec, 3-15, default 5)
+  * _delayed_spin_result и _delayed_elimination_result: принимают delay_sec, ждут duration + 0.5с буфер
+  * Постинг в Discord/TG (bot.on_wheel_spin_completed) вызывается из _delayed_spin_result — после delay_sec
+  * Это Вариант C из аудита: backend сразу определяет winner, frontend анимирует, постинг идёт после анимации
+- bot.py:
+  * _build_winner_embed(winner, meta, is_test=False): [TEST] префикс, серый цвет (0x95A5A6), тестовый footer
+  * _post_winner_to_telegram(winner, meta, is_test=False): [TEST] префикс в caption, логирование результата
+  * on_wheel_spin_completed(winner, is_test=False): пропускает personal notifications в тестовом режиме
+- db.py:
+  * Миграции: is_test INTEGER DEFAULT 0 в wheel_items и winners (для всех существующих гильдий)
+  * g_add_winner(..., is_test=False): новый параметр
+  * g_add_test_wheel_item / g_list_test_wheel_items / g_remove_test_wheel_item / g_clear_test_wheel
+  * g_purge_test_data: hard DELETE test records (wheel_items + winners + их ratings)
+  * g_get_test_stats: для UI статусной панели
+- wheel_test_log.py (новый файл):
+  * start_test_log / log_event / end_test_log — append-only лог
+  * /app/data/wheel_test_logs/test_YYYYMMDD_HHMMSS_<admin_id>.log (персистентный)
+  * Events: spin, item_added, discord_post (channel_id, message_id, success), tg_post (chat, mode, success), cleanup, errors
+  * list_log_files / read_log_file — для будущего UI просмотра логов
+- guild.py: wheel_items и winners таблицы получили is_test колонку + idx_{table}_test индекс
+
 ## v2.3.2 (62fa9ea)
 
 #НОВЫЕ_ФИЧИ#
