@@ -82,9 +82,11 @@ GUILD_SCHEMA_TEMPLATES = {
             confidence TEXT NOT NULL,
             detected_at TEXT NOT NULL,
             confirmed_at TEXT,
-            confirmed_by INTEGER
+            confirmed_by INTEGER,
+            is_test INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_detected ON {table}(detected_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_{table}_test ON {table}(is_test);
     """,
     "wheel_items": """
         CREATE TABLE IF NOT EXISTS {table} (
@@ -94,9 +96,11 @@ GUILD_SCHEMA_TEMPLATES = {
             color TEXT,
             added_by INTEGER NOT NULL,
             added_at TEXT NOT NULL,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            is_test INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_active ON {table}(is_active);
+        CREATE INDEX IF NOT EXISTS idx_{table}_test ON {table}(is_test);
     """,
     "ratings": """
         CREATE TABLE IF NOT EXISTS {table} (
