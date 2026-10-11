@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import secrets
 import uuid
@@ -133,6 +134,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _cached_bot_version: str | None = None
+
+# v2.3.3: Lock против race condition при одновременных спинах.
+# Ключ — guild_id. Не даёт двум юзерам одновременно крутить колесо в одной гильдии,
+# что могло привести к удалению одного и того же item'а дважды и рассинхрону клиентов.
+_wheel_spin_locks: dict[int, asyncio.Lock] = {}
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -2330,68 +2336,76 @@ async def api_spin_wheel(_user: dict = Depends(require_user)):
     import random
     guild_id = get_current_guild_id(_user)
 
-    # Проверка 1: если есть активный сбор (status='collecting' или 'assigned') — крутить нельзя
-    active_collection = await db.g_get_active_collection(guild_id)
-    if active_collection:
-        return JSONResponse({
-            "error": "Идёт активный сбор фильмов. Сначала завершите его на странице /movienight — выбранные фильмы загрузятся в колесо.",
-            "error_code": "active_collection_exists",
-        }, status_code=400)
-
-    # Проверка 2: если уже был победитель за последние 60 минут — крутить нельзя
-    # НО только если в колесе больше нет элементов (колесо пустое после предыдущей крутки)
-    recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
-    if recent_winner:
-        # Проверим — может быть в колесе ещё остались фильмы после предыдущей крутки
-        items_check = await db.g_list_wheel_items(guild_id, active_only=True)
-        if len(items_check) < 2:
+    # v2.3.3: Lock против race condition — два одновременных POST могли выбрать
+    # один и тот же item и дважды его удалить (второй remove возвращал 0 rows,
+    # но всё равно шёл ответ OK → рассинхрон клиентов).
+    lock = _wheel_spin_locks.setdefault(int(guild_id), asyncio.Lock())
+    if lock.locked():
+        return JSONResponse({"error": "Колесо уже крутится, дождитесь результата.", "error_code": "already_spinning"}, status_code=409)
+    async with lock:
+        # Проверка 1: если есть активный сбор (status='collecting' или 'assigned') — крутить нельзя
+        active_collection = await db.g_get_active_collection(guild_id)
+        if active_collection:
             return JSONResponse({
-                "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
-                "error_code": "winner_already_determined",
-                "winner": recent_winner,
+                "error": "Идёт активный сбор фильмов. Сначала завершите его на странице /movienight — выбранные фильмы загрузятся в колесо.",
+                "error_code": "active_collection_exists",
             }, status_code=400)
 
-    items = await db.g_list_wheel_items(guild_id, active_only=True)
-    if len(items) < 2:
-        return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
+        # Проверка 2: если уже был победитель за последние 60 минут — крутить нельзя
+        # НО только если в колесе больше нет элементов (колесо пустое после предыдущей крутки)
+        recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
+        if recent_winner:
+            # Проверим — может быть в колесе ещё остались фильмы после предыдущей крутки
+            items_check = await db.g_list_wheel_items(guild_id, active_only=True)
+            if len(items_check) < 2:
+                return JSONResponse({
+                    "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
+                    "error_code": "winner_already_determined",
+                    "winner": recent_winner,
+                }, status_code=400)
 
-    # Случайный победитель
-    winner = random.choice(items)
-    spin_id = str(uuid.uuid4())[:8]
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
+        if len(items) < 2:
+            return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
 
-    # Рассылаем событие спина (клиенты начинают анимацию)
-    await ws_manager.broadcast_spin_started(items, spin_id)
+        # Случайный победитель
+        winner = random.choice(items)
+        spin_id = str(uuid.uuid4())[:8]
 
-    # Записываем в БД как confirmed (мы точно знаем победителя)
-    await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
-    # Помечаем как просмотренный в списках желаемого
-    await db.g_mark_watchlist_watched(guild_id, winner["name"])
+        # Рассылаем событие спина (клиенты начинают анимацию)
+        await ws_manager.broadcast_spin_started(items, spin_id)
 
-    # Удаляем победителя из колеса
-    await db.g_remove_wheel_item(guild_id, winner["id"])
-    await db.g_reassign_colors(guild_id)
+        # Записываем в БД как confirmed (мы точно знаем победителя)
+        await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
+        # Помечаем как просмотренный в списках желаемого
+        await db.g_mark_watchlist_watched(guild_id, winner["name"])
 
-    # Финальный список после удаления победителя
-    remaining = await db.g_list_wheel_items(guild_id, active_only=True)
+        # Удаляем победителя из колеса
+        await db.g_remove_wheel_item(guild_id, winner["id"])
+        await db.g_reassign_colors(guild_id)
 
-    # Задержка чтобы дать анимации докрутиться (5 секунд)
-    import asyncio
-    asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id))
+        # Финальный список после удаления победителя
+        remaining = await db.g_list_wheel_items(guild_id, active_only=True)
 
-    return JSONResponse({
-        "spin_id": spin_id,
-        "winner": winner,
-        "remaining_count": len(remaining),
-    })
+        # Задержка чтобы дать анимации докрутиться (5 секунд)
+        asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id))
+
+        return JSONResponse({
+            "spin_id": spin_id,
+            "winner": winner,
+            "remaining_count": len(remaining),
+        })
 
 
 async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str) -> None:
-    """Через 5 секунд разослать финальный результат спина."""
+    """Через 5 секунд разослать финальный результат спина.
+
+    v2.3.3: НЕ слать автоматически wheel_updated — он ломает анимацию на других клиентах
+    если spinDuration > 5с. Frontend сам вызовет fetchItems() после завершения анимации.
+    """
     import asyncio
     await asyncio.sleep(5)
     await ws_manager.broadcast_spin_result(winner, spin_id)
-    # Также обновить список лотов (победитель удалён)
-    await ws_manager.broadcast_wheel_updated(_anonymize_items(remaining))
 
     # Уведомить Discord через бота
     try:
@@ -2410,92 +2424,101 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user)):
     import random
     guild_id = get_current_guild_id(_user)
 
-    # Проверка 1: если есть активный сбор — крутить нельзя
-    active_collection = await db.g_get_active_collection(guild_id)
-    if active_collection:
-        return JSONResponse({
-            "error": "Идёт активный сбор фильмов. Сначала завершите его на странице /movienight — выбранные фильмы загрузятся в колесо.",
-            "error_code": "active_collection_exists",
-        }, status_code=400)
-
-    # Проверка 2: если уже был победитель за последние 60 минут — крутить нельзя
-    # НО только если в колесе больше нет элементов (колесо пустое после предыдущей крутки)
-    recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
-    if recent_winner:
-        items_check = await db.g_list_wheel_items(guild_id, active_only=True)
-        if len(items_check) < 2:
+    # v2.3.3: Lock против race condition (см. /api/wheel/spin)
+    lock = _wheel_spin_locks.setdefault(int(guild_id), asyncio.Lock())
+    if lock.locked():
+        return JSONResponse({"error": "Колесо уже крутится, дождитесь результата.", "error_code": "already_spinning"}, status_code=409)
+    async with lock:
+        # Проверка 1: если есть активный сбор — крутить нельзя
+        active_collection = await db.g_get_active_collection(guild_id)
+        if active_collection:
             return JSONResponse({
-                "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
-                "error_code": "winner_already_determined",
-                "winner": recent_winner,
+                "error": "Идёт активный сбор фильмов. Сначала завершите его на странице /movienight — выбранные фильмы загрузятся в колесо.",
+                "error_code": "active_collection_exists",
             }, status_code=400)
 
-    items = await db.g_list_wheel_items(guild_id, active_only=True)
-    if len(items) < 2:
-        return JSONResponse({"error": "need at least 2 items"}, status_code=400)
+        # Проверка 2: если уже был победитель за последние 60 минут — крутить нельзя
+        # НО только если в колесе больше нет элементов (колесо пустое после предыдущей крутки)
+        recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
+        if recent_winner:
+            items_check = await db.g_list_wheel_items(guild_id, active_only=True)
+            if len(items_check) < 2:
+                return JSONResponse({
+                    "error": f"Победитель уже определён: «{recent_winner['lot_name']}». Повторная крутка невозможна — начните новый сбор на /movienight.",
+                    "error_code": "winner_already_determined",
+                    "winner": recent_winner,
+                }, status_code=400)
+
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
+        if len(items) < 2:
+            return JSONResponse({"error": "need at least 2 items"}, status_code=400)
 
 
-    spin_id = str(uuid.uuid4())[:8]
+        spin_id = str(uuid.uuid4())[:8]
 
-    # Если ровно 2 — финальный раунд, победитель = тот кто ОСТАЛСЯ
-    if len(items) == 2:
-        # Случайно удаляем одного — оставшийся победитель
+        # Если ровно 2 — финальный раунд, победитель = тот кто ОСТАЛСЯ
+        if len(items) == 2:
+            # Случайно удаляем одного — оставшийся победитель
+            eliminated = random.choice(items)
+            winner = next(it for it in items if it["id"] != eliminated["id"])
+
+            await db.g_remove_wheel_item(guild_id, eliminated["id"])
+            await db.g_remove_wheel_item(guild_id, winner["id"])
+            await db.g_reassign_colors(guild_id)
+
+            # Записываем победителя в winners
+            await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
+            # Помечаем как просмотренный в списках желаемого
+            await db.g_mark_watchlist_watched(guild_id, winner["name"])
+
+            # Рассылаем события
+            await ws_manager.broadcast_spin_started(items, spin_id)
+            remaining = []  # колесо пустое
+
+            asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id))
+
+            return JSONResponse({
+                "spin_id": spin_id,
+                "mode": "elimination_final",
+                "eliminated": eliminated,
+                "winner": winner,
+                "remaining_count": 0,
+            })
+
+        # Обычный раунд выбывания — удаляем одного случайного
         eliminated = random.choice(items)
-        winner = next(it for it in items if it["id"] != eliminated["id"])
-
         await db.g_remove_wheel_item(guild_id, eliminated["id"])
-        await db.g_remove_wheel_item(guild_id, winner["id"])
         await db.g_reassign_colors(guild_id)
+        remaining = await db.g_list_wheel_items(guild_id, active_only=True)
 
-        # Записываем победителя в winners
-        await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed")
-        # Помечаем как просмотренный в списках желаемого
-        await db.g_mark_watchlist_watched(guild_id, winner["name"])
-
-        # Рассылаем события
+        # Broadcast: спин начался (для анимации), затем обновлённый список
         await ws_manager.broadcast_spin_started(items, spin_id)
-        remaining = []  # колесо пустое
 
-        import asyncio
-        asyncio.create_task(_delayed_spin_result(winner, remaining, spin_id))
+        asyncio.create_task(_delayed_elimination_result(eliminated, remaining, spin_id))
 
         return JSONResponse({
             "spin_id": spin_id,
-            "mode": "elimination_final",
+            "mode": "elimination",
             "eliminated": eliminated,
-            "winner": winner,
-            "remaining_count": 0,
+            "remaining_count": len(remaining),
         })
-
-    # Обычный раунд выбывания — удаляем одного случайного
-    eliminated = random.choice(items)
-    await db.g_remove_wheel_item(guild_id, eliminated["id"])
-    await db.g_reassign_colors(guild_id)
-    remaining = await db.g_list_wheel_items(guild_id, active_only=True)
-
-    # Broadcast: спин начался (для анимации), затем обновлённый список
-    await ws_manager.broadcast_spin_started(items, spin_id)
-
-    import asyncio
-    asyncio.create_task(_delayed_elimination_result(eliminated, remaining, spin_id))
-
-    return JSONResponse({
-        "spin_id": spin_id,
-        "mode": "elimination",
-        "eliminated": eliminated,
-        "remaining_count": len(remaining),
-    })
 
 
 async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], spin_id: str) -> None:
-    """Через 5 секунд разослать результат elimination-спина (кого удалили)."""
+    """Через 5 секунд разослать результат elimination-спина (кого удалили).
+
+    v2.3.3: НЕ слать автоматически wheel_updated — он ломает анимацию на других клиентах
+    (если spinDuration > 5с, сектора скачут в середине анимации). Frontend сам вызовет
+    fetchItems() после завершения анимации и обновит список.
+    Только шлём elimination_result event для уведомления других клиентов.
+    """
     import asyncio
     await asyncio.sleep(5)
     await ws_manager.broadcast(
         "elimination_result",
-        {"eliminated": eliminated, "remaining_count": len(remaining)},
+        {"eliminated": _anonymize_items([eliminated])[0] if eliminated else None,
+         "remaining_count": len(remaining)},
     )
-    await ws_manager.broadcast_wheel_updated(_anonymize_items(remaining))
 
 
 # === Collections (сбор фильмов перед киновечером) ===

@@ -707,11 +707,15 @@
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'wheel_updated') {
-          items = msg.payload.items || [];
-          renderList();
+          // v2.3.3: НЕ обновляем items во время анимации — иначе сектора визуально
+          // скачут. После завершения анимации fetchItems() в колбэке сам обновит.
+          if (!spinning) {
+            items = msg.payload.items || [];
+            renderList();
+          }
         } else if (msg.type === 'spin_started') {
           // Кто-то другой крутит — обновим items (могли добавиться/удалиться)
-          if (msg.payload.items) {
+          if (!spinning && msg.payload.items) {
             items = msg.payload.items;
             renderList();
           }
@@ -722,6 +726,20 @@
             banner.textContent = `🎉 Победитель: ${msg.payload.winner.name}!`;
             banner.classList.add('show');
             setTimeout(() => banner.classList.remove('show'), 5000);
+          }
+        } else if (msg.type === 'elimination_result') {
+          // v2.3.3: Кто-то другой крутит elimination — покажем кого выбыло
+          if (!spinning && msg.payload.eliminated) {
+            const banner = document.getElementById('winner-banner');
+            banner.textContent = `❌ Выбыл: ${msg.payload.eliminated.name} (осталось ${msg.payload.remaining_count})`;
+            banner.style.background = 'var(--red)';
+            banner.style.color = '#fff';
+            banner.classList.add('show');
+            setTimeout(() => {
+              banner.classList.remove('show');
+              banner.style.background = '';
+              banner.style.color = '';
+            }, 5000);
           }
         }
       };
@@ -738,39 +756,8 @@
     }
 
     // === Event listeners ===
-    // === Filmnight controls ===
-    async function startFilmnight() {
-      const maxInput = document.getElementById('fn-max-per-user');
-      const maxPerUser = parseInt(maxInput?.value || '3', 10);
-      const formData = new FormData();
-      formData.append('max_per_user', maxPerUser);
-      try {
-        const r = await fetch('/api/filmnight/start', { method: 'POST', body: formData });
-        const data = await r.json();
-        if (r.ok) {
-          window.location.reload();
-        } else {
-          alert(data.error || 'Ошибка запуска сбора');
-        }
-      } catch (e) {
-        alert('Сетевая ошибка: ' + e.message);
-      }
-    }
-
-    async function endFilmnight() {
-      if (!confirm('Завершить сбор фильмов? После этого можно крутить колесо.')) return;
-      try {
-        const r = await fetch('/api/filmnight/end', { method: 'POST' });
-        const data = await r.json();
-        if (r.ok) {
-          window.location.reload();
-        } else {
-          alert(data.error || 'Ошибка завершения сбора');
-        }
-      } catch (e) {
-        alert('Сетевая ошибка: ' + e.message);
-      }
-    }
+    // v2.3.3: удалены dead-code startFilmnight/endFilmnight (ссылались на /api/filmnight/*
+    //         который удалён в v1.8.3, заменён на /api/collection/* в movienight.html).
 
     document.getElementById('add-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -796,8 +783,12 @@
       if (spinning || items.length < 2) return;
       spinning = true;
       document.getElementById('spin-btn').disabled = true;
-      document.getElementById('spin-elimination-btn').disabled = true;
       document.getElementById('winner-banner').classList.remove('show');
+
+      // v2.3.3: СНАПШОТ items ДО fetch. WS spin_started/wheel_updated могут прийти
+      // во время ожидания ответа и заменить items — тогда findIndex не найдёт
+      // eliminated.id и анимация тихо оборвётся (был баг «не работает»).
+      const itemsSnapshot = items.slice();
 
       const r = await fetch('/api/wheel/spin_elimination', { method: 'POST' });
       const data = await r.json();
@@ -811,7 +802,6 @@
         alert(data.error || 'Ошибка спина');
         spinning = false;
         document.getElementById('spin-btn').disabled = items.length < 2;
-        document.getElementById('spin-elimination-btn').disabled = items.length < 2;
         return;
       }
 
@@ -819,22 +809,41 @@
       const isFinal = data.mode === 'elimination_final';
       const winner = data.winner;
 
-      // Найти индекс eliminated в текущем массиве для анимации
-      const elimIdx = items.findIndex(it => it.id === eliminated.id);
-      if (elimIdx === -1) {
+      // v2.3.3: В финале крутим к ПОБЕДИТЕЛЮ (как в классическом режиме),
+      // в промежуточном раунде — к ВЫБЫВШЕМУ. Раньше в финале крутили к выбывшему,
+      // а баннер объявлял победителя — визуальное противоречие.
+      const targetItem = isFinal ? winner : eliminated;
+
+      // Найти индекс в СНАПШОТЕ (не в текущем items — он мог измениться из-за WS)
+      const targetIdx = itemsSnapshot.findIndex(it => it.id === targetItem.id);
+      if (targetIdx === -1) {
+        // Снапшот устарел — просто покажем баннер без анимации
         await fetchItems();
+        const banner = document.getElementById('winner-banner');
+        if (isFinal) {
+          banner.textContent = `🏆 Финальный победитель: ${winner.name}!`;
+          banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
+        } else {
+          banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${data.remaining_count})`;
+          banner.style.background = 'var(--red)';
+          banner.style.color = '#fff';
+        }
+        banner.classList.add('show');
         spinning = false;
         document.getElementById('spin-btn').disabled = items.length < 2;
-        document.getElementById('spin-elimination-btn').disabled = items.length < 2;
+        setTimeout(() => {
+          banner.style.background = '';
+          banner.style.color = '';
+        }, 5000);
         return;
       }
 
-      // Анимация — крутим к eliminated сектору (как будто он "выбывает")
-      const anglePer = (Math.PI * 2) / items.length;
-      const elimCenterAngle = elimIdx * anglePer + anglePer / 2;
+      // Анимация — крутим к targetItem сектору
+      const anglePer = (Math.PI * 2) / itemsSnapshot.length;
+      const targetCenterAngle = targetIdx * anglePer + anglePer / 2;
       const extraTurns = 5 + Math.floor(Math.random() * 3);
       const targetRotation = currentRotation + extraTurns * Math.PI * 2
-        + (-Math.PI / 2 - elimCenterAngle) - (currentRotation % (Math.PI * 2));
+        + (-Math.PI / 2 - targetCenterAngle) - (currentRotation % (Math.PI * 2));
 
       animateSpin(targetRotation, spinDuration, () => {
         const banner = document.getElementById('winner-banner');
@@ -853,7 +862,6 @@
         fetchItems();
         spinning = false;
         document.getElementById('spin-btn').disabled = items.length < 2;
-        document.getElementById('spin-elimination-btn').disabled = items.length < 2;
 
         // Сбросить стиль баннера через 5 сек
         setTimeout(() => {
