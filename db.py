@@ -384,6 +384,17 @@ async def init_db() -> None:
                         log.info("v2.3.2 migration: added rtime_last_played column to %s", table_sg_migr)
                 except Exception as e:
                     log.warning("v2.3.2 migration: %s: %s", table_sg_migr, e)
+                # v2.3.3: добавить is_test в wheel_items и winners (для тестового режима Матки)
+                for table_name_migr in ("wheel_items", "winners"):
+                    table_test_migr = guild_module.guild_table(gid, table_name_migr)
+                    try:
+                        async with db.execute(f"PRAGMA table_info({table_test_migr})") as cur:
+                            test_cols = {row[1] for row in await cur.fetchall()}
+                        if "is_test" not in test_cols:
+                            await db.execute(f"ALTER TABLE {table_test_migr} ADD COLUMN is_test INTEGER DEFAULT 0")
+                            log.info("v2.3.3 migration: added is_test column to %s", table_test_migr)
+                    except Exception as e:
+                        log.warning("v2.3.3 migration: %s: %s", table_test_migr, e)
             await db.commit()
 
         log.info("DB initialized at %s (size=%d bytes)",
@@ -1813,12 +1824,14 @@ async def g_top_quotes(guild_id: int, limit: int = 10) -> list[tuple]:
 # --- g_winners ---
 
 async def g_add_winner(guild_id: int, lot_id: str | None, lot_name: str, tmdb_id: int | None,
-                      confidence: str = "unconfirmed") -> int:
+                      confidence: str = "unconfirmed", is_test: bool = False) -> int:
     table = _guild.guild_table(guild_id, "winners")
     async with _connect() as db:
         cur = await db.execute(
-            f"INSERT INTO {table} (lot_id, lot_name, tmdb_id, confidence, detected_at) VALUES (?, ?, ?, ?, ?)",
-            (lot_id, lot_name, tmdb_id, confidence, datetime.utcnow().isoformat()),
+            f"INSERT INTO {table} (lot_id, lot_name, tmdb_id, confidence, detected_at, is_test) "
+            f"VALUES (?, ?, ?, ?, ?, ?)",
+            (lot_id, lot_name, tmdb_id, confidence, datetime.utcnow().isoformat(),
+             1 if is_test else 0),
         )
         await db.commit()
         return cur.lastrowid
@@ -3678,6 +3691,116 @@ async def g_reassign_colors(guild_id: int) -> None:
                 f"UPDATE {table} SET color = ? WHERE id = ?", (_pick_color(i), item["id"])
             )
         await db.commit()
+
+
+# === v2.3.3: Тестовый режим колеса (для Матки) ===
+# Все записи помечаются is_test=1, при завершении теста удаляются.
+# Лог записей ведётся в текстовый файл для последующего анализа.
+
+async def g_add_test_wheel_item(guild_id: int, name: str, tmdb_id: int | None, added_by: int) -> int:
+    """Добавить тестовый item в колесо (is_test=1)."""
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        async with db.execute(f"SELECT COUNT(*) FROM {table} WHERE is_active = 1 AND is_test = 1") as cur:
+            row = await cur.fetchone()
+            count = row[0] if row else 0
+        color = _pick_color(count)
+        cur = await db.execute(
+            f"INSERT INTO {table} (name, tmdb_id, color, added_by, added_at, is_active, is_test) "
+            f"VALUES (?, ?, ?, ?, ?, 1, 1)",
+            (name, tmdb_id, color, added_by, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_list_test_wheel_items(guild_id: int) -> list[dict]:
+    """Только тестовые активные items (is_test=1)."""
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        sql = (f"SELECT id, name, tmdb_id, color, added_by, added_at FROM {table} "
+               f"WHERE is_active = 1 AND is_test = 1 ORDER BY id")
+        async with db.execute(sql) as cur:
+            rows = await cur.fetchall()
+        return [{"id": r[0], "name": r[1], "tmdb_id": r[2], "color": r[3],
+                 "added_by": r[4], "added_at": r[5]} for r in rows]
+
+
+async def g_remove_test_wheel_item(guild_id: int, item_id: int) -> bool:
+    """Удалить тестовый item (мягкое удаление, только is_test=1)."""
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET is_active = 0 WHERE id = ? AND is_active = 1 AND is_test = 1",
+            (item_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_clear_test_wheel(guild_id: int) -> int:
+    """Деактивировать все тестовые items. Возвращает сколько деактивировано."""
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET is_active = 0 WHERE is_active = 1 AND is_test = 1"
+        )
+        await db.commit()
+        return cur.rowcount
+
+
+async def g_purge_test_data(guild_id: int) -> dict:
+    """ПОЛНОСТЬЮ удалить все тестовые записи (не soft delete, а DELETE).
+
+    Используется при завершении тестового режима.
+    Возвращает статистику: {wheel_items_deleted, winners_deleted}.
+    """
+    table_wi = _guild.guild_table(guild_id, "wheel_items")
+    table_w = _guild.guild_table(guild_id, "winners")
+    table_r = _guild.guild_table(guild_id, "ratings")
+    stats = {"wheel_items_deleted": 0, "winners_deleted": 0, "ratings_deleted": 0}
+    async with _connect() as db:
+        # Сначала ratings для тестовых winners
+        try:
+            cur = await db.execute(
+                f"DELETE FROM {table_r} WHERE winner_id IN "
+                f"(SELECT id FROM {table_w} WHERE is_test = 1)"
+            )
+            stats["ratings_deleted"] = cur.rowcount
+        except Exception as e:
+            log.warning("g_purge_test_data: ratings delete failed: %s", e)
+        # Тестовые winners
+        cur = await db.execute(f"DELETE FROM {table_w} WHERE is_test = 1")
+        stats["winners_deleted"] = cur.rowcount
+        # Тестовые wheel_items (включая soft-deleted)
+        cur = await db.execute(f"DELETE FROM {table_wi} WHERE is_test = 1")
+        stats["wheel_items_deleted"] = cur.rowcount
+        await db.commit()
+    return stats
+
+
+async def g_get_test_stats(guild_id: int) -> dict:
+    """Статистика тестовых данных (для отображения в UI)."""
+    table_wi = _guild.guild_table(guild_id, "wheel_items")
+    table_w = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_wi} WHERE is_test = 1"
+        ) as cur:
+            wi = (await cur.fetchone())[0]
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_wi} WHERE is_test = 1 AND is_active = 1"
+        ) as cur:
+            wi_active = (await cur.fetchone())[0]
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table_w} WHERE is_test = 1"
+        ) as cur:
+            w = (await cur.fetchone())[0]
+    return {
+        "test_wheel_items_total": wi,
+        "test_wheel_items_active": wi_active,
+        "test_winners": w,
+    }
 
 
 # --- g_movie_nights ---

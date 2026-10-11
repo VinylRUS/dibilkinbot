@@ -103,6 +103,66 @@
       text-align: center;
       text-shadow: 0 0 20px rgba(255, 183, 3, 0.5);
     }
+    /* v2.3.3: Бейдж тестового режима */
+    .test-mode-badge {
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: 10px;
+      padding: 2px 10px;
+      background: rgba(149, 165, 166, 0.25);
+      color: var(--text-muted);
+      border: 1px solid var(--text-soft);
+      border-radius: 8px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-shadow: none;
+      letter-spacing: 0.05em;
+    }
+    .test-mode-panel {
+      background: var(--content-bg);
+      border: 1px solid var(--content-border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin: 12px 0;
+      box-shadow: var(--glass-shadow), var(--glass-inset);
+    }
+    .test-mode-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+    }
+    .test-mode-status {
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .test-mode-status:not(.active) {
+      background: rgba(149, 165, 166, 0.15);
+      color: var(--text-muted);
+    }
+    .test-mode-status.active {
+      background: rgba(255, 183, 3, 0.18);
+      color: var(--accent);
+    }
+    .test-mode-controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .test-mode-msg {
+      margin-top: 8px;
+      font-size: 0.78rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: var(--accent-soft);
+      color: var(--text);
+    }
+    .test-mode-msg.error { background: rgba(240, 71, 71, 0.15); color: var(--red); }
+    .test-mode-msg.success { background: rgba(67, 181, 129, 0.15); color: var(--green); }
     .wheel-canvas-wrap {
       position: relative;
       width: 600px;
@@ -396,7 +456,37 @@
         </div>
       {% endif %}
 
-      <h1 class="wheel-title"><img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Колесо фильмов</h1>
+      <h1 class="wheel-title">
+        <img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Колесо фильмов
+        {% if is_test_mode %}<span class="test-mode-badge">🧪 ТЕСТ</span>{% endif %}
+      </h1>
+
+      {% if user.is_superuser %}
+      <div class="test-mode-panel" id="test-mode-panel">
+        <div class="test-mode-header">
+          <strong>Тестовый режим</strong>
+          <span id="test-mode-status" class="test-mode-status">{% if is_test_mode %}активен{% else %}выключен{% endif %}</span>
+        </div>
+        <div class="test-mode-controls">
+          {% if not is_test_mode %}
+          <button class="btn-primary" onclick="startTestMode()" style="font-size:0.78rem;padding:6px 12px;">
+            🧪 Начать тест
+          </button>
+          {% else %}
+          <input type="text" id="test-item-name" placeholder="Название фильма..."
+                 style="font-size:0.78rem;padding:6px 10px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);flex:1;min-width:120px;">
+          <button class="btn-ghost" onclick="addTestItem()" style="font-size:0.78rem;padding:6px 10px;">
+            + Добавить
+          </button>
+          <button class="btn-danger" onclick="endTestMode()" style="font-size:0.78rem;padding:6px 12px;">
+            ⏹ Завершить и удалить данные
+          </button>
+          {% endif %}
+        </div>
+        <div id="test-mode-msg" class="test-mode-msg" style="display:none;"></div>
+      </div>
+      {% endif %}
+
       <div class="wheel-canvas-wrap">
         <div class="pointer"></div>
         <canvas id="wheel-canvas" width="600" height="600"></canvas>
@@ -869,6 +959,73 @@
           banner.style.color = '';
         }, 5000);
       });
+    }
+
+    // === v2.3.3: Тестовый режим (только для Матки) ===
+    function showTestMsg(text, kind) {
+      const el = document.getElementById('test-mode-msg');
+      if (!el) return;
+      el.textContent = text;
+      el.className = 'test-mode-msg ' + (kind || '');
+      el.style.display = 'block';
+      // Авто-скрытие через 4 сек (кроме ошибок)
+      if (kind !== 'error') {
+        setTimeout(() => { el.style.display = 'none'; }, 4000);
+      }
+    }
+
+    async function startTestMode() {
+      if (!confirm('Запустить тестовый режим колеса?\n\nВсе спины будут помечены как тестовые. Посты в Discord/TG пойдут с префиксом [TEST]. По завершении все тестовые данные будут удалены из БД.')) return;
+      try {
+        const r = await fetch('/api/wheel/test/start', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          showTestMsg('✅ Тестовый режим запущен. Лог: ' + (data.log_path || ''), 'success');
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          showTestMsg(data.error || 'Не удалось запустить', 'error');
+        }
+      } catch (e) {
+        showTestMsg('Сетевая ошибка: ' + e.message, 'error');
+      }
+    }
+
+    async function endTestMode() {
+      if (!confirm('Завершить тестовый режим?\n\nВСЕ тестовые записи (wheel_items, winners, ratings) будут удалены из БД. Лог-файл сохранится для анализа.')) return;
+      try {
+        const r = await fetch('/api/wheel/test/end', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          const stats = data.cleanup_stats || {};
+          const msg = `✅ Тест завершён. Удалено: ${stats.wheel_items_deleted || 0} items, ${stats.winners_deleted || 0} winners, ${stats.ratings_deleted || 0} ratings.\nЛог: ${data.log_path || ''}`;
+          showTestMsg(msg, 'success');
+          setTimeout(() => location.reload(), 3000);
+        } else {
+          showTestMsg(data.error || 'Не удалось завершить', 'error');
+        }
+      } catch (e) {
+        showTestMsg('Сетевая ошибка: ' + e.message, 'error');
+      }
+    }
+
+    async function addTestItem() {
+      const input = document.getElementById('test-item-name');
+      const name = (input?.value || '').trim();
+      if (!name) { showTestMsg('Введите название', 'error'); return; }
+      try {
+        const fd = new FormData();
+        fd.append('name', name);
+        const r = await fetch('/api/wheel/test/add_item', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok) {
+          input.value = '';
+          showTestMsg(`✅ Добавлен: "${name}" (всего ${data.count})`, 'success');
+        } else {
+          showTestMsg(data.error || 'Ошибка', 'error');
+        }
+      } catch (e) {
+        showTestMsg('Сетевая ошибка: ' + e.message, 'error');
+      }
     }
 
     // Initial state из SSR

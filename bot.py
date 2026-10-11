@@ -760,12 +760,15 @@ class KinovecherBot(commands.Bot):
         except Exception as e:
             log.warning("on_guild_role_delete sync failed: %s", e)
 
-    async def on_wheel_spin_completed(self, winner: dict) -> None:
+    async def on_wheel_spin_completed(self, winner: dict, is_test: bool = False) -> None:
         """Вызывается из web.py после завершения спина колеса.
         Отправляет embed с победителем в Discord-канал #winners (если настроен).
         Также постит в Telegram с постером и метаданными (если настроен).
+
+        v2.3.3: is_test=True → постинг с префиксом [TEST] и логированием.
         """
-        log.info("Wheel spin completed, winner: %s", winner)
+        log.info("Wheel spin completed (is_test=%s), winner: %s", is_test, winner)
+        import wheel_test_log
 
         # 1. Получаем метаданные (один раз для Discord + Telegram)
         meta = await self._resolve_winner_meta(winner)
@@ -775,24 +778,48 @@ class KinovecherBot(commands.Bot):
         if winners_channel_id_str and winners_channel_id_str.isdigit():
             channel = self.get_channel(int(winners_channel_id_str))
             if channel is not None:
-                embed = self._build_winner_embed(winner, meta)
+                embed = self._build_winner_embed(winner, meta, is_test=is_test)
                 try:
-                    await channel.send(embed=embed)
+                    msg = await channel.send(embed=embed)
+                    if is_test:
+                        wheel_test_log.log_event("discord_post", {
+                            "channel_id": int(winners_channel_id_str),
+                            "message_id": msg.id if msg else None,
+                            "success": True,
+                        })
                 except Exception as e:
                     log.error("Failed to post winner to Discord channel: %s", e)
+                    if is_test:
+                        wheel_test_log.log_event("discord_post", {
+                            "channel_id": int(winners_channel_id_str),
+                            "success": False, "error": str(e),
+                        })
             else:
                 log.warning("Winners channel %s not found", winners_channel_id_str)
+                if is_test:
+                    wheel_test_log.log_event("discord_post", {
+                        "channel_id": int(winners_channel_id_str),
+                        "success": False, "error": "channel_not_found",
+                    })
         else:
             log.info("No channel_winners_id set, skipping Discord post")
+            if is_test:
+                wheel_test_log.log_event("discord_post", {
+                    "success": False, "error": "channel_not_configured",
+                })
 
         # 3. Telegram пост в чат (с постером и метаданными если есть)
-        await self._post_winner_to_telegram(winner, meta)
+        await self._post_winner_to_telegram(winner, meta, is_test=is_test)
 
         # 4. Персональные уведомления в личку организаторам + админам
-        try:
-            await self.notify_wheel_winner(winner, meta)
-        except Exception as e:
-            log.error("notify_wheel_winner failed: %s", e)
+        # В тестовом режиме — пропускаем чтобы не спамить юзеров
+        if not is_test:
+            try:
+                await self.notify_wheel_winner(winner, meta)
+            except Exception as e:
+                log.error("notify_wheel_winner failed: %s", e)
+        else:
+            log.info("[TEST] Skipping personal notifications (test mode)")
 
     async def _resolve_winner_meta(self, winner: dict) -> dict | None:
         """Получить метаданные фильма из БД/Кинопоиска.
@@ -826,17 +853,21 @@ class KinovecherBot(commands.Bot):
         # Если kp_id есть — lookup_by_id
         return await lookup_by_id(kp_id)
 
-    def _build_winner_embed(self, winner: dict, meta: dict | None) -> "discord.Embed":
+    def _build_winner_embed(self, winner: dict, meta: dict | None, is_test: bool = False) -> "discord.Embed":
         """Построить Discord embed из метаданных.
         Имя добавившего фильм раскрывается ТОЛЬКО при победе.
         Синхронный метод: не делает Discord API запросов, использует только кеш self.guilds[*].get_member(...).
+
+        v2.3.3: is_test=True → в заголовок добавляется [TEST] префикс,
+                цвет embed меняется на серый, footer указывает что это тест.
         """
+        test_prefix = "[TEST] " if is_test else ""
         embed = discord.Embed(
-            title=f"🎡 Победитель колеса — {winner['name']}",
-            color=0x2ECC71,
+            title=f"{test_prefix}🎡 Победитель колеса — {winner['name']}",
+            color=0x95A5A6 if is_test else 0x2ECC71,  # серый для теста, зелёный для реального
             timestamp=datetime.utcnow(),
         )
-        embed.set_footer(text="✓ confirmed · автоматически из веб-панели")
+        embed.set_footer(text="🧪 TEST · данные будут удалены" if is_test else "✓ confirmed · автоматически из веб-панели")
 
         # Раскрываем кто предложил фильм — только при победе
         added_by_id = winner.get("added_by")
@@ -877,17 +908,22 @@ class KinovecherBot(commands.Bot):
 
         return embed
 
-    async def _post_winner_to_telegram(self, winner: dict, meta: dict | None) -> None:
+    async def _post_winner_to_telegram(self, winner: dict, meta: dict | None, is_test: bool = False) -> None:
         """Пост победителя в Telegram.
         Если есть метаданные (постер) → send_photo с HTML caption + кнопкой.
         Если нет → send_message с простым текстом.
         Использует tg_winners_chat_id + tg_winners_thread_id (если заданы).
         Fallback на telegram_chat_id + telegram_thread_id.
+
+        v2.3.3: is_test=True → caption начинается с [TEST], логирование результата.
         """
         # Выбираем чат: приоритет tg_winners_chat_id, потом telegram_chat_id
         tg_chat = await db.get_setting("tg_winners_chat_id") or await db.get_setting("telegram_chat_id")
         if not tg_chat:
             log.info("No Telegram chat configured, skipping TG post")
+            if is_test:
+                import wheel_test_log
+                wheel_test_log.log_event("tg_post", {"success": False, "error": "no_chat_configured"})
             return
 
         # thread_id: приоритет tg_winners_thread_id, потом telegram_thread_id
@@ -903,6 +939,9 @@ class KinovecherBot(commands.Bot):
             tg_token = settings.telegram_token
         if not tg_token:
             log.info("No Telegram token, skipping TG post")
+            if is_test:
+                import wheel_test_log
+                wheel_test_log.log_event("tg_post", {"success": False, "error": "no_token"})
             return
 
         # URL веб-панели для кнопки "Оценить" — из настроек (panel_base_url)
@@ -912,9 +951,13 @@ class KinovecherBot(commands.Bot):
         if panel_url:
             rate_button = {
                 "inline_keyboard": [[
-                    {"text": "📊 Оценить в панели", "url": f"{panel_url.rstrip('/')}/winners"},
+                    {"text": "📊 Оценить в панели" if not is_test else "🧪 TEST — кнопка",
+                     "url": f"{panel_url.rstrip('/')}/winners"},
                 ]]
             }
+
+        # v2.3.3: префикс [TEST] для caption
+        test_prefix = "[TEST] " if is_test else ""
 
         if meta and meta.get("poster_url"):
             # Rich post: фото + HTML caption + кнопка
@@ -928,7 +971,7 @@ class KinovecherBot(commands.Bot):
             imdb_id = meta.get("imdb_id")
 
             caption_parts = [
-                "🎡 <b>Победитель колеса!</b>\n",
+                f"{test_prefix}🎡 <b>Победитель колеса!</b>\n",
                 f"🎬 <b>{tg_escape(title)}</b>",
             ]
             if year:
@@ -960,23 +1003,35 @@ class KinovecherBot(commands.Bot):
 
             caption = "".join(caption_parts)
 
-            log.info("Posting winner to TG (photo+caption, %d chars)", len(caption))
-            await send_photo(
+            log.info("Posting winner to TG (photo+caption, %d chars, is_test=%s)", len(caption), is_test)
+            ok = await send_photo(
                 tg_token, tg_chat, meta["poster_url"], caption,
                 thread_id=tg_thread_id, reply_markup=rate_button,
             )
+            if is_test:
+                import wheel_test_log
+                wheel_test_log.log_event("tg_post", {
+                    "chat_id": tg_chat, "thread_id": tg_thread_id,
+                    "mode": "photo", "success": ok,
+                })
         else:
             # Fallback: простой текст без постера
             text = (
-                f"🎡 <b>Победитель колеса!</b>\n\n"
+                f"{test_prefix}🎡 <b>Победитель колеса!</b>\n\n"
                 f"🎬 <b>{tg_escape(winner['name'])}</b>\n"
                 f"<i>Метаданные не найдены</i>"
             )
-            log.info("Posting winner to TG (text only, no poster)")
-            await send_message(
+            log.info("Posting winner to TG (text only, no poster, is_test=%s)", is_test)
+            ok = await send_message(
                 tg_token, tg_chat, text,
                 thread_id=tg_thread_id,
             )
+            if is_test:
+                import wheel_test_log
+                wheel_test_log.log_event("tg_post", {
+                    "chat_id": tg_chat, "thread_id": tg_thread_id,
+                    "mode": "text", "success": ok,
+                })
 
     async def _notify_organizers(
         self,
