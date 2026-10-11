@@ -7,23 +7,35 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    body { background: #000; color: #fff; overflow: hidden; }
+    /* v2.3.3: Убираем хардкод чёрного фона — используем CSS-переменные
+       из DESIGN_SYSTEM.md (var(--bg-base), var(--text)). Раньше было
+       body { background: #000; color: #fff; overflow: hidden; } —
+       нарушало glassmorphism и ломало light-тему. */
+    body {
+      background: var(--bg-base, #0F0F1A);
+      color: var(--text, #fff);
+      min-height: 100vh;
+    }
     .back-link {
       position: fixed;
       top: 16px;
       left: 16px;
-      background: rgba(0,0,0,0.6);
+      background: var(--glass-bg, rgba(255,255,255,0.06));
+      backdrop-filter: var(--glass-blur, blur(20px) saturate(180%));
+      -webkit-backdrop-filter: var(--glass-blur, blur(20px) saturate(180%));
       color: var(--accent);
       padding: 8px 16px;
-      border-radius: 6px;
+      border-radius: 12px;
       text-decoration: none;
       font-size: 0.9rem;
-      border: 1px solid var(--accent);
+      border: 1px solid var(--glass-border, rgba(255,255,255,0.12));
       z-index: 100;
-      backdrop-filter: blur(8px);
-      transition: all 0.15s;
+      transition: all 0.15s var(--smooth, ease);
     }
-    .back-link:hover { background: var(--accent); color: #1A1A1A; }
+    .back-link:hover {
+      background: var(--accent);
+      color: var(--accent-text, #1A1A1A);
+    }
 
     /* === Компактный баннер статуса (одна строка) === */
     .wheel-banner {
@@ -38,7 +50,7 @@
       margin-bottom: 4px;
       background: rgba(255, 183, 3, 0.12);
       border: 1px solid rgba(255, 183, 3, 0.4);
-      color: #fff;
+      color: var(--text);
     }
     [data-theme="light"] .wheel-banner { color: var(--text); }
     .wheel-banner.success {
@@ -70,7 +82,7 @@
     }
     .wheel-banner-action {
       background: var(--accent);
-      color: #1A1A1A;
+      color: var(--accent-text, #1A1A1A);
       padding: 5px 12px;
       border-radius: 5px;
       text-decoration: none;
@@ -193,7 +205,7 @@
     }
     .spin-btn {
       background: var(--accent);
-      color: #1A1A1A;
+      color: var(--accent-text, #1A1A1A);
       border: none;
       padding: 18px 60px;
       border-radius: 50px;
@@ -226,7 +238,7 @@
     }
     .spin-elimination-btn:hover:not(:disabled) {
       background: var(--accent);
-      color: #1A1A1A;
+      color: var(--accent-text, #1A1A1A);
     }
     .spin-elimination-btn:disabled {
       opacity: 0.4;
@@ -260,7 +272,7 @@
     }
     .mode-btn.active {
       background: var(--accent);
-      color: #1A1A1A;
+      color: var(--accent-text, #1A1A1A);
     }
     .mode-btn:hover:not(.active) {
       color: var(--accent);
@@ -303,7 +315,7 @@
     .sound-toggle button.muted { opacity: 0.45; }
     .winner-banner {
       background: var(--accent);
-      color: #1A1A1A;
+      color: var(--accent-text, #1A1A1A);
       padding: 18px 40px;
       border-radius: 12px;
       font-size: 1.6rem;
@@ -345,14 +357,15 @@
       min-width: 140px;
     }
     .wheel-sidebar {
-      background: var(--card);
-      border-radius: 12px;
+      background: var(--content-bg, rgba(255,255,255,0.04));
+      border: 1px solid var(--content-border, rgba(255,255,255,0.08));
+      border-radius: var(--content-radius, 16px);
       padding: 20px;
       max-height: calc(100vh - 48px);
       overflow-y: auto;
     }
     [data-theme="light"] .wheel-sidebar { color: var(--text); }
-    [data-theme="dark"] .wheel-sidebar { color: #fff; }
+    [data-theme="dark"] .wheel-sidebar { color: var(--text); }
     .wheel-sidebar h2 {
       font-size: 1.2rem;
       margin: 0 0 16px;
@@ -376,7 +389,7 @@
     }
     .add-form button {
       background: var(--accent);
-      color: #1A1A1A;
+      color: var(--accent-text, #1A1A1A);
       border: none;
       padding: 0 16px;
       border-radius: 6px;
@@ -445,7 +458,7 @@
     .count-badge {
       display: inline-block;
       background: var(--accent);
-      color: #1A1A1A;
+      color: var(--accent-text, #1A1A1A);
       padding: 2px 10px;
       border-radius: 12px;
       font-size: 0.8rem;
@@ -857,25 +870,45 @@
     }
 
     // === Spin animation ===
-    // v2.3.3: Multi-stage easing — разгон / плато / долгое торможение
-    // Это даёт ощущение реального механического колеса: быстро набирает
-    // скорость, крутится равномерно, потом долго плавно тормозит.
+    // v2.3.3: Физика анимации — плавная кривая с непрерывной производной.
+    // 3 фазы: разгон (0-20%) → плато (20-70%) → торможение (70-100%).
+    // Производная на стыках совпадает → нет рывков скорости.
+    //
+    // Подход: задаём скорость v(t) как функцию (smoothstep для разгона/торможения,
+    // константа для плато). Позиция = интеграл скорости. Нормируем на S=1 при t=1.
     function wheelEase(t) {
-      // t = 0..1 (прогресс анимации)
-      // 0-15%: быстрый разгон (easeInQuad)
-      // 15-65%: почти линейное вращение (плато)
-      // 65-100%: долгое торможение (easeOutQuint — 5-я степень)
-      if (t < 0.15) {
-        // Разгон: квадратичная — медленно старт, быстро набирает
-        const t1 = t / 0.15;
-        return 0.10 * (t1 * t1);
-      } else if (t < 0.65) {
-        // Плато: линейное вращение
-        return 0.10 + (t - 0.15) * (0.65 / 0.50);
+      const ACCEL_END = 0.20;
+      const PLATEAU_END = 0.70;
+      // Скорость в каждой фазе:
+      //  - Разгон (0..ACCEL_END): v(t) = smoothstep(t/ACCEL_END) * v_max
+      //  - Плато: v(t) = v_max
+      //  - Торможение: v(t) = (1 - smoothstep(u)) * v_max, где u = (t-PLATEAU_END)/(1-PLATEAU_END)
+      // Площадь под скоростью = пройденный путь. Нормируем v_max чтобы при t=1 S=1.
+      const accel_area = ACCEL_END / 2;              // integral smoothstep(0..1) = 1/2
+      const plateau_area = (PLATEAU_END - ACCEL_END); // v_max * 1 (константа)
+      const decel_area = (1 - PLATEAU_END) / 2;       // 1/2 (обратный smoothstep)
+      const v_max = 1 / (accel_area + plateau_area + decel_area);
+      if (t < ACCEL_END) {
+        // S(t) = v_max * ACCEL_END * integral_0^{t/ACCEL_END} smoothstep(u) du
+        // integral smoothstep(u) du = u^3 - u^4/2 (т.к. smoothstep(u)=3u^2-2u^3)
+        const u = t / ACCEL_END;
+        const u3 = u * u * u;
+        const integral = u3 - u3 * u / 2;  // u^3 - u^4/2
+        return v_max * ACCEL_END * integral;
+      } else if (t < PLATEAU_END) {
+        // S(t) = S(ACCEL_END) + v_max * (t - ACCEL_END)
+        const accel_full = v_max * ACCEL_END * (1 - 0.5);  // 1/2 при u=1
+        return accel_full + v_max * (t - ACCEL_END);
       } else {
-        // Торможение: easeOutQuint — долгий плавный финиш
-        const t3 = (t - 0.65) / 0.35;
-        return 0.75 + 0.25 * (1 - Math.pow(1 - t3, 5));
+        // S(t) = S(PLATEAU_END) + v_max * (1-PLATEAU_END) * integral_0^u (1 - smoothstep) du
+        // integral (1 - smoothstep) du = u - (u^3 - u^4/2) = u - u^3 + u^4/2
+        const accel_full = v_max * ACCEL_END * 0.5;
+        const plateau_full = v_max * (PLATEAU_END - ACCEL_END);
+        const u = (t - PLATEAU_END) / (1 - PLATEAU_END);
+        const u3 = u * u * u;
+        const u4 = u3 * u;
+        const integral = u - u3 + u4 / 2;
+        return accel_full + plateau_full + v_max * (1 - PLATEAU_END) * integral;
       }
     }
 
@@ -1130,17 +1163,19 @@
       const isFinal = data.mode === 'elimination_final';
       const winner = data.winner;
 
-      // В финале крутим к ПОБЕДИТЕЛЮ (как в классическом режиме),
-      // в промежуточном раунде — к ВЫБЫВШЕМУ.
-      const targetItem = isFinal ? winner : eliminated;
+      // В финале крутим к ВЫБЫВШЕМУ (как в промежуточных раундах).
+      // Баннер отдельно объявит победителя — это логичнее UX:
+      // юзер видит что колесо остановилось на Y, Y выбывает, победитель = X.
+      const targetItem = eliminated;
 
       const targetIdx = itemsSnapshot.findIndex(it => it.id === targetItem.id);
       if (targetIdx === -1) {
         await fetchItems();
         const banner = document.getElementById('winner-banner');
         if (isFinal) {
-          banner.textContent = `🏆 Финальный победитель: ${winner.name}!`;
+          banner.innerHTML = `❌ Выбыл: ${escapeHtml(eliminated.name)}<br><span style="font-size:1.1em;">🏆 Победитель: ${escapeHtml(winner.name)}!</span>`;
           banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
+          banner.style.color = '#1A1A1A';
         } else {
           banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${data.remaining_count})`;
           banner.style.background = 'var(--red)';
@@ -1171,8 +1206,12 @@
       animateSpin(targetRotation, spinDuration, () => {
         const banner = document.getElementById('winner-banner');
         if (isFinal) {
-          banner.textContent = `🏆 Финальный победитель: ${winner.name}!`;
+          // v2.3.3: финал — показываем и выбывшего, и победителя.
+          // Колесо остановилось на eliminated (он выбывает),
+          // победитель = оставшийся.
+          banner.innerHTML = `❌ Выбыл: ${escapeHtml(eliminated.name)}<br><span style="font-size:1.1em;">🏆 Победитель: ${escapeHtml(winner.name)}!</span>`;
           banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
+          banner.style.color = '#1A1A1A';
         } else {
           banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${data.remaining_count})`;
           banner.style.background = 'var(--red)';

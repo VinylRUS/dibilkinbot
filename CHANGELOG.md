@@ -1,6 +1,6 @@
 # DeeBeelkin Bot — Changelog
 
-## v2.3.3 (8dd2ef8)
+## v2.3.3 (ea3fab1)
 
 #НОВЫЕ_ФИЧИ#
 - Колесо фортуны полностью переработано: новая физика анимации с тремя стадиями (быстрый разгон → равномерное вращение → долгое плавное торможение) — колесо ощущается как настоящее механическое
@@ -16,35 +16,55 @@
 
 #ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
 - templates/wheel.html:
+  * Приведён к DESIGN_SYSTEM.md: убран хардкод `background: #000` и `color: #fff`,
+    используется `var(--bg-base)` и `var(--text)`. Back-link переведён на glass-переменные
+    (--glass-bg, --glass-blur, --glass-border). Wheel-sidebar использует --content-bg
+    вместо --card. Все `color: #1A1A1A` заменены на `var(--accent-text, #1A1A1A)`.
+    border-radius приведён к 12px/16px вместо 6px (правило мягких радиусов).
   * canvas уменьшен с 600×600 до 500×500 чтобы всё влезало в экран с новой панелью управления
-  * controls-bar: все кнопки (mode-switcher, spin-btn, duration-slider, sound-toggle) в одной строке через flex-wrap
+  * controls-bar: все кнопки (mode-switcher, spin-btn, duration-slider, sound-toggle)
+    в одной строке через flex-wrap
   * sound-toggle: кнопка 🔊/🔇 + слайдер громкости 0-100%
   * drawWheel: параметр highlightIdx для подсветки сектора золотом (#FFD700) с тенью
-  * wheelEase(t): multi-stage easing — 0-15% easeInQuad (разгон), 15-65% linear (плато), 65-100% easeOutQuint (торможение)
+  * wheelEase(t): 3 фазы через интеграл скорости (smoothstep для разгона/торможения,
+    константа для плато). Производная непрерывна на стыках (проверено математически:
+    diff=0.0000 на стыках 20% и 70%). Заменяет багованный 3-stage easeInQuad→linear→
+    easeOutQuint где производная скакала с 1.3 до 3.57 на стыке 65% («ускорение в конце»)
+  * Финал elimination: колесо крутится к ВЫБЫВШЕМУ (как в промежуточных раундах),
+    баннер показывает и выбывшего и победителя: «❌ Выбыл: X / 🏆 Победитель: Y!».
+    Раньше крутилось к победителю — визуально колесо указывало на X, а побеждал Y.
   * getSectorUnderPointer(rotation, itemsCount): вычисление сектора под указателем для тиков
   * bouncePointer(): CSS-анимация pointer-bounce (0.08s, translateY + rotate)
-  * playTick(): Web Audio API, triangle wave, 1800Hz → 800Hz exponential ramp, 30ms, gain 0.3×volume
+  * playTick(): Web Audio API, triangle wave, 1800Hz → 800Hz exponential ramp, 30ms
   * ensureAudio(): создаёт AudioContext после первого user gesture (требование браузеров)
-  * spin()/spinElimination(): snapshot items ДО fetch, гарантия 5+ оборотов через нормализацию deltaToTarget в [0, 2π)
+  * spin()/spinElimination(): snapshot items ДО fetch, гарантия 5+ оборотов через
+    нормализацию deltaToTarget в [0, 2π)
 - web.py:
   * /api/wheel/spin и /spin_elimination: новый параметр duration (sec, 3-15, default 5)
-  * _delayed_spin_result и _delayed_elimination_result: принимают delay_sec, ждут duration + 0.5с буфер
-  * Постинг в Discord/TG (bot.on_wheel_spin_completed) вызывается из _delayed_spin_result — после delay_sec
-  * Это Вариант C из аудита: backend сразу определяет winner, frontend анимирует, постинг идёт после анимации
+  * _delayed_spin_result и _delayed_elimination_result: принимают delay_sec,
+    ждут duration + 0.5с буфер
+  * Постинг в Discord/TG (bot.on_wheel_spin_completed) вызывается из _delayed_spin_result
+    — после delay_sec. Это Вариант C из аудита: backend сразу определяет winner,
+    frontend анимирует, постинг идёт после анимации
 - bot.py:
-  * _build_winner_embed(winner, meta, is_test=False): [TEST] префикс, серый цвет (0x95A5A6), тестовый footer
-  * _post_winner_to_telegram(winner, meta, is_test=False): [TEST] префикс в caption, логирование результата
-  * on_wheel_spin_completed(winner, is_test=False): пропускает personal notifications в тестовом режиме
+  * _build_winner_embed(winner, meta, is_test=False): [TEST] префикс, серый цвет
+    (0x95A5A6), тестовый footer
+  * _post_winner_to_telegram(winner, meta, is_test=False): [TEST] префикс в caption,
+    логирование результата
+  * on_wheel_spin_completed(winner, is_test=False): пропускает personal notifications
+    в тестовом режиме
 - db.py:
   * Миграции: is_test INTEGER DEFAULT 0 в wheel_items и winners (для всех существующих гильдий)
   * g_add_winner(..., is_test=False): новый параметр
-  * g_add_test_wheel_item / g_list_test_wheel_items / g_remove_test_wheel_item / g_clear_test_wheel
+  * g_add_test_wheel_item / g_list_test_wheel_items / g_remove_test_wheel_item /
+    g_clear_test_wheel
   * g_purge_test_data: hard DELETE test records (wheel_items + winners + их ratings)
   * g_get_test_stats: для UI статусной панели
 - wheel_test_log.py (новый файл):
   * start_test_log / log_event / end_test_log — append-only лог
   * /app/data/wheel_test_logs/test_YYYYMMDD_HHMMSS_<admin_id>.log (персистентный)
-  * Events: spin, item_added, discord_post (channel_id, message_id, success), tg_post (chat, mode, success), cleanup, errors
+  * Events: spin, item_added, discord_post (channel_id, message_id, success),
+    tg_post (chat, mode, success), cleanup, errors
   * list_log_files / read_log_file — для будущего UI просмотра логов
 - guild.py: wheel_items и winners таблицы получили is_test колонку + idx_{table}_test индекс
 
