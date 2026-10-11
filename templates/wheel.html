@@ -593,6 +593,9 @@
     let currentRotation = 0;
     let currentMode = 'normal'; // 'normal' | 'elimination'
     let spinDuration = 5000; // ms
+    // v2.3.3: ID текущего спина — чтобы WS spin_started от своего же спина
+    // не запускал анимацию повторно (инициатор уже анимирует после HTTP-ответа)
+    let _currentSpinId = null;
     // v2.3.3: Звук тиков через Web Audio API (синтез, без mp3)
     let audioCtx = null;
     let tickVolume = 0.4; // 0..1
@@ -985,10 +988,17 @@
       const itemsSnapshot = items.slice();
       const snapshotCount = itemsSnapshot.length;
 
+      // v2.3.3: генерируем spin_id на клиенте и отправляем на сервер,
+      // чтобы WS spin_started от нашего спина можно было отличить
+      // от чужого (WS придёт раньше HTTP-ответа).
+      const clientSpinId = 'c_' + Math.random().toString(36).slice(2, 10);
+      _currentSpinId = clientSpinId;
+
       // v2.3.3: передаём duration в backend чтобы постинг в Discord/TG
       // шёл ПОСЛЕ завершения анимации (а не через hardcoded 5 секунд)
       const formData = new FormData();
       formData.append('duration', Math.round(spinDuration / 1000).toString());
+      formData.append('client_spin_id', clientSpinId);
       const r = await fetch('/api/wheel/spin', { method: 'POST', body: formData });
       const data = await r.json();
       if (!r.ok) {
@@ -1012,35 +1022,92 @@
         return;
       }
 
-      // v2.3.3: Подсветка winner-сектора в конце анимации (последние 25%)
-      setTimeout(() => { highlightIdx = winnerIdx; }, spinDuration * 0.75);
+      // v2.3.3: Запускаем анимацию у себя. Другие клиенты получат WS spin_started
+      // с тем же target_item + duration и запустят animateSpin сами.
+      // Спин уже начат — WS spin_started который придёт от сервера будет проигнорирован
+      // (см. флаг _currentSpinId, он установлен ДО fetch).
+      runSpinAnimation(winner, itemsSnapshot, spinDuration, 'classic', winner, null);
+    }
 
-      // v2.3.3: Рассчитать угол к winner сектору.
-      // Гарантируем минимум 5 полных оборотов (раньше могло получиться <1 если
-      // currentRotation уже близко к нужному углу).
+    // v2.3.3: Универсальная функция анимации — вызывается и инициатором спина
+    // (после HTTP-ответа), и другими клиентами (получив WS spin_started).
+    // Это гарантирует что колесо крутится ОДИНАКОВО у всех.
+    function runSpinAnimation(targetItem, snapshotItems, durationMs, mode, winner, eliminated) {
+      const snapshotCount = snapshotItems.length;
+      if (snapshotCount < 1 || !targetItem) {
+        spinning = false;
+        document.getElementById('spin-btn').disabled = items.length < 2;
+        return;
+      }
+      const targetIdx = snapshotItems.findIndex(it => it.id === targetItem.id);
+      if (targetIdx === -1) {
+        // Снапшот устарел — просто обновим состояние
+        fetchItems();
+        spinning = false;
+        _currentSpinId = null;
+        document.getElementById('spin-btn').disabled = items.length < 2;
+        // Если есть winner — покажем хотя бы баннер
+        if (winner) {
+          const banner = document.getElementById('winner-banner');
+          if (mode === 'elimination_final') {
+            banner.innerHTML = `❌ Выбыл: ${escapeHtml(eliminated.name)}<br><span style="font-size:1.1em;">🏆 Победитель: ${escapeHtml(winner.name)}!</span>`;
+            banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
+            banner.style.color = '#1A1A1A';
+          } else {
+            banner.textContent = `🎉 Победитель: ${winner.name}!`;
+          }
+          banner.classList.add('show');
+          setTimeout(() => {
+            banner.classList.remove('show');
+            banner.style.background = '';
+            banner.style.color = '';
+          }, 5000);
+        }
+        return;
+      }
+
+      // Подсветка target-сектора в конце анимации
+      setTimeout(() => { highlightIdx = targetIdx; }, durationMs * 0.75);
+
+      // Расчёт угла к target-сектору с гарантией 5+ оборотов
       const anglePer = (Math.PI * 2) / snapshotCount;
-      const winnerCenterAngle = winnerIdx * anglePer + anglePer / 2;
-      // Целевая позиция: winnerCenter под указателем (верх = -π/2)
-      // rotation должен быть такой чтобы (winnerCenterAngle + rotation) ≡ -π/2 (mod 2π)
-      // → rotation ≡ (-π/2 - winnerCenterAngle) (mod 2π)
-      const desiredFinalRotation = -Math.PI / 2 - winnerCenterAngle;
-      // Текущий "выровненный" rotation относительно desired (mod 2π)
+      const targetCenterAngle = targetIdx * anglePer + anglePer / 2;
+      const desiredFinalRotation = -Math.PI / 2 - targetCenterAngle;
       let deltaToTarget = desiredFinalRotation - (currentRotation % (Math.PI * 2));
-      // Нормализуем в [0, 2π) — хотим крутить ВПЕРЁД
       while (deltaToTarget < 0) deltaToTarget += Math.PI * 2;
-      // 5-7 полных оборотов + delta
       const extraTurns = 5 + Math.floor(Math.random() * 3);
       const targetRotation = currentRotation + extraTurns * Math.PI * 2 + deltaToTarget;
 
-      animateSpin(targetRotation, spinDuration, () => {
+      animateSpin(targetRotation, durationMs, () => {
         const banner = document.getElementById('winner-banner');
-        banner.textContent = `🎉 Победитель: ${winner.name}!`;
+        if (mode === 'elimination_final') {
+          banner.innerHTML = `❌ Выбыл: ${escapeHtml(eliminated.name)}<br><span style="font-size:1.1em;">🏆 Победитель: ${escapeHtml(winner.name)}!</span>`;
+          banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
+          banner.style.color = '#1A1A1A';
+        } else if (mode === 'elimination') {
+          // Промежуточный раунд — кого выбили. remaining_count отправляет backend.
+          // Здесь мы его не знаем точно, считаем как snapshotCount - 1.
+          banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${snapshotCount - 1})`;
+          banner.style.background = 'var(--red)';
+          banner.style.color = '#fff';
+        } else {
+          // classic
+          banner.textContent = `🎉 Победитель: ${winner.name}!`;
+          banner.style.background = '';
+          banner.style.color = '';
+        }
         banner.classList.add('show');
         fetchItems();
         spinning = false;
+        _currentSpinId = null;  // v2.3.3: сброс — готовы к новому спину
         document.getElementById('spin-btn').disabled = items.length < 2;
-        // Снять подсветку через 3 сек после завершения
-        setTimeout(() => { highlightIdx = -1; }, 3000);
+        // Снять подсветку и баннер через 5 сек
+        setTimeout(() => {
+          highlightIdx = -1;
+          banner.classList.remove('show');
+          banner.style.background = '';
+          banner.style.color = '';
+        }, 5000);
       }, snapshotCount);
     }
 
@@ -1061,22 +1128,70 @@
             renderList();
           }
         } else if (msg.type === 'spin_started') {
-          // Кто-то другой крутит — обновим items (могли добавиться/удалиться)
-          if (!spinning && msg.payload.items) {
-            items = msg.payload.items;
-            renderList();
+          // v2.3.3: Если это наш собственный спин — мы уже анимируем после
+          // HTTP-ответа, игнорируем WS чтобы не запустить дважды.
+          if (msg.payload.spin_id === _currentSpinId) {
+            return;
           }
+          // Если мы уже крутим что-то другое — не вмешиваемся
+          if (spinning) return;
+
+          // v2.3.3: ЗАПУСКАЕМ Анимацию У ВСЕХ КЛИЕНТОВ.
+          // Backend прислал target_item + mode + winner + duration.
+          // Снапшот items берём из payload (это список ДО удаления).
+          const payload = msg.payload;
+          const wsItems = payload.items || [];
+          const wsTarget = payload.target_item;
+          const wsMode = payload.mode || 'classic';
+          const wsWinner = payload.winner;
+          const wsEliminated = payload.eliminated;
+          const wsDuration = (payload.duration || 5) * 1000;
+
+          if (wsItems.length < 1 || !wsTarget) return;
+
+          // Синхронизируем локальный items с тем что прислал сервер
+          items = wsItems;
+          renderList();
+
+          // Активируем аудио (если был user gesture — например клик на этой странице ранее)
+          ensureAudio();
+
+          // Запускаем анимацию к target_item
+          spinning = true;
+          document.getElementById('spin-btn').disabled = true;
+          document.getElementById('winner-banner').classList.remove('show');
+          highlightIdx = -1;
+          _currentSpinId = payload.spin_id;
+          runSpinAnimation(wsTarget, wsItems, wsDuration, wsMode, wsWinner, wsEliminated);
         } else if (msg.type === 'spin_result') {
+          // v2.3.3: Если мы уже анимируем (как инициатор) — игнорируем,
+          // анимация завершится и покажет баннер сама.
+          if (spinning) return;
           // Кто-то другой докрутил — покажем победителя
-          if (!spinning && msg.payload.winner) {
+          const payload = msg.payload;
+          if (payload.winner) {
             const banner = document.getElementById('winner-banner');
-            banner.textContent = `🎉 Победитель: ${msg.payload.winner.name}!`;
+            if (payload.mode === 'elimination_final' && payload.eliminated) {
+              banner.innerHTML = `❌ Выбыл: ${escapeHtml(payload.eliminated.name)}<br><span style="font-size:1.1em;">🏆 Победитель: ${escapeHtml(payload.winner.name)}!</span>`;
+              banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
+              banner.style.color = '#1A1A1A';
+            } else {
+              banner.textContent = `🎉 Победитель: ${payload.winner.name}!`;
+              banner.style.background = '';
+              banner.style.color = '';
+            }
             banner.classList.add('show');
-            setTimeout(() => banner.classList.remove('show'), 5000);
+            setTimeout(() => {
+              banner.classList.remove('show');
+              banner.style.background = '';
+              banner.style.color = '';
+            }, 5000);
           }
         } else if (msg.type === 'elimination_result') {
-          // v2.3.3: Кто-то другой крутит elimination — покажем кого выбыло
-          if (!spinning && msg.payload.eliminated) {
+          // v2.3.3: Промежуточный раунд elimination — кого выбыло.
+          // Если мы уже анимируем — игнорируем (покажем баннер в колбэке).
+          if (spinning) return;
+          if (msg.payload.eliminated) {
             const banner = document.getElementById('winner-banner');
             banner.textContent = `❌ Выбыл: ${msg.payload.eliminated.name} (осталось ${msg.payload.remaining_count})`;
             banner.style.background = 'var(--red)';
@@ -1142,9 +1257,18 @@
       const itemsSnapshot = items.slice();
       const snapshotCount = itemsSnapshot.length;
 
+      // v2.3.3: генерируем spin_id на клиенте (см. spin() для объяснения)
+      const clientSpinId = 'c_' + Math.random().toString(36).slice(2, 10);
+      _currentSpinId = clientSpinId;
+
       const r = await fetch('/api/wheel/spin_elimination', {
         method: 'POST',
-        body: (() => { const fd = new FormData(); fd.append('duration', Math.round(spinDuration / 1000).toString()); return fd; })()
+        body: (() => {
+          const fd = new FormData();
+          fd.append('duration', Math.round(spinDuration / 1000).toString());
+          fd.append('client_spin_id', clientSpinId);
+          return fd;
+        })()
       });
       const data = await r.json();
       if (!r.ok) {
@@ -1162,73 +1286,14 @@
       const eliminated = data.eliminated;
       const isFinal = data.mode === 'elimination_final';
       const winner = data.winner;
-
-      // В финале крутим к ВЫБЫВШЕМУ (как в промежуточных раундах).
-      // Баннер отдельно объявит победителя — это логичнее UX:
-      // юзер видит что колесо остановилось на Y, Y выбывает, победитель = X.
+      // Колесо крутится к ВЫБЫВШЕМУ (как в промежуточных раундах).
       const targetItem = eliminated;
+      const animMode = isFinal ? 'elimination_final' : 'elimination';
 
-      const targetIdx = itemsSnapshot.findIndex(it => it.id === targetItem.id);
-      if (targetIdx === -1) {
-        await fetchItems();
-        const banner = document.getElementById('winner-banner');
-        if (isFinal) {
-          banner.innerHTML = `❌ Выбыл: ${escapeHtml(eliminated.name)}<br><span style="font-size:1.1em;">🏆 Победитель: ${escapeHtml(winner.name)}!</span>`;
-          banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
-          banner.style.color = '#1A1A1A';
-        } else {
-          banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${data.remaining_count})`;
-          banner.style.background = 'var(--red)';
-          banner.style.color = '#fff';
-        }
-        banner.classList.add('show');
-        spinning = false;
-        document.getElementById('spin-btn').disabled = items.length < 2;
-        setTimeout(() => {
-          banner.style.background = '';
-          banner.style.color = '';
-        }, 5000);
-        return;
-      }
-
-      // v2.3.3: Подсветка target-сектора в конце анимации
-      setTimeout(() => { highlightIdx = targetIdx; }, spinDuration * 0.75);
-
-      // v2.3.3: Гарантированные 5+ оборотов (как в spin())
-      const anglePer = (Math.PI * 2) / snapshotCount;
-      const targetCenterAngle = targetIdx * anglePer + anglePer / 2;
-      const desiredFinalRotation = -Math.PI / 2 - targetCenterAngle;
-      let deltaToTarget = desiredFinalRotation - (currentRotation % (Math.PI * 2));
-      while (deltaToTarget < 0) deltaToTarget += Math.PI * 2;
-      const extraTurns = 5 + Math.floor(Math.random() * 3);
-      const targetRotation = currentRotation + extraTurns * Math.PI * 2 + deltaToTarget;
-
-      animateSpin(targetRotation, spinDuration, () => {
-        const banner = document.getElementById('winner-banner');
-        if (isFinal) {
-          // v2.3.3: финал — показываем и выбывшего, и победителя.
-          // Колесо остановилось на eliminated (он выбывает),
-          // победитель = оставшийся.
-          banner.innerHTML = `❌ Выбыл: ${escapeHtml(eliminated.name)}<br><span style="font-size:1.1em;">🏆 Победитель: ${escapeHtml(winner.name)}!</span>`;
-          banner.style.background = 'linear-gradient(135deg, #FFB703 0%, #FB8500 100%)';
-          banner.style.color = '#1A1A1A';
-        } else {
-          banner.textContent = `❌ Выбыл: ${eliminated.name} (осталось ${data.remaining_count})`;
-          banner.style.background = 'var(--red)';
-          banner.style.color = '#fff';
-        }
-        banner.classList.add('show');
-
-        fetchItems();
-        spinning = false;
-        document.getElementById('spin-btn').disabled = items.length < 2;
-
-        setTimeout(() => {
-          banner.style.background = '';
-          banner.style.color = '';
-          highlightIdx = -1;
-        }, 5000);
-      }, snapshotCount);
+      // v2.3.3: Запоминаем spin_id чтобы WS spin_started от этого же спина
+      // не запустил анимацию повторно. Другие клиенты запустят её через WS.
+      // _currentSpinId уже установлен до fetch.
+      runSpinAnimation(targetItem, itemsSnapshot, spinDuration, animMode, winner, eliminated);
     }
 
     // === v2.3.3: Тестовый режим (только для Матки) ===
