@@ -767,6 +767,7 @@ KNOWN_TOKENS = [
     ("telegram_token", "Telegram Bot Token"),
     ("kinopoisk_token", "Kinopoisk API Token (kinopoiskapiunofficial.tech)"),
     ("steam_api_key", "Steam Web API Key (steamcommunity.com/dev/apikey) — для модуля Тайный Санта"),
+    ("github_token", "GitHub Personal Access Token (опционально) — для мониторинга версий. Без него лимит 60 req/hour"),
 ]
 
 
@@ -791,12 +792,14 @@ async def tokens_save(
     telegram_token: str = Form(""),
     kinopoisk_token: str = Form(""),
     steam_api_key: str = Form(""),
+    github_token: str = Form(""),
 ):
     updates = {
         "discord_token": discord_token.strip(),
         "telegram_token": telegram_token.strip(),
         "kinopoisk_token": kinopoisk_token.strip(),
         "steam_api_key": steam_api_key.strip(),
+        "github_token": github_token.strip(),
     }
     for key, val in updates.items():
         if val:
