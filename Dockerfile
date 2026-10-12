@@ -5,7 +5,7 @@ FROM python:3.12-slim
 
 # Минимальные системные пакеты (build-essential для cryptography)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libffi-dev \
+    build-essential libffi-dev git \
     && rm -rf /var/lib/apt/lists/*
 
 # Устанавливаем uv (быстрый пакетный менеджер)
@@ -23,10 +23,17 @@ WORKDIR /app
 COPY . /app/
 
 # v2.1.4: Записываем commit hash в .git_commit для футера версии.
-# Если Docker build запущен с --build-arg GIT_COMMIT=$(git rev-parse --short HEAD),
-# берём оттуда. Иначе — fallback на дату сборки.
-ARG GIT_COMMIT=unknown
-RUN echo "${GIT_COMMIT}" > /app/.git_commit
+# Приоритет: --build-arg GIT_COMMIT > git rev-parse > дата сборки.
+ARG GIT_COMMIT=auto
+RUN if [ "$GIT_COMMIT" = "auto" ] || [ -z "$GIT_COMMIT" ]; then \
+      COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo ""); \
+      if [ -z "$COMMIT" ]; then \
+        COMMIT=$(date +%Y%m%d); \
+      fi; \
+    else \
+      COMMIT="$GIT_COMMIT"; \
+    fi; \
+    echo "$COMMIT" > /app/.git_commit && echo "Git commit: $COMMIT"
 
 ENV DATABASE_PATH=/app/data/bot.db
 ENV PYTHONUNBUFFERED=1

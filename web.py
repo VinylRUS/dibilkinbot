@@ -46,16 +46,8 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 SESSION_TTL = 60 * 60 * 24 * 7  # 7 дней
 
 app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_url=None)
-# v2.3.3: templates импортирован из deps.py — настраиваем globals здесь
-templates.env.globals['bot_version'] = _get_bot_version()
-templates.env.globals['commit_id'] = _get_git_commit_id()
-templates.env.globals['bot_version_with_commit'] = f"{_get_bot_version()}({_get_git_commit_id()})"
-
-
-# v2.1.2: Глобальные переменные для всех шаблонов — bot_version и commit_id.
-# Раньше bot_version передавался только в panel.html, теперь доступен везде
-# (sidebar footer показывает "v2.1.0(abc1234)" на всех страницах).
-# Регистрируем как Jinja2 globals — доступны во всех шаблонах без явной передачи
+# v2.3.3: templates импортирован из deps.py — настраиваем globals ОДИН раз
+# bot_version и commit_id вычисляются через _get_git_commit_id() из deps.py
 templates.env.globals['bot_version'] = _get_bot_version()
 templates.env.globals['commit_id'] = _get_git_commit_id()
 templates.env.globals['bot_version_with_commit'] = f"{_get_bot_version()}({_get_git_commit_id()})"
