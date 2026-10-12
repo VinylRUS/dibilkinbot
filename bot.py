@@ -484,6 +484,14 @@ class KinovecherBot(commands.Bot):
         # === v2.3: Периодическая проверка авто-ачивок (раз в 30 минут) ===
         asyncio.create_task(_auto_achievements_loop())
 
+        # === v2.3.3: GitHub мониторинг — presence status + уведомления Матке ===
+        try:
+            import github_monitor
+            await github_monitor.set_initial_presence()
+            asyncio.create_task(github_monitor.github_monitor_loop())
+        except Exception as e:
+            log.warning("GitHub monitor failed to start: %s", e)
+
         # === v2.0: Автосоздание профилей для всех НЕ-ботов сервера ===
         await _auto_create_member_profiles()
 
