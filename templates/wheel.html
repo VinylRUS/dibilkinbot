@@ -628,22 +628,70 @@
       }
     }
 
-    function playTick() {
+    // v2.3.3: Звук тиков — улучшенный синтез через Web Audio API.
+    // Вариант C: sine (база) + square (атака) + lowpass filter.
+    // Pitch привязан к прогрессу анимации: на разгоне/плато — высокий тон,
+    // на торможении — плавно понижается (как настоящее колесо замедляется).
+    function playTick(progress = 0) {
       if (!soundEnabled || tickVolume <= 0 || !audioCtx) return;
       try {
-        const osc = audioCtx.createOscillator();
+        const now = audioCtx.currentTime;
+
+        // v2.3.3: Pitch-модуляция по прогрессу анимации.
+        // 0.0-0.70 (разгон + плато): 1800Hz (высокий, чистый)
+        // 0.70-1.00 (торможение): плавно 1800→600Hz (понижение)
+        let baseFreq;
+        if (progress < 0.70) {
+          baseFreq = 1800;
+        } else {
+          // Линейная интерполяция 1800 → 600 на отрезке [0.70, 1.00]
+          const t = (progress - 0.70) / 0.30;
+          baseFreq = 1800 - (1800 - 600) * t;
+        }
+
+        // === Sine wave — базовый тон (мягкий, чистый) ===
+        const sineOsc = audioCtx.createOscillator();
+        sineOsc.type = 'sine';
+        sineOsc.frequency.setValueAtTime(baseFreq, now);
+        sineOsc.frequency.exponentialRampToValueAtTime(baseFreq * 0.6, now + 0.04);
+
+        // === Square wave — атака/щелчок в начале (короткий, тихий) ===
+        const squareOsc = audioCtx.createOscillator();
+        squareOsc.type = 'square';
+        squareOsc.frequency.setValueAtTime(baseFreq * 1.5, now);
+        squareOsc.frequency.exponentialRampToValueAtTime(baseFreq, now + 0.01);
+
+        // === Low-pass filter — приглушение, не резкий ===
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(baseFreq * 3, now);
+        filter.Q.value = 1.0;
+
+        // === Gain envelope — очень короткий (40мс), экспоненциальное затухание ===
         const gain = audioCtx.createGain();
-        // Короткий высокий тик — как механическое колесо
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.03);
-        // Очень короткий (30мс) с экспоненциальным затуханием — не мерзкий
-        gain.gain.setValueAtTime(tickVolume * 0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
-        osc.connect(gain);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(tickVolume * 0.35, now + 0.002);  // атака 2мс
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);            // затухание 40мс
+
+        // Square тихий (в 3 раза тише sine) — только для атаки
+        const squareGain = audioCtx.createGain();
+        squareGain.gain.setValueAtTime(0, now);
+        squareGain.gain.linearRampToValueAtTime(tickVolume * 0.12, now + 0.002);
+        squareGain.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
+
+        // Соединяем: osc → filter → gain → destination
+        sineOsc.connect(filter);
+        filter.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.05);
+
+        squareOsc.connect(squareGain);
+        squareGain.connect(audioCtx.destination);
+
+        // Запуск
+        sineOsc.start(now);
+        squareOsc.start(now);
+        sineOsc.stop(now + 0.05);
+        squareOsc.stop(now + 0.02);
       } catch (e) {
         // silent
       }
@@ -955,12 +1003,13 @@
         currentRotation = startRotation + totalRotation * eased;
         drawWheel(currentRotation);
 
-        // v2.3.3: Тик при прохождении сектора под указателем
+        // v2.3.3: Тик при прохождении сектора под указателем.
+        // Передаём progress для pitch-модуляции — на торможении тон понижается.
         if (snapshotItemsCount > 0) {
           const currentSector = getSectorUnderPointer(currentRotation, snapshotItemsCount);
           if (currentSector !== lastSectorUnderPointer && currentSector >= 0) {
             lastSectorUnderPointer = currentSector;
-            playTick();
+            playTick(progress);
             bouncePointer();
           }
         }
@@ -1069,10 +1118,17 @@
       // Подсветка target-сектора в конце анимации
       setTimeout(() => { highlightIdx = targetIdx; }, durationMs * 0.75);
 
-      // Расчёт угла к target-сектору с гарантией 5+ оборотов
+      // v2.3.3: Расчёт угла к target-сектору с гарантией 5+ оборотов.
+      // Случайное смещение в пределах безопасной зоны сектора — указатель
+      // не останавливается ровно по центру, добавляет напряжения.
+      // Безопасная зона: средние 60% сектора (±30% от центра).
+      // Гарантия: указатель точно в пределах сектора, но не на границе.
       const anglePer = (Math.PI * 2) / snapshotCount;
       const targetCenterAngle = targetIdx * anglePer + anglePer / 2;
-      const desiredFinalRotation = -Math.PI / 2 - targetCenterAngle;
+      const offsetRange = anglePer * 0.3; // 30% от половины = 60% ширины
+      const randomOffset = (Math.random() - 0.5) * 2 * offsetRange; // [-0.3, +0.3] * anglePer
+      const finalAngle = targetCenterAngle + randomOffset;
+      const desiredFinalRotation = -Math.PI / 2 - finalAngle;
       let deltaToTarget = desiredFinalRotation - (currentRotation % (Math.PI * 2));
       while (deltaToTarget < 0) deltaToTarget += Math.PI * 2;
       const extraTurns = 5 + Math.floor(Math.random() * 3);
