@@ -2504,50 +2504,78 @@ async def api_wheel_result(
                 "actual_item_id": actual_item["id"] if actual_item else None,
             })
 
-    # Находим item по winner_id
-    winner = next((it for it in items if it["id"] == winner_id), None)
-    if not winner:
+    # Находим item по winner_id (в elimination это — выбывающий, не победитель)
+    eliminated = next((it for it in items if it["id"] == winner_id), None)
+    if not eliminated:
         return JSONResponse({"error": "winner_id не найден в списке", "error_code": "winner_not_found"}, status_code=400)
 
     # Помечаем как завершённый — другие result-запросы проигнорируются
     spin_state["completed"] = True
 
-    # Удаляем winner из колеса
+    # Удаляем "winner" (в classic — победитель, в elimination — выбывающий) из колеса
     remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
-    await remove_fn(guild_id, winner["id"])
+    await remove_fn(guild_id, eliminated["id"])
     if not is_test:
         await db.g_reassign_colors(guild_id)
 
-    # Записываем в winners
-    await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed", is_test=is_test)
-    if not is_test:
-        await db.g_mark_watchlist_watched(guild_id, winner["name"])
+    # v2.3.3 Вариант D: режимы
+    # classic: winner_id = победитель → записываем в winners, постинг
+    # elimination: winner_id = выбывающий → НЕ записываем в winners, НЕ постим
+    # elimination_final: winner_id = выбывающий → удаляем победителя тоже,
+    #   победителя записываем в winners, постим
+    actual_winner = None  # кто записывается в winners и постится в Discord/TG
+    if mode == "classic":
+        actual_winner = eliminated
+        await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
+                              actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+        if not is_test:
+            await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+    elif mode == "elimination_final":
+        # 2 элемента: eliminated выбывает, winner = второй (оставшийся)
+        actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
+        if actual_winner:
+            # Удаляем победителя из колеса тоже (колесо пустое после финала)
+            await remove_fn(guild_id, actual_winner["id"])
+            if not is_test:
+                await db.g_reassign_colors(guild_id)
+            # Записываем победителя в winners
+            await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
+                                  actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+            if not is_test:
+                await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+    # mode == "elimination" — ничего не записываем в winners, просто удалили выбывшего
 
     if is_test:
         wheel_test_log.log_event("spin_completed", {
             "spin_id": spin_id, "mode": mode,
-            "winner": {"id": winner["id"], "name": winner["name"]},
+            "eliminated": {"id": eliminated["id"], "name": eliminated["name"]},
+            "winner": {"id": actual_winner["id"], "name": actual_winner["name"]} if actual_winner else None,
             "rotation": rotation, "validation_ok": validation_ok,
         })
 
     # Шлём WS spin_completed с rotation — другие клиенты выставят эту позицию
+    # В elimination — "winner" = выбывающий (для баннера "выбыл X")
+    # В classic/final — "winner" = победитель
+    broadcast_winner = actual_winner if actual_winner else eliminated
     await ws_manager.broadcast("spin_completed", {
         "spin_id": spin_id,
-        "winner": _anonymize_items([winner])[0] if winner else None,
+        "winner": _anonymize_items([broadcast_winner])[0] if broadcast_winner else None,
+        "eliminated": _anonymize_items([eliminated])[0] if mode in ("elimination", "elimination_final") else None,
         "rotation": rotation,
         "mode": mode,
-        "remaining_count": len(items) - 1,
+        "remaining_count": max(0, len(items) - (2 if mode == "elimination_final" else 1)),
     })
 
-    # Постинг в Discord/TG
-    try:
-        import bot as bot_module
-        bot = bot_module.get_bot_instance()
-        if bot:
-            await bot.on_wheel_spin_completed(winner, is_test=is_test)
-    except Exception as e:
-        import logging
-        logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
+    # Постинг в Discord/TG — только если есть actual_winner (classic или elimination_final)
+    if actual_winner:
+        try:
+            import bot as bot_module
+            bot = bot_module.get_bot_instance()
+            if bot:
+                await bot.on_wheel_spin_completed(actual_winner, is_test=is_test)
+        except Exception as e:
+            import logging
+            logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
 
     # Через 1с — обновить список лотов у всех клиентов (winner удалён)
     async def _delayed_wheel_update():
@@ -2564,7 +2592,8 @@ async def api_wheel_result(
     return JSONResponse({
         "ok": True,
         "spin_id": spin_id,
-        "winner": winner,
+        "eliminated": eliminated,
+        "winner": actual_winner,  # None для elimination (промежуточный раунд)
         "rotation": rotation,
         "validation_ok": validation_ok,
     })
@@ -2572,10 +2601,11 @@ async def api_wheel_result(
 
 async def _spin_fallback(spin_id: str, mode: str = "classic") -> None:
     """Если frontend не прислал /api/wheel/result за duration+30с —
-    backend сам выбирает winner (на случай закрытой вкладки).
+    backend сам выбирает (на случай закрытой вкладки).
 
-    Только для classic и elimination (НЕ для elimination_final — там финал
-    обрабатывается по-другому).
+    В classic: выбирает победителя, удаляет, записывает в winners.
+    В elimination: выбирает выбывающего, удаляет, НЕ записывает в winners.
+    В elimination_final: выбирает выбывающего, удаляет обоих, победителя в winners.
     """
     import random
     spin_state = _active_spins.get(spin_id)
@@ -2588,7 +2618,6 @@ async def _spin_fallback(spin_id: str, mode: str = "classic") -> None:
     wait_sec = max(1, min(int(duration), 30)) + 30
     await asyncio.sleep(wait_sec)
 
-    # Проверяем снова — мог прийти result пока ждали
     spin_state = _active_spins.get(spin_id)
     if not spin_state or spin_state["completed"]:
         return
@@ -2597,49 +2626,71 @@ async def _spin_fallback(spin_id: str, mode: str = "classic") -> None:
     items = spin_state["items"]
     is_test = spin_state["is_test"]
 
-    # Backend сам выбирает winner
-    winner = random.choice(items)
+    # Backend сам выбирает (аналог frontend: сектор под случайным rotation)
+    eliminated = random.choice(items)
     spin_state["completed"] = True
 
     import logging
     logging.getLogger("wheel").warning(
-        "Spin %s: fallback activated — frontend didn't report result in %ss. Picking winner=%s",
-        spin_id, wait_sec, winner["name"],
+        "Spin %s: fallback activated — frontend didn't report result in %ss. Picking eliminated=%s (mode=%s)",
+        spin_id, wait_sec, eliminated["name"], mode,
     )
+
+    # Удаляем eliminated из колеса
+    remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
+    await remove_fn(guild_id, eliminated["id"])
+    if not is_test:
+        await db.g_reassign_colors(guild_id)
+
+    # Определяем actual_winner по режиму
+    actual_winner = None
+    if mode == "classic":
+        actual_winner = eliminated
+        await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
+                              actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+        if not is_test:
+            await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+    elif mode == "elimination_final":
+        actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
+        if actual_winner:
+            await remove_fn(guild_id, actual_winner["id"])
+            if not is_test:
+                await db.g_reassign_colors(guild_id)
+            await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
+                                  actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+            if not is_test:
+                await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+    # mode == "elimination" — ничего в winners
 
     if is_test:
         wheel_test_log.log_event("fallback", {
-            "spin_id": spin_id, "winner": {"id": winner["id"], "name": winner["name"]},
+            "spin_id": spin_id, "mode": mode,
+            "eliminated": {"id": eliminated["id"], "name": eliminated["name"]},
+            "winner": {"id": actual_winner["id"], "name": actual_winner["name"]} if actual_winner else None,
             "reason": "frontend_timeout",
         })
 
-    # Удаляем + записываем
-    remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
-    await remove_fn(guild_id, winner["id"])
-    if not is_test:
-        await db.g_reassign_colors(guild_id)
-    await db.g_add_winner(guild_id, str(winner["id"]), winner["name"], winner.get("tmdb_id"), "confirmed", is_test=is_test)
-    if not is_test:
-        await db.g_mark_watchlist_watched(guild_id, winner["name"])
-
-    # Шлём WS — клиенты должны сразу показать результат
+    # Шлём WS
+    broadcast_winner = actual_winner if actual_winner else eliminated
     await ws_manager.broadcast("spin_completed", {
         "spin_id": spin_id,
-        "winner": _anonymize_items([winner])[0] if winner else None,
+        "winner": _anonymize_items([broadcast_winner])[0] if broadcast_winner else None,
+        "eliminated": _anonymize_items([eliminated])[0] if mode in ("elimination", "elimination_final") else None,
         "rotation": None,  # fallback — нет точной позиции
         "mode": mode,
-        "remaining_count": len(items) - 1,
+        "remaining_count": max(0, len(items) - (2 if mode == "elimination_final" else 1)),
         "fallback": True,
     })
 
-    # Постинг
-    try:
-        import bot as bot_module
-        bot = bot_module.get_bot_instance()
-        if bot:
-            await bot.on_wheel_spin_completed(winner, is_test=is_test)
-    except Exception as e:
-        logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
+    # Постинг — только если есть actual_winner
+    if actual_winner:
+        try:
+            import bot as bot_module
+            bot = bot_module.get_bot_instance()
+            if bot:
+                await bot.on_wheel_spin_completed(actual_winner, is_test=is_test)
+        except Exception as e:
+            logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
 
     # Обновить список + освободить lock
     async def _cleanup():
