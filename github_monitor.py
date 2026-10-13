@@ -32,7 +32,8 @@ log = logging.getLogger("github_monitor")
 REPO_OWNER = "VinylRUS"
 REPO_NAME = "dibilkinbot"
 GITHUB_API = "https://api.github.com"
-POLL_INTERVAL = 600  # 10 минут
+POLL_INTERVAL_WITH_TOKEN = 10   # 10 сек — с PAT токеном (лимит 5000/hour)
+POLL_INTERVAL_NO_TOKEN = 600    # 10 минут — без токена (лимит 60/hour)
 NOTIFY_COOLDOWN = 3600  # 1 час — не спамим Матку чаще
 
 # Состояние: последний известный hash с GitHub + время последнего уведомления
@@ -173,7 +174,11 @@ async def _update_discord_presence(is_behind: bool, local_hash: str, remote_hash
 
 
 async def github_monitor_loop() -> None:
-    """Фоновый цикл: раз в 10 минут проверяет GitHub на новые коммиты.
+    """Фоновый цикл: проверяет GitHub на новые коммиты.
+
+    Интервал зависит от наличия PAT токена:
+    - С токеном: каждые 10 секунд (лимит 5000/hour, используем 360/hour)
+    - Без токена: каждые 10 минут (лимит 60/hour, используем 6/hour)
 
     Логика:
     1. Получаем локальный hash
@@ -186,10 +191,13 @@ async def github_monitor_loop() -> None:
     """
     global _last_github_hash, _last_notify_time, _last_was_behind
 
-    log.info("GitHub monitor started (interval=%ds)", POLL_INTERVAL)
+    # Определяем интервал по наличию токена
+    token = await _get_github_token()
+    interval = POLL_INTERVAL_WITH_TOKEN if token else POLL_INTERVAL_NO_TOKEN
+    log.info("GitHub monitor started (interval=%ds, token=%s)", interval, "yes" if token else "no")
 
-    # Первая проверка через 30 сек после старта
-    await asyncio.sleep(30)
+    # Первая проверка через 10 сек после старта
+    await asyncio.sleep(10)
 
     while True:
         try:
@@ -232,7 +240,7 @@ async def github_monitor_loop() -> None:
         except Exception as e:
             log.error("GitHub monitor error: %s", e, exc_info=True)
 
-        await asyncio.sleep(POLL_INTERVAL)
+        await asyncio.sleep(interval)
 
 
 async def set_initial_presence() -> None:
