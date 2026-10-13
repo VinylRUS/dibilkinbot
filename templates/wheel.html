@@ -515,7 +515,7 @@
         </div>
       {% else %}
         <div class="wheel-banner">
-          <span class="wheel-banner-icon"><img src="/static/icons/inbox.png" alt="" width="16" height="16" class="ui-icon"></span>
+          <span class="wheel-banner-icon"><img src="/static/icons/ghost.png" alt="" width="16" height="16" class="ui-icon"></span>
           <span class="wheel-banner-text">
             <strong>Колесо пустое</strong> — {% if last_collection %}запустите новый сбор{% else %}начните сбор{% endif %} на <a href="/movienight">/movienight</a>
           </span>
@@ -565,8 +565,8 @@
         </div>
         <button id="spin-btn" class="spin-btn" disabled>КРУТИТЬ</button>
         <div class="spin-duration">
-          <label for="duration-slider">⏱ <span id="duration-label">5</span>с</label>
-          <input type="range" id="duration-slider" min="3" max="15" value="5" step="1" oninput="updateDuration(this.value)">
+          <label for="duration-slider">⏱ <span id="duration-label">6</span>с</label>
+          <input type="range" id="duration-slider" min="3" max="30" value="6" step="1" oninput="updateDuration(this.value)">
         </div>
         <div class="sound-toggle">
           <button id="sound-btn" onclick="toggleSound()" title="Звук тиков">🔊</button>
