@@ -3,7 +3,7 @@
     let spinning = false;
     let currentRotation = 0;
     let currentMode = 'normal'; // 'normal' | 'elimination'
-    let spinDuration = 5000; // ms
+    let spinDuration = 6000; // ms (default 6s, max 30s)
     // v2.3.3: ID текущего спина — чтобы WS spin_started от своего же спина
     // не запускал анимацию повторно (инициатор уже анимирует после HTTP-ответа)
     let _currentSpinId = null;

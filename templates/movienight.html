@@ -416,7 +416,7 @@
 
           {% if watchlist | length == 0 %}
             <div class="empty-state">
-              <div class="empty-state-icon"><img src="/static/icons/inbox.png" alt="" width="16" height="16" class="ui-icon"></div>
+              <div class="empty-state-icon"><img src="/static/icons/ghost.png" alt="" width="16" height="16" class="ui-icon"></div>
               <p>Ваш список желаемого пуст.</p>
               <p style="margin-top: 8px; font-size: 0.85rem;">
                 Добавьте фильмы через <a href="/profile">/profile</a> или команду <code>/addfilm</code> в Discord,
@@ -461,7 +461,7 @@
           {% if is_organizer %}
             {# === Organizer controls === #}
             <div class="organizer-controls">
-              <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Управление сбором</h4>
+              <h4><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Управление сбором</h4>
               <button type="button" class="org-btn" id="start-spin-btn" onclick="startSpin(false)">
                 <img src="/static/icons/wheel.png" alt="" width="16" height="16" class="ui-icon"> Начать крутку колеса
               </button>
@@ -469,7 +469,7 @@
                 <img src="/static/icons/plus.png" alt="" width="16" height="16" class="ui-icon"> Начать принудительно
               </button>
               <button type="button" class="org-btn danger" onclick="cancelCollection()">
-                <img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Отменить сбор
+                <img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"> Отменить сбор
               </button>
               <div id="org-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
             </div>
@@ -506,7 +506,7 @@
                   </div>
                   <div class="participant-status {{ 'ready' if p.is_ready else ('kicked' if p.kicked_at else 'waiting') }}"></div>
                   {% if is_organizer and not p.kicked_at and p.user_discord_id != collection.started_by %}
-                    <button type="button" class="participant-kick" onclick="kickParticipant({{ p.user_discord_id }})"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"></button>
+                    <button type="button" class="participant-kick" onclick="kickParticipant({{ p.user_discord_id }})"><img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"></button>
                   {% endif %}
                 </div>
               {% else %}

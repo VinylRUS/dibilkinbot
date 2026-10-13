@@ -336,7 +336,7 @@
         {# Организатор controls #}
         {% if is_organizer %}
           <div class="organizer-controls">
-            <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Управление (организатор)</h4>
+            <h4><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Управление (организатор)</h4>
             <p class="santa-hint">
               Для распределения нужно минимум {{ min_participants }} готовых участников.
               Сейчас готовых: <strong>{{ ready_count }}</strong>.
@@ -431,12 +431,12 @@
 
       {% if is_admin %}
         <div class="organizer-controls">
-          <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Админ: раскрытие</h4>
+          <h4><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Админ: раскрытие</h4>
           <p class="santa-hint">
             Раскрытие сант — показать всем кто кому дарил. Используйте на стриме в день дедлайна.
           </p>
-          <button type="button" class="santa-btn" onclick="revealEvent({{ event.id }})"><img src="/static/icons/party.png" alt="" width="16" height="16" class="ui-icon"> Раскрыть сант</button>
-          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})" style="margin-left: 8px;"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Закрыть событие</button>
+          <button type="button" class="santa-btn" onclick="revealEvent({{ event.id }})"><img src="/static/icons/popcorn.png" alt="" width="16" height="16" class="ui-icon"> Раскрыть сант</button>
+          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})" style="margin-left: 8px;"><img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"> Закрыть событие</button>
           <div id="reveal-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
         </div>
       {% endif %}
@@ -444,7 +444,7 @@
     {% elif event.status == 'revealed' %}
       {# === Раскрытие === #}
       <div class="santa-hero">
-        <div class="santa-icon"><img src="/static/icons/party.png" alt="" width="16" height="16" class="ui-icon"></div>
+        <div class="santa-icon"><img src="/static/icons/popcorn.png" alt="" width="16" height="16" class="ui-icon"></div>
         <p><strong>{{ event.title }}</strong> — раскрыто!</p>
         <a href="/santa/{{ event.id }}/reveal" class="santa-btn" style="text-decoration: none; display: inline-block; margin-top: 16px;">
           <img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Открыть страницу раскрытия
@@ -453,8 +453,8 @@
 
       {% if is_admin %}
         <div class="organizer-controls">
-          <h4><img src="/static/icons/sliders.png" alt="" width="16" height="16" class="ui-icon"> Админ</h4>
-          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})"><img src="/static/icons/cancel.png" alt="" width="14" height="14" class="ui-icon"> Закрыть событие (скрыть данные)</button>
+          <h4><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Админ</h4>
+          <button type="button" class="santa-btn danger" onclick="closeEvent({{ event.id }})"><img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"> Закрыть событие (скрыть данные)</button>
         </div>
       {% endif %}
 
