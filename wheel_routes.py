@@ -1,12 +1,22 @@
 """FastAPI APIRouter — маршруты колеса (wheel).
 
 Извлечено из web.py при рефакторинге (Task ID: refactor-routes).
+v2.4.0 — серверная физика колеса.
+
 Содержит:
 - HTML-страницу /wheel
-- REST API /api/wheel/* (items, spin, result, clear, load-from-watchlist)
+- REST API /api/wheel/* (items, spin, clear, load-from-watchlist)
 - Режим на выбывание /api/wheel/spin_elimination
 - Тестовый режим колеса /api/wheel/test/* (только для Матки)
-- WebSocket /ws/wheel (real-time обновления)
+- WebSocket /ws/wheel (real-time обновления, с восстановлением активного спина)
+
+Архитектура v2.4.0:
+- Сервер генерирует параметры физики (wheel_physics.generate_spin) и определяет
+  победителя. Frontend только анимирует по этим параметрам.
+- Сервер хранит состояние спина (SPINNING → COMPLETED) и удерживает lock
+  до полного завершения (duration + buffer).
+- Нет endpoint'а /api/wheel/result — сервер сам знает результат.
+- WS-клиентам шлётся spin_started с physics, через duration+0.5с — spin_completed.
 
 Общие зависимости (auth, templates, anonymize_items) импортируются из deps.py —
 без circular imports.
@@ -14,17 +24,22 @@
 from __future__ import annotations
 
 import asyncio
-import math
+import logging
+import time
 import uuid
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import HTMLResponse, JSONResponse
 
-import crypto
 import db
+import wheel_physics
 import wheel_test_log
 import ws_manager
-from config import settings
+from wheel_physics import (
+    SpinPhysics,
+    generate_spin,
+    physics_to_dict,
+)
 
 from deps import (
     anonymize_items,
@@ -37,16 +52,21 @@ from deps import (
 
 router = APIRouter()
 
+_log = logging.getLogger("wheel")
 
-# === Module-level state (v2.3.3) ===
+
+# === Module-level state ===
 # Lock против race condition при одновременных спинах.
-# Ключ — guild_id. Не даёт двум юзерам одновременно крутить колесо в одной гильдии,
-# что могло привести к удалению одного и того же item'а дважды и рассинхрону клиентов.
+# Ключ — guild_id. Не даёт двум юзерам одновременно крутить колесо в одной гильдии.
+# v2.4.0: Lock удерживается с момента spin до ПОЛНОГО завершения (COMPLETED),
+# а не освобождается сразу после dispatch.
 _wheel_spin_locks: dict[int, asyncio.Lock] = {}
 
-# Вариант D: состояние активных спинов.
-# spin_id → {guild_id, items, mode, is_test, duration, started_at, completed}
-# Используется /api/wheel/result для валидации и fallback-таймером.
+# Состояние активных спинов.
+# spin_id → {guild_id, items, mode, is_test, duration, started_at, status, physics}
+# status: "SPINNING" → "COMPLETED"
+# Используется WS-recovery (отправить spin_started опоздавшему клиенту) и
+# для блокировки повторных круток (через lock).
 _active_spins: dict[str, dict] = {}
 
 
@@ -111,7 +131,7 @@ async def api_add_wheel_item(
     name: str = Form(...),
     tmdb_id: int | None = Form(None),
 ):
-    """Добавить лот в колесо. Триггерит broadcast всем WS-клиентам."""
+    """Добавить лот в колесо. Триггерит broadcast всем WS-клиентам гильдии."""
     name = name.strip()
     if not name:
         return JSONResponse({"error": "name required"}, status_code=400)
@@ -119,7 +139,7 @@ async def api_add_wheel_item(
     discord_id = _user.get("discord_id", 0)
     item_id = await db.g_add_wheel_item(guild_id, name, tmdb_id, discord_id)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(anonymize_items(items))
+    await ws_manager.broadcast_wheel_updated(int(guild_id), anonymize_items(items))
     return JSONResponse({"id": item_id, "items": anonymize_items(items), "count": len(items)})
 
 
@@ -135,7 +155,7 @@ async def api_remove_wheel_item(
         return JSONResponse({"error": "not found"}, status_code=404)
     await db.g_reassign_colors(guild_id)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(anonymize_items(items))
+    await ws_manager.broadcast_wheel_updated(int(guild_id), anonymize_items(items))
     return JSONResponse({"removed": True, "items": anonymize_items(items), "count": len(items)})
 
 
@@ -145,7 +165,7 @@ async def api_clear_wheel(_user: dict = Depends(require_admin)):
     guild_id = get_current_guild_id(_user)
     count = await db.g_clear_wheel(guild_id)
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(anonymize_items(items))
+    await ws_manager.broadcast_wheel_updated(int(guild_id), anonymize_items(items))
     return JSONResponse({"cleared": count, "items": items})
 
 
@@ -179,40 +199,48 @@ async def api_load_from_watchlist(_user: dict = Depends(require_user)):
         added += 1
 
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(anonymize_items(items))
+    await ws_manager.broadcast_wheel_updated(int(guild_id), anonymize_items(items))
     return JSONResponse({"loaded": added, "total": len(items)})
 
 
+# === Spin (classic) — серверная физика v2.4.0 ===
+
 @router.post("/api/wheel/spin")
-async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Form(5),
-                          client_spin_id: str = Form("")):
+async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Form(5)):
     """Запустить спин (классический режим).
 
-    v2.3.3 Вариант D — настоящее торможение + серверный валидатор:
-    Backend НЕ выбирает winner заранее. Шлёт WS spin_started без target_item.
-    Frontend крутит по физике (импульс + трение), останавливается сам,
-    отправляет POST /api/wheel/result с winner_id + rotation.
-    Backend валидирует и постит.
-    Fallback: если за 30с+duration результат не пришёл — backend сам
-    выбирает winner через random.choice (на случай закрытой вкладки).
-    """
-    import random
-    guild_id = get_current_guild_id(_user)
+    v2.4.0 — серверная физика:
+    1. Сервер генерирует параметры спина через wheel_physics.generate_spin
+       (поворот, конечный угол, winner_idx).
+    2. Шлёт WS spin_started с physics — клиенты анимируют по этим параметрам.
+    3. Через duration + 0.5с (delayed task) сервер сам определяет winner,
+       удаляет из колеса, постит в Discord/TG, шлёт spin_completed.
+    4. Lock удерживается до полного завершения (status COMPLETED + cleanup).
+    5. Второй запрос во время SPINNING → 409 Conflict.
 
-    is_test = await _is_wheel_test_mode(int(guild_id))
+    Нет endpoint'а /api/wheel/result — серверу не нужно от клиента результат,
+    клиент не может повлиять на winner.
+    """
+    guild_id = int(get_current_guild_id(_user))
+
+    is_test = await _is_wheel_test_mode(guild_id)
 
     async def _list_items():
         if is_test:
-            return await db.g_list_test_wheel_items(int(guild_id))
+            return await db.g_list_test_wheel_items(guild_id)
         return await db.g_list_wheel_items(guild_id, active_only=True)
 
-    lock = _wheel_spin_locks.setdefault(int(guild_id), asyncio.Lock())
+    lock = _wheel_spin_locks.setdefault(guild_id, asyncio.Lock())
     if lock.locked():
-        return JSONResponse({"error": "Колесо уже крутится, дождитесь результата.", "error_code": "already_spinning"}, status_code=409)
-    async with lock:
-        # Lock освобождается сразу после создания spin_state — флаг completed
-        # в _active_spins[spin_id] защищает от повторных result-запросов.
-        # Fallback-таймер проверяет completed флаг, не lock.
+        return JSONResponse(
+            {"error": "Колесо уже крутится, дождитесь результата.",
+             "error_code": "already_spinning"},
+            status_code=409,
+        )
+
+    await lock.acquire()
+    success = False
+    try:
         active_collection = await db.g_get_active_collection(guild_id)
         if active_collection and not is_test:
             return JSONResponse({
@@ -235,372 +263,96 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
         if len(items) < 2:
             return JSONResponse({"error": "need at least 2 items to spin"}, status_code=400)
 
-        spin_id = client_spin_id.strip() if client_spin_id.strip() else str(uuid.uuid4())[:8]
-        # Сохраняем состояние активного спина для /api/wheel/result
+        spin_id = str(uuid.uuid4())[:8]
+        physics = generate_spin(
+            spin_id=spin_id,
+            items_count=len(items),
+            current_rotation=0.0,
+            duration_sec=duration,
+            mode="classic",
+            started_at_ts=time.time(),
+        )
+
         _active_spins[spin_id] = {
-            "guild_id": int(guild_id),
+            "guild_id": guild_id,
             "items": items,
             "mode": "classic",
             "is_test": is_test,
             "duration": duration,
-            "started_at": asyncio.get_event_loop().time(),
-            "completed": False,
+            "started_at": time.time(),
+            "status": "SPINNING",
+            "physics": physics,
         }
 
         if is_test:
             wheel_test_log.log_event("spin_started", {
-                "mode": "classic", "spin_id": spin_id,
+                "mode": "classic",
+                "spin_id": spin_id,
                 "items_before": [{"id": it["id"], "name": it["name"]} for it in items],
                 "duration_sec": duration,
+                "winner_idx": physics.winner_idx,
+                "final_rotation": physics.final_rotation,
             })
 
-        # Шлём WS spin_started БЕЗ target_item — frontend крутит по физике
+        # Шлём WS spin_started с physics — клиенты анимируют по этим параметрам
         await ws_manager.broadcast_spin_started(
-            items, spin_id,
-            target_item=None,
+            guild_id, spin_id, physics_to_dict(physics),
             mode="classic",
-            winner=None,
-            eliminated=None,
+            items=anonymize_items(items),
             duration=duration,
         )
 
-        # Fallback: если за duration+30с результат не пришёл — сами выберем
-        asyncio.create_task(_spin_fallback(spin_id, mode="classic"))
+        # Планируем завершение спина через duration + 0.5с буфер.
+        # Эта задача снимет lock после завершения.
+        asyncio.create_task(_delayed_complete_spin(spin_id))
 
+        success = True
         return JSONResponse({
             "spin_id": spin_id,
             "items": anonymize_items(items),
             "duration": duration,
             "mode": "classic",
             "is_test": is_test,
+            "physics": physics_to_dict(physics),
         })
+    finally:
+        if not success and lock.locked():
+            # Validation failed or exception — освобождаем lock.
+            # Success path: lock освобождается в _delayed_complete_spin.
+            lock.release()
 
 
-def _get_sector_under_pointer(rotation: float, items_count: int) -> int:
-    """Вычислить индекс сектора под указателем для данного rotation.
-
-    Указатель вверху (12 часов) = угол -π/2 в canvas системе.
-    Сектор i находится на углах [i*anglePer, (i+1)*anglePer] в локальных координатах.
-    После поворота на rotation сектор под указателем — тот, для которого
-    (i*anglePer + rotation) ≡ -π/2 (mod 2π).
-
-    Возвращает индекс сектора или -1 если items_count == 0.
-    """
-    if items_count == 0:
-        return -1
-    angle_per = (2 * math.pi) / items_count
-    norm = (-math.pi / 2 - rotation) % (2 * math.pi)
-    if norm < 0:
-        norm += 2 * math.pi
-    return int(norm // angle_per) % items_count
-
-
-@router.post("/api/wheel/result")
-async def api_wheel_result(
-    _user: dict = Depends(require_user),
-    spin_id: str = Form(...),
-    winner_id: int = Form(...),
-    rotation: float = Form(...),
-    mode: str = Form("classic"),
-):
-    """Frontend сообщает где остановилось колесо.
-
-    v2.3.3 Вариант D: frontend крутит по физике, останавливается сам,
-    определяет сектор под указателем и шлёт сюда winner_id + rotation.
-    Backend валидирует: пересчитывает сектор по rotation, сверяет с winner_id.
-    Если совпадает — записывает, удаляет из колеса, постит в Discord/TG.
-    Если не совпадает — использует winner_id от frontend (доверяем) но логируем.
-    """
-    import math as _math
-    import random
-
-    spin_state = _active_spins.get(spin_id)
-    if not spin_state:
-        return JSONResponse({"error": "Спин не найден или уже завершён", "error_code": "spin_not_found"}, status_code=404)
-    if spin_state["completed"]:
-        return JSONResponse({"error": "Спин уже завершён", "error_code": "already_completed"}, status_code=409)
-
-    guild_id = spin_state["guild_id"]
-    items = spin_state["items"]
-    is_test = spin_state["is_test"]
-    expected_mode = spin_state["mode"]
-
-    # Валидация: найти сектор под указателем по rotation
-    actual_idx = _get_sector_under_pointer(rotation, len(items))
-    actual_item = items[actual_idx] if 0 <= actual_idx < len(items) else None
-    validation_ok = actual_item and actual_item["id"] == winner_id
-
-    if not validation_ok:
-        # Аномалия: frontend сообщил winner_id, но по rotation другой сектор.
-        # Доверяем frontend (возможно округление float), но логируем.
-        import logging
-        logging.getLogger("wheel").warning(
-            "Spin %s: rotation mismatch. frontend winner_id=%s, rotation=%.4f → sector idx=%s (item id=%s). Using frontend value.",
-            spin_id, winner_id, rotation, actual_idx,
-            actual_item["id"] if actual_item else None,
-        )
-        if is_test:
-            wheel_test_log.log_event("validation_mismatch", {
-                "spin_id": spin_id, "frontend_winner_id": winner_id,
-                "rotation": rotation, "actual_idx": actual_idx,
-                "actual_item_id": actual_item["id"] if actual_item else None,
-            })
-
-    # Находим item по winner_id (в elimination это — выбывающий, не победитель)
-    eliminated = next((it for it in items if it["id"] == winner_id), None)
-    if not eliminated:
-        return JSONResponse({"error": "winner_id не найден в списке", "error_code": "winner_not_found"}, status_code=400)
-
-    # Помечаем как завершённый — другие result-запросы проигнорируются
-    spin_state["completed"] = True
-
-    # Удаляем "winner" (в classic — победитель, в elimination — выбывающий) из колеса
-    remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
-    await remove_fn(guild_id, eliminated["id"])
-    if not is_test:
-        await db.g_reassign_colors(guild_id)
-
-    # v2.3.3 Вариант D: режимы
-    # classic: winner_id = победитель → записываем в winners, постинг
-    # elimination: winner_id = выбывающий → НЕ записываем в winners, НЕ постим
-    # elimination_final: winner_id = выбывающий → удаляем победителя тоже,
-    #   победителя записываем в winners, постим
-    actual_winner = None  # кто записывается в winners и постится в Discord/TG
-    if mode == "classic":
-        actual_winner = eliminated
-        await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
-                              actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
-        if not is_test:
-            await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
-    elif mode == "elimination_final":
-        # 2 элемента: eliminated выбывает, winner = второй (оставшийся)
-        actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
-        if actual_winner:
-            # Удаляем победителя из колеса тоже (колесо пустое после финала)
-            await remove_fn(guild_id, actual_winner["id"])
-            if not is_test:
-                await db.g_reassign_colors(guild_id)
-            # Записываем победителя в winners
-            await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
-                                  actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
-            if not is_test:
-                await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
-    # mode == "elimination" — ничего не записываем в winners, просто удалили выбывшего
-
-    if is_test:
-        wheel_test_log.log_event("spin_completed", {
-            "spin_id": spin_id, "mode": mode,
-            "eliminated": {"id": eliminated["id"], "name": eliminated["name"]},
-            "winner": {"id": actual_winner["id"], "name": actual_winner["name"]} if actual_winner else None,
-            "rotation": rotation, "validation_ok": validation_ok,
-        })
-
-    # Шлём WS spin_completed с rotation — другие клиенты выставят эту позицию
-    # В elimination — "winner" = выбывающий (для баннера "выбыл X")
-    # В classic/final — "winner" = победитель
-    broadcast_winner = actual_winner if actual_winner else eliminated
-    await ws_manager.broadcast("spin_completed", {
-        "spin_id": spin_id,
-        "winner": anonymize_items([broadcast_winner])[0] if broadcast_winner else None,
-        "eliminated": anonymize_items([eliminated])[0] if mode in ("elimination", "elimination_final") else None,
-        "rotation": rotation,
-        "mode": mode,
-        "remaining_count": max(0, len(items) - (2 if mode == "elimination_final" else 1)),
-    })
-
-    # Постинг в Discord/TG — только если есть actual_winner (classic или elimination_final)
-    if actual_winner:
-        try:
-            import bot as bot_module
-            bot = bot_module.get_bot_instance()
-            if bot:
-                await bot.on_wheel_spin_completed(actual_winner, is_test=is_test)
-        except Exception as e:
-            import logging
-            logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
-
-    # Через 1с — обновить список лотов у всех клиентов (winner удалён)
-    async def _delayed_wheel_update():
-        await asyncio.sleep(1.0)
-        if is_test:
-            remaining = await db.g_list_test_wheel_items(guild_id)
-        else:
-            remaining = await db.g_list_wheel_items(guild_id, active_only=True)
-        await ws_manager.broadcast_wheel_updated(anonymize_items(remaining))
-        # Чистим состояние
-        _active_spins.pop(spin_id, None)
-    asyncio.create_task(_delayed_wheel_update())
-
-    return JSONResponse({
-        "ok": True,
-        "spin_id": spin_id,
-        "eliminated": eliminated,
-        "winner": actual_winner,  # None для elimination (промежуточный раунд)
-        "rotation": rotation,
-        "validation_ok": validation_ok,
-    })
-
-
-async def _spin_fallback(spin_id: str, mode: str = "classic") -> None:
-    """Если frontend не прислал /api/wheel/result за duration+30с —
-    backend сам выбирает (на случай закрытой вкладки).
-
-    В classic: выбирает победителя, удаляет, записывает в winners.
-    В elimination: выбирает выбывающего, удаляет, НЕ записывает в winners.
-    В elimination_final: выбирает выбывающего, удаляет обоих, победителя в winners.
-    """
-    import random
-    spin_state = _active_spins.get(spin_id)
-    if not spin_state:
-        return
-    if spin_state["completed"]:
-        return
-
-    duration = spin_state.get("duration", 5)
-    wait_sec = max(1, min(int(duration), 30)) + 30
-    await asyncio.sleep(wait_sec)
-
-    spin_state = _active_spins.get(spin_id)
-    if not spin_state or spin_state["completed"]:
-        return
-
-    guild_id = spin_state["guild_id"]
-    items = spin_state["items"]
-    is_test = spin_state["is_test"]
-
-    # Backend сам выбирает (аналог frontend: сектор под случайным rotation)
-    eliminated = random.choice(items)
-    spin_state["completed"] = True
-
-    import logging
-    logging.getLogger("wheel").warning(
-        "Spin %s: fallback activated — frontend didn't report result in %ss. Picking eliminated=%s (mode=%s)",
-        spin_id, wait_sec, eliminated["name"], mode,
-    )
-
-    # Удаляем eliminated из колеса
-    remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
-    await remove_fn(guild_id, eliminated["id"])
-    if not is_test:
-        await db.g_reassign_colors(guild_id)
-
-    # Определяем actual_winner по режиму
-    actual_winner = None
-    if mode == "classic":
-        actual_winner = eliminated
-        await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
-                              actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
-        if not is_test:
-            await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
-    elif mode == "elimination_final":
-        actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
-        if actual_winner:
-            await remove_fn(guild_id, actual_winner["id"])
-            if not is_test:
-                await db.g_reassign_colors(guild_id)
-            await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
-                                  actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
-            if not is_test:
-                await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
-    # mode == "elimination" — ничего в winners
-
-    if is_test:
-        wheel_test_log.log_event("fallback", {
-            "spin_id": spin_id, "mode": mode,
-            "eliminated": {"id": eliminated["id"], "name": eliminated["name"]},
-            "winner": {"id": actual_winner["id"], "name": actual_winner["name"]} if actual_winner else None,
-            "reason": "frontend_timeout",
-        })
-
-    # Шлём WS
-    broadcast_winner = actual_winner if actual_winner else eliminated
-    await ws_manager.broadcast("spin_completed", {
-        "spin_id": spin_id,
-        "winner": anonymize_items([broadcast_winner])[0] if broadcast_winner else None,
-        "eliminated": anonymize_items([eliminated])[0] if mode in ("elimination", "elimination_final") else None,
-        "rotation": None,  # fallback — нет точной позиции
-        "mode": mode,
-        "remaining_count": max(0, len(items) - (2 if mode == "elimination_final" else 1)),
-        "fallback": True,
-    })
-
-    # Постинг — только если есть actual_winner
-    if actual_winner:
-        try:
-            import bot as bot_module
-            bot = bot_module.get_bot_instance()
-            if bot:
-                await bot.on_wheel_spin_completed(actual_winner, is_test=is_test)
-        except Exception as e:
-            logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
-
-    # Обновить список + освободить lock
-    async def _cleanup():
-        await asyncio.sleep(1.0)
-        if is_test:
-            remaining = await db.g_list_test_wheel_items(guild_id)
-        else:
-            remaining = await db.g_list_wheel_items(guild_id, active_only=True)
-        await ws_manager.broadcast_wheel_updated(anonymize_items(remaining))
-        _active_spins.pop(spin_id, None)
-    asyncio.create_task(_cleanup())
-
-
-async def _delayed_spin_result(winner: dict, remaining: list[dict], spin_id: str,
-                                is_test: bool = False, delay_sec: float = 5.0,
-                                mode: str = "classic",
-                                eliminated: dict | None = None) -> None:
-    """Через delay_sec секунд разослать финальный результат спина + постинг в Discord/TG.
-
-    v2.3.3: НЕ слать автоматически wheel_updated — он ломает анимацию на других клиентах
-    если spinDuration > 5с. Frontend сам вызовет fetchItems() после завершения анимации.
-
-    v2.3.3: delay_sec = длительность анимации + 0.5с буфер.
-    Пост в Discord/TG идёт ПОСЛЕ завершения анимации (Вариант C).
-
-    v2.3.3: mode + eliminated — для elimination_final чтобы другие клиенты
-    показали правильный баннер «выбыл X / победитель Y».
-    """
-    await asyncio.sleep(delay_sec)
-    await ws_manager.broadcast_spin_result(winner, spin_id, mode=mode, eliminated=eliminated)
-
-    # Уведомить Discord через бота (в тестовом режиме — с префиксом [TEST])
-    try:
-        import bot as bot_module
-        bot = bot_module.get_bot_instance()
-        if bot:
-            await bot.on_wheel_spin_completed(winner, is_test=is_test)
-    except Exception as e:
-        import logging
-        logging.getLogger("ws_manager").warning("Discord notify failed: %s", e)
-        if is_test:
-            wheel_test_log.log_event("discord_notify_error", {"error": str(e)})
-
+# === Spin (elimination) — серверная физика v2.4.0 ===
 
 @router.post("/api/wheel/spin_elimination")
-async def api_spin_wheel_elimination(_user: dict = Depends(require_user), duration: int = Form(5),
-                                       client_spin_id: str = Form("")):
-    """Режим 'на выбывание' — Вариант D.
+async def api_spin_wheel_elimination(_user: dict = Depends(require_user),
+                                       duration: int = Form(5)):
+    """Режим 'на выбывание' — v2.4.0 серверная физика.
 
-    v2.3.3 Вариант D: как /api/wheel/spin, но mode='elimination' или 'elimination_final'.
-    Backend НЕ выбирает winner/eliminated заранее. Шлёт WS spin_started без target_item.
-    Frontend крутит по физике, определяет eliminated/winner по позиции, шлёт /api/wheel/result.
-    Fallback через duration+30с.
+    mode = 'elimination_final' если 2 элемента (финал), иначе 'elimination'.
+    Сервер генерирует physics, winner_idx = кто выбывает.
+    Для elimination_final: actual_winner = другой (не выбывший) элемент.
     """
-    import random
-    guild_id = get_current_guild_id(_user)
+    guild_id = int(get_current_guild_id(_user))
 
-    is_test = await _is_wheel_test_mode(int(guild_id))
+    is_test = await _is_wheel_test_mode(guild_id)
 
     async def _list_items():
         if is_test:
-            return await db.g_list_test_wheel_items(int(guild_id))
+            return await db.g_list_test_wheel_items(guild_id)
         return await db.g_list_wheel_items(guild_id, active_only=True)
 
-    lock = _wheel_spin_locks.setdefault(int(guild_id), asyncio.Lock())
+    lock = _wheel_spin_locks.setdefault(guild_id, asyncio.Lock())
     if lock.locked():
-        return JSONResponse({"error": "Колесо уже крутится, дождитесь результата.", "error_code": "already_spinning"}, status_code=409)
-    async with lock:
+        return JSONResponse(
+            {"error": "Колесо уже крутится, дождитесь результата.",
+             "error_code": "already_spinning"},
+            status_code=409,
+        )
+
+    await lock.acquire()
+    success = False
+    try:
         active_collection = await db.g_get_active_collection(guild_id)
         if active_collection and not is_test:
             return JSONResponse({
@@ -623,67 +375,195 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user), durati
         if len(items) < 2:
             return JSONResponse({"error": "need at least 2 items"}, status_code=400)
 
-        spin_id = client_spin_id.strip() if client_spin_id.strip() else str(uuid.uuid4())[:8]
-
-        # v2.3.3 Вариант D: НЕ выбираем winner/eliminated заранее.
+        spin_id = str(uuid.uuid4())[:8]
         # mode = 'elimination_final' если 2 элемента (финал), иначе 'elimination'.
         mode = "elimination_final" if len(items) == 2 else "elimination"
 
+        physics = generate_spin(
+            spin_id=spin_id,
+            items_count=len(items),
+            current_rotation=0.0,
+            duration_sec=duration,
+            mode=mode,
+            started_at_ts=time.time(),
+        )
+
         _active_spins[spin_id] = {
-            "guild_id": int(guild_id),
+            "guild_id": guild_id,
             "items": items,
             "mode": mode,
             "is_test": is_test,
             "duration": duration,
-            "started_at": asyncio.get_event_loop().time(),
-            "completed": False,
+            "started_at": time.time(),
+            "status": "SPINNING",
+            "physics": physics,
         }
 
         if is_test:
             wheel_test_log.log_event("spin_started", {
-                "mode": mode, "spin_id": spin_id,
+                "mode": mode,
+                "spin_id": spin_id,
                 "items_before": [{"id": it["id"], "name": it["name"]} for it in items],
                 "duration_sec": duration,
+                "winner_idx": physics.winner_idx,
+                "final_rotation": physics.final_rotation,
             })
 
-        # Шлём WS spin_started БЕЗ target_item
+        # Шлём WS spin_started с physics
         await ws_manager.broadcast_spin_started(
-            items, spin_id,
-            target_item=None,
+            guild_id, spin_id, physics_to_dict(physics),
             mode=mode,
-            winner=None,
-            eliminated=None,
+            items=anonymize_items(items),
             duration=duration,
         )
 
-        # Fallback
-        asyncio.create_task(_spin_fallback(spin_id, mode=mode))
+        # Планируем завершение — снимет lock после cleanup
+        asyncio.create_task(_delayed_complete_spin(spin_id))
 
+        success = True
         return JSONResponse({
             "spin_id": spin_id,
             "items": anonymize_items(items),
             "duration": duration,
             "mode": mode,
             "is_test": is_test,
+            "physics": physics_to_dict(physics),
+        })
+    finally:
+        if not success and lock.locked():
+            lock.release()
+
+
+# === Delayed completion: сервер определяет winner по physics ===
+
+async def _delayed_complete_spin(spin_id: str) -> None:
+    """Через duration + 0.5с: определить winner по physics.winner_idx,
+    удалить из колеса, добавить в winners (для classic/elimination_final),
+    постить в Discord/TG, разослать spin_completed, затем wheel_updated.
+
+    В конце освобождает _wheel_spin_locks[guild_id] (lock удерживался с spin start).
+
+    Идемпотентно: если status уже COMPLETED — выходит без действий.
+    """
+    spin_state = _active_spins.get(spin_id)
+    if not spin_state:
+        return
+    if spin_state["status"] == "COMPLETED":
+        return
+
+    duration = spin_state.get("duration", 5)
+    # Ждём пока клиент отанимирует (duration) + небольшой буфер
+    await asyncio.sleep(duration + 0.5)
+
+    spin_state = _active_spins.get(spin_id)
+    if not spin_state or spin_state["status"] == "COMPLETED":
+        return
+
+    guild_id = spin_state["guild_id"]
+    items = spin_state["items"]
+    is_test = spin_state["is_test"]
+    mode = spin_state["mode"]
+    physics: SpinPhysics = spin_state["physics"]
+    lock = _wheel_spin_locks.get(guild_id)
+
+    # Помечаем завершённым — protects against re-entry
+    spin_state["status"] = "COMPLETED"
+
+    winner_idx = physics.winner_idx
+    # eliminated — элемент под указателем (в classic: тот же, что и winner;
+    # в elimination(_final): выбывающий).
+    if 0 <= winner_idx < len(items):
+        eliminated = items[winner_idx]
+    else:
+        _log.warning(
+            "Spin %s: winner_idx=%s out of range (len=%s). Falling back to items[0].",
+            spin_id, winner_idx, len(items),
+        )
+        eliminated = items[0]
+
+    # Удаляем eliminated из колеса
+    remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
+    await remove_fn(guild_id, eliminated["id"])
+    if not is_test:
+        await db.g_reassign_colors(guild_id)
+
+    # Определяем actual_winner — кто записывается в winners и постится в Discord/TG.
+    # classic: winner = eliminated (тот же элемент)
+    # elimination: actual_winner = None (промежуточный раунд, выбывший просто удаляется)
+    # elimination_final: winner = другой элемент (не eliminated)
+    actual_winner = None
+    if mode == "classic":
+        actual_winner = eliminated
+        await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
+                              actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+        if not is_test:
+            await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+    elif mode == "elimination_final":
+        actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
+        if actual_winner:
+            # Удаляем победителя из колеса тоже (после финала колесо пустое)
+            await remove_fn(guild_id, actual_winner["id"])
+            if not is_test:
+                await db.g_reassign_colors(guild_id)
+            await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
+                                  actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+            if not is_test:
+                await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+    # mode == "elimination" — ничего не записываем в winners
+
+    if is_test:
+        wheel_test_log.log_event("spin_completed", {
+            "spin_id": spin_id,
+            "mode": mode,
+            "winner_idx": winner_idx,
+            "eliminated": {"id": eliminated["id"], "name": eliminated["name"]},
+            "winner": ({"id": actual_winner["id"], "name": actual_winner["name"]}
+                       if actual_winner else None),
+            "final_rotation": physics.final_rotation,
+            "total_rotation": physics.total_rotation,
         })
 
-
-async def _delayed_elimination_result(eliminated: dict, remaining: list[dict], spin_id: str, delay_sec: float = 5.0) -> None:
-    """Через delay_sec секунд разослать результат elimination-спина (кого удалили).
-
-    v2.3.3: НЕ слать автоматически wheel_updated — он ломает анимацию на других клиентах
-    (если spinDuration > 5с, сектора скачут в середине анимации). Frontend сам вызовет
-    fetchItems() после завершения анимации и обновит список.
-    Только шлём elimination_result event для уведомления других клиентов.
-
-    v2.3.3: delay_sec = длительность анимации + 0.5с буфер.
-    """
-    await asyncio.sleep(delay_sec)
-    await ws_manager.broadcast(
-        "elimination_result",
-        {"eliminated": anonymize_items([eliminated])[0] if eliminated else None,
-         "remaining_count": len(remaining)},
+    # Шлём WS spin_completed — все клиенты синхронизируют финальную позицию
+    broadcast_winner = actual_winner if actual_winner else eliminated
+    await ws_manager.broadcast_spin_completed(
+        guild_id, spin_id,
+        winner=anonymize_items([broadcast_winner])[0] if broadcast_winner else None,
+        final_rotation=physics.final_rotation,
+        mode=mode,
+        eliminated=(anonymize_items([eliminated])[0]
+                    if mode in ("elimination", "elimination_final") else None),
+        remaining_count=max(0, len(items) - (2 if mode == "elimination_final" else 1)),
     )
+
+    # Постинг в Discord/TG — только если есть actual_winner
+    if actual_winner:
+        try:
+            import bot as bot_module
+            bot = bot_module.get_bot_instance()
+            if bot:
+                await bot.on_wheel_spin_completed(actual_winner, is_test=is_test)
+        except Exception as e:
+            _log.warning("Discord notify failed: %s", e)
+            if is_test:
+                wheel_test_log.log_event("discord_notify_error", {"error": str(e)})
+
+    # Через 1с — обновить список лотов у всех клиентов (winner удалён)
+    await asyncio.sleep(1.0)
+    if is_test:
+        remaining = await db.g_list_test_wheel_items(guild_id)
+    else:
+        remaining = await db.g_list_wheel_items(guild_id, active_only=True)
+    await ws_manager.broadcast_wheel_updated(guild_id, anonymize_items(remaining))
+
+    # Чистим состояние активного спина
+    _active_spins.pop(spin_id, None)
+    # Освобождаем lock — с этого момента новая крутка возможна
+    if lock is not None and lock.locked():
+        try:
+            lock.release()
+        except RuntimeError:
+            # Lock already released — race with another cleanup path
+            pass
 
 
 # === v2.3.3: Тестовый режим колеса (только для Матки) ===
@@ -709,7 +589,6 @@ async def api_wheel_test_start(_user: dict = Depends(require_superuser)):
         })
         return JSONResponse({"ok": True, "log_path": log_path})
     except Exception as e:
-        import logging
         logging.getLogger("wheel_test").error("Failed to start test mode: %s", e, exc_info=True)
         return JSONResponse({"error": f"Не удалось запустить тестовый режим: {e}"}, status_code=500)
 
@@ -740,7 +619,7 @@ async def api_wheel_test_end(_user: dict = Depends(require_superuser)):
 
         # Уведомить WS клиентов — список колеса обновился (тестовые items удалены)
         items = await db.g_list_wheel_items(guild_id, active_only=True)
-        await ws_manager.broadcast_wheel_updated(anonymize_items(items))
+        await ws_manager.broadcast_wheel_updated(guild_id, anonymize_items(items))
 
         return JSONResponse({
             "ok": True,
@@ -748,7 +627,6 @@ async def api_wheel_test_end(_user: dict = Depends(require_superuser)):
             "cleanup_stats": cleanup_stats,
         })
     except Exception as e:
-        import logging
         logging.getLogger("wheel_test").error("Failed to end test mode: %s", e, exc_info=True)
         return JSONResponse({"error": f"Не удалось завершить тестовый режим: {e}"}, status_code=500)
 
@@ -785,7 +663,7 @@ async def api_wheel_test_add_item(_user: dict = Depends(require_superuser), name
     try:
         item_id = await db.g_add_test_wheel_item(guild_id, name.strip(), None, admin_id)
         items = await db.g_list_test_wheel_items(guild_id)
-        await ws_manager.broadcast_wheel_updated(anonymize_items(items))
+        await ws_manager.broadcast_wheel_updated(guild_id, anonymize_items(items))
         wheel_test_log.log_event("item_added", {"item_id": item_id, "name": name.strip()})
         return JSONResponse({"ok": True, "item_id": item_id, "items": anonymize_items(items), "count": len(items)})
     except Exception as e:
@@ -820,14 +698,45 @@ async def _is_wheel_test_mode(guild_id: int) -> bool:
     return int(test_guild) == int(guild_id)
 
 
+# === Helpers для WS-recovery ===
+
+def _find_active_spin_for_guild(guild_id: int) -> dict | None:
+    """Найти активный (status == SPINNING) спин для данной гильдии.
+
+    Возвращает dict {"spin_id": ..., "physics": ..., "mode": ..., "duration": ...,
+                     "items": [...]} или None.
+    Используется WS-recovery — опоздавший клиент получает spin_started и
+    может запустить анимацию по параметрам physics.
+    """
+    for spin_id, state in _active_spins.items():
+        if (state.get("guild_id") == guild_id
+                and state.get("status") == "SPINNING"):
+            return {
+                "spin_id": spin_id,
+                "physics": state["physics"],
+                "mode": state["mode"],
+                "duration": state["duration"],
+                "items": state["items"],
+            }
+    return None
+
+
 # === WebSocket: real-time обновления колеса ===
 
 @router.websocket("/ws/wheel")
 async def ws_wheel(websocket: WebSocket):
     """WebSocket для подписки на обновления колеса.
+
     guild_id передаётся как query-параметр: /ws/wheel?guild_id=123
+
+    v2.4.0:
+    - Подключение привязывается к guild_id (ws_manager.connect(ws, guild_id)).
+    - При подключении сразу шлём текущее состояние (wheel_updated).
+    - Recovery (P1 #6): если в этой гильдии есть активный спин (SPINNING),
+      шлём spin_started с physics — опоздавший клиент подхватит анимацию.
     """
     import json
+
     # Читаем guild_id из query-параметров (по умолчанию 0)
     guild_id_str = websocket.query_params.get("guild_id", "0")
     try:
@@ -835,21 +744,38 @@ async def ws_wheel(websocket: WebSocket):
     except (ValueError, TypeError):
         guild_id = 0
 
-    await ws_manager.connect(websocket)
+    await ws_manager.connect(websocket, guild_id)
     try:
-        # При первом подключении сразу шлём текущее состояние (анонимизированное)
+        # При первом подключении сразу шлём текущее состояние колеса (анонимизированное)
         items = await db.g_list_wheel_items(guild_id, active_only=True)
         safe_items = anonymize_items(items)
         await websocket.send_text(json.dumps({
             "type": "wheel_updated",
             "payload": {"items": safe_items, "count": len(safe_items)},
         }, ensure_ascii=False))
+
+        # Recovery: если в этой гильдии есть активный спин (SPINNING) —
+        # отправляем spin_started с physics, чтобы опоздавший клиент
+        # подхватил анимацию и досмотрел до конца вместе со всеми.
+        active_spin = _find_active_spin_for_guild(guild_id)
+        if active_spin:
+            physics: SpinPhysics = active_spin["physics"]
+            await websocket.send_text(json.dumps({
+                "type": "spin_started",
+                "payload": {
+                    "spin_id": active_spin["spin_id"],
+                    "physics": physics_to_dict(physics),
+                    "mode": active_spin["mode"],
+                    "items": anonymize_items(active_spin["items"]),
+                    "duration": active_spin["duration"],
+                },
+            }, ensure_ascii=False))
+
         # Держим соединение, ждём сообщений (клиент может слать ping)
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
     except Exception as e:
-        import logging
-        logging.getLogger("ws_manager").debug("WS error: %s", e)
+        _log.debug("WS error: %s", e)
         await ws_manager.disconnect(websocket)
