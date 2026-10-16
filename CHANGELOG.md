@@ -1,5 +1,45 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.4.0 (8a099a7)
+
+#НОВЫЕ_ФИЧИ#
+- Колесо стало серверно-авторитетным: результат спина вычисляется на сервере, а не в браузере. Все клиенты видят один и тот же спин с одинаковым результатом — независимо от FPS, задержки или количества открытых вкладок
+- WebSocket-события изолированы по Discord-серверам: события колеса одной гильдии больше не видны клиентам другой
+- Восстановление после переподключения: если обновить страницу во время спина, клиент получит параметры физики и синхронизирует анимацию с остальными
+- Статус бота в Discord показывает версию и хэш коммита. При отставании от main — показывает «⚠️ есть обновление»
+- Мониторинг GitHub: бот проверяет наличие новых коммитов каждые 10 секунд (с PAT токеном) и уведомляет Матку в Telegram
+
+#АДМИНСКИЕ_ФИЧИ#
+- Состояние спина: IDLE → SPINNING → COMPLETED — блокировка удерживается до полного завершения, одновременные спины невозможны
+- Идемпотентное завершение: повторные запросы не дублируют результат
+- GitHub PAT токен: настраивается через /tokens, увеличивает лимит API с 60 до 5000 запросов/час
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- wheel_physics.py (новый): серверная физическая модель
+  * generate_spin(): генерирует параметры (initial_rotation, total_rotation, final_rotation, winner_idx)
+  * wheel_ease(t): идентична JS-версии, проверено на совпадение до 4 знаков
+  * get_sector_under_pointer(): определение сектора по углу
+- ws_manager.py: переписан с guild_id rooms
+  * _guild_connections: Dict[int, Set[WebSocket]]
+  * broadcast_guild(guild_id, ...) — только клиентам той же гильдии
+  * connect(ws, guild_id) / disconnect(ws) — привязка к гильдии
+- wheel_routes.py: полностью переписан
+  * Сервер генерирует физику → определяет winner → рассылает параметры
+  * Убран /api/wheel/result — клиент не отправляет результат
+  * Убран _spin_fallback — сервер не ждёт клиента
+  * Убран client_spin_id — сервер генерирует spin_id
+  * _delayed_complete_spin(): через duration+0.5с завершает спин
+  * _find_active_spin_for_guild(): восстановление для переподключившихся
+- static/js/wheel.js: переписан (876 → 260 строк)
+  * animatePhysics(): анимация по серверным параметрам
+  * WS spin_started → animatePhysics (для зрителей)
+  * WS spin_completed → snap к final_rotation + баннер
+  * Убраны: sendSpinResult, _currentSpinId, runSpinAnimation, isInitiator
+- movienight_routes.py: 7 ws_manager вызовов обновлены для guild_id
+- github_monitor.py: polling 10с/600с (с токеном/без), presence status
+- .github/workflows/ci.yml + lint.yml: автоматические тесты на GitHub Actions
+- scripts/test_v240.py: 107 тестов для v2.4.0
+
 ## v2.3.3 (ef9ca62)
 
 #НОВЫЕ_ФИЧИ#
