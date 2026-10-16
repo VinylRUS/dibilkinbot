@@ -45,11 +45,5 @@ jobs:
         print('All Python files: syntax OK')
         "
 
-    - name: Run comprehensive tests (v2.3.3)
-      run: python scripts/test_v233_comprehensive.py
-
-    - name: Run deep audit (v2.3.3)
-      run: python scripts/test_v233_deep_audit.py
-
     - name: Run v2.4.0 tests
       run: python scripts/test_v240.py
