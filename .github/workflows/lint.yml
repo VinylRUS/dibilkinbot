@@ -31,11 +31,11 @@ jobs:
                     for icon in set(icons):
                         icon_path = os.path.join('static', 'icons', icon)
                         if not os.path.exists(icon_path):
-                            print(f'MISSING: {path} -> {icon}')
+                            print(f'MISSING: {path} → {icon}')
                             missing += 1
         if missing:
             import sys; sys.exit(1)
-        print('All icons found')
+        print('All icons found ✓')
         "
 
     - name: Check Jinja2 templates compile
@@ -51,11 +51,11 @@ jobs:
                 try:
                     env.get_template(f)
                 except Exception as e:
-                    print(f'FAIL: {f} - {e}')
+                    print(f'FAIL: {f} — {e}')
                     failed += 1
         if failed:
             sys.exit(1)
-        print('All templates compile')
+        print('All templates compile ✓')
         "
 
     - name: Check no Jinja2 in JS files
@@ -74,5 +74,5 @@ jobs:
                         failed += 1
         if failed:
             sys.exit(1)
-        print('No Jinja2 in JS files')
+        print('No Jinja2 in JS files ✓')
         "
