@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install httpx aiosqlite itsdangerous cryptography python-multipart
+        pip install httpx aiosqlite itsdangerous cryptography python-multipart jinja2
         pip install fastapi uvicorn "discord.py" python-dotenv
 
     - name: Syntax check all Python files
