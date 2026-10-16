@@ -161,7 +161,7 @@ async def api_collection_start(
     )
 
     # WebSocket событие
-    await ws_manager.broadcast_collection_started(collection)
+    await ws_manager.broadcast_collection_started(guild_id, collection)
 
     # Персональное TG-уведомление организатору «Ты начал сбор фильмов, жди участников»
     # Если организатор не привязал TG — пингнем его в Discord ephemeral
@@ -239,7 +239,7 @@ async def api_collection_save_picks(
     # Авто-отмечаем «Готов»
     await db.g_set_participant_ready(guild_id, collection["id"], user_discord_id, True)
     # WebSocket (без раскрытия какие именно фильмы)
-    await ws_manager.broadcast_collection_picks_updated(user_discord_id, count)
+    await ws_manager.broadcast_collection_picks_updated(guild_id, user_discord_id, count)
 
     # Проверяем все ли теперь готовы — если да, уведомляем организатора
     all_ready = False
@@ -295,7 +295,7 @@ async def api_collection_set_ready(
         "user_discord_id": user_discord_id,
         "is_ready": is_ready,
     }
-    await ws_manager.broadcast_collection_participant_ready(participant)
+    await ws_manager.broadcast_collection_participant_ready(guild_id, participant)
 
     # Если юзер стал готовым — проверяем все ли теперь готовы
     # Если да — отправляем уведомление «Все готовы, можно начинать крутить!» организатору
@@ -353,7 +353,7 @@ async def api_collection_kick(
     if not kicked:
         return JSONResponse({"error": "participant not found or already kicked"}, status_code=404)
 
-    await ws_manager.broadcast_collection_participant_kicked(target_user_id, user_discord_id)
+    await ws_manager.broadcast_collection_participant_kicked(guild_id, target_user_id, user_discord_id)
     return JSONResponse({"ok": True, "kicked_user_id": target_user_id})
 
 
@@ -371,7 +371,7 @@ async def api_collection_cancel(_user: dict = Depends(require_user)):
         return JSONResponse({"error": "only organizer or admin can cancel"}, status_code=403)
 
     cancelled = await db.g_cancel_collection(guild_id, collection["id"], user_discord_id)
-    await ws_manager.broadcast_collection_cancelled(user_discord_id)
+    await ws_manager.broadcast_collection_cancelled(guild_id, user_discord_id)
     return JSONResponse({"ok": cancelled})
 
 
@@ -435,9 +435,9 @@ async def api_collection_start_spin(
         await db.g_add_wheel_item(guild_id, pick["title"], pick.get("tmdb_id"), pick["user_discord_id"])
 
     # WebSocket: коллекция завершена + обновлённое колесо
-    await ws_manager.broadcast_collection_completed(len(picks))
+    await ws_manager.broadcast_collection_completed(guild_id, len(picks))
     items = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(anonymize_items(items))
+    await ws_manager.broadcast_wheel_updated(guild_id, anonymize_items(items))
 
     return JSONResponse({
         "ok": True,
