@@ -436,6 +436,31 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user),
 
 # === Delayed completion: сервер определяет winner по physics ===
 
+async def _safe_post_to_external(winner: dict, is_test: bool, spin_id: str) -> None:
+    """Постинг победителя в Discord + Telegram в фоновой задаче.
+
+    Вынесено из _delayed_complete_spin, чтобы долгие API-вызовы
+    (kinopoisk lookup, telegram sendPhoto, discord channel.send)
+    не блокировали event loop и WS-broadcast'ы клиентам.
+
+    Любая ошибка логируется, но не роняет процесс.
+    """
+    try:
+        import bot as bot_module
+        bot = bot_module.get_bot_instance()
+        if not bot:
+            _log.debug("Bot instance not available, skipping Discord/TG post")
+            return
+        await bot.on_wheel_spin_completed(winner, is_test=is_test)
+    except Exception as e:
+        _log.warning("Discord/TG notify failed for spin %s: %s", spin_id, e)
+        if is_test:
+            try:
+                wheel_test_log.log_event("discord_notify_error", {"error": str(e)})
+            except Exception:
+                pass
+
+
 async def _delayed_complete_spin(spin_id: str) -> None:
     """Через duration + 0.5с: определить winner по physics.winner_idx,
     удалить из колеса, добавить в winners (для classic/elimination_final),
@@ -535,20 +560,13 @@ async def _delayed_complete_spin(spin_id: str) -> None:
         remaining_count=max(0, len(items) - (2 if mode == "elimination_final" else 1)),
     )
 
-    # Постинг в Discord/TG — только если есть actual_winner
-    if actual_winner:
-        try:
-            import bot as bot_module
-            bot = bot_module.get_bot_instance()
-            if bot:
-                await bot.on_wheel_spin_completed(actual_winner, is_test=is_test)
-        except Exception as e:
-            _log.warning("Discord notify failed: %s", e)
-            if is_test:
-                wheel_test_log.log_event("discord_notify_error", {"error": str(e)})
-
-    # Через 1с — обновить список лотов у всех клиентов (winner удалён)
-    await asyncio.sleep(1.0)
+    # Сначала обновляем список лотов у всех клиентов (winner удалён).
+    # Это критично: без broadcast_wheel_updated фронт не уберёт победителя из
+    # списка, и пользователю придётся перезагружать страницу.
+    # Раньше тут была пауза 1с + долгий await bot.on_wheel_spin_completed —
+    # он блокировал event loop (kinopoisk/telegram API могут висеть секунды),
+    # и broadcast_wheel_updated уходил с задержкой или вообще не уходил.
+    await asyncio.sleep(0.3)
     if is_test:
         remaining = await db.g_list_test_wheel_items(guild_id)
     else:
@@ -557,13 +575,20 @@ async def _delayed_complete_spin(spin_id: str) -> None:
 
     # Чистим состояние активного спина
     _active_spins.pop(spin_id, None)
-    # Освобождаем lock — с этого момента новая крутка возможна
+    # Освобождаем lock — с этого момента новая крутка возможна.
+    # Дискорд/ТГ-постинг пойдёт в фоне и не должен блокировать UI.
     if lock is not None and lock.locked():
         try:
             lock.release()
         except RuntimeError:
             # Lock already released — race with another cleanup path
             pass
+
+    # Постинг в Discord/TG — в фоновой задаче, чтобы не блокировать
+    # завершение спина (event loop свободен для WS-бродкастов).
+    # Логируем ошибки, но не роняем спин.
+    if actual_winner:
+        asyncio.create_task(_safe_post_to_external(actual_winner, is_test, spin_id))
 
 
 # === v2.3.3: Тестовый режим колеса (только для Матки) ===

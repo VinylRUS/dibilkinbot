@@ -1,5 +1,10 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.4.1 (в разработке)
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- Фикс блокировки UI после спина колеса: постинг в Discord/TG вынесен в фоновую задачу (asyncio.create_task), порядок WS-broadcast'ов изменён — сначала spin_completed → wheel_updated → потом внешний постинг. Раньше долгий await bot.on_wheel_spin_completed (kinopoisk lookup + telegram sendPhoto) блокировал event loop, и клиенты не получали wheel_updated — лоты не пропадали из списка без перезагрузки страницы. Баннер победителя уходил с задержкой или не показывался.
+
 ## v2.4.0 (8a099a7)
 
 #НОВЫЕ_ФИЧИ#
