@@ -180,10 +180,8 @@
     .test-mode-msg.success { background: rgba(67, 181, 129, 0.15); color: var(--green); }
     .wheel-canvas-wrap {
       position: relative;
-      width: 500px;
-      height: 500px;
-      max-width: 90vw;
-      max-height: 90vw;
+      width: clamp(280px, calc(100vh - 400px), 500px);
+      aspect-ratio: 1;
     }
     canvas {
       width: 100%;
@@ -221,7 +219,9 @@
       box-shadow: 0 6px 32px rgba(255, 183, 3, 0.7);
     }
     .spin-btn:disabled {
-      opacity: 0.5;
+      opacity: 0.6;
+      filter: grayscale(0.9) brightness(0.85);
+      box-shadow: none;
       cursor: not-allowed;
     }
     .spin-elimination-btn {
@@ -363,6 +363,7 @@
       padding: 20px;
       max-height: calc(100vh - 48px);
       overflow-y: auto;
+      align-self: start;
     }
     [data-theme="light"] .wheel-sidebar { color: var(--text); }
     [data-theme="dark"] .wheel-sidebar { color: var(--text); }
@@ -529,11 +530,11 @@
       </h1>
 
       {% if user.is_superuser %}
-      <div class="test-mode-panel" id="test-mode-panel">
-        <div class="test-mode-header">
+      <details class="test-mode-panel" id="test-mode-panel" {% if is_test_mode %}open{% endif %}>
+        <summary class="test-mode-header" style="cursor:pointer;list-style:none;">
           <strong>Тестовый режим</strong>
           <span id="test-mode-status" class="test-mode-status">{% if is_test_mode %}активен{% else %}выключен{% endif %}</span>
-        </div>
+        </summary>
         <div class="test-mode-controls">
           {% if not is_test_mode %}
           <button class="btn-primary" onclick="startTestMode()" style="font-size:0.78rem;padding:6px 12px;">
@@ -551,7 +552,7 @@
           {% endif %}
         </div>
         <div id="test-mode-msg" class="test-mode-msg" style="display:none;"></div>
-      </div>
+      </details>
       {% endif %}
 
       <div class="wheel-canvas-wrap">

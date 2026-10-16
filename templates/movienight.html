@@ -126,7 +126,7 @@
       color: var(--accent-text);
     }
     .pick-item.checked .pick-checkbox::after {
-      content: "<img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon">";
+      content: "✓";
       font-weight: 700;
       font-size: 0.85rem;
     }
@@ -383,14 +383,21 @@
       </div>
 
       <div class="start-form">
-        <h3 style="margin: 0 0 14px; font-size: 1.05rem;"><img src="/static/icons/refresh.png" alt="" width="14" height="14" class="ui-icon"> Начать сбор</h3>
-        <p class="hint" style="margin-bottom: 16px;">
-          Любой участник может начать сбор. После старта в Discord-канале анонсов появится ссылка для всех.
-          Каждый участник выбирает ровно <strong>N фильмов</strong> из своего списка желаемого и жмёт «Готов».
-        </p>
-        <label for="max_per_user">Лимит фильмов на участника (1-10)</label>
-        <input type="number" id="max_per_user" name="max_per_user" value="5" min="1" max="10">
-        <button type="button" onclick="startCollection()"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Начать сбор</button>
+        <h3 style="margin: 0 0 14px; font-size: 1.05rem;">Как это работает</h3>
+        <ol class="mn-steps" style="margin:0 0 8px;padding-left:22px;font-size:0.95rem;line-height:1.7;max-width:65ch;color:var(--text-soft);">
+          <li><strong>Запускаете сбор</strong> — в Discord-канале анонсов появится ссылка для всех.</li>
+          <li><strong>Каждый выбирает N фильмов</strong> из своего списка желаемого и жмёт «Готов».</li>
+          <li><strong>Крутим колесо</strong> из выбранных фильмов.</li>
+        </ol>
+        <label for="max_per_user">Лимит фильмов на участника</label>
+        <div style="display:flex;align-items:stretch;gap:12px;flex-wrap:wrap;">
+          <div class="stepper" style="display:inline-flex;align-items:stretch;border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;background:var(--input-bg);">
+            <button type="button" aria-label="Меньше" onclick="stepLimit(-1)" style="background:transparent;border:0;padding:0 14px;font-size:1.2rem;color:var(--accent);cursor:pointer;margin:0;box-shadow:none;">−</button>
+            <input type="number" id="max_per_user" name="max_per_user" value="5" min="1" max="10" style="width:56px;border:0;text-align:center;background:transparent;-moz-appearance:textfield;">
+            <button type="button" aria-label="Больше" onclick="stepLimit(1)" style="background:transparent;border:0;padding:0 14px;font-size:1.2rem;color:var(--accent);cursor:pointer;margin:0;box-shadow:none;">+</button>
+          </div>
+          <button type="button" onclick="startCollection()" style="margin-top:0;display:inline-flex;align-items:center;gap:8px;padding:10px 24px;"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Начать сбор</button>
+        </div>
         <div id="start-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
       </div>
 
@@ -531,7 +538,7 @@
 
   </main>
 
-  <div class="ws-status offline" id="ws-status">● offline</div>
+  <div class="ws-status offline" id="ws-status" title="Статус соединения для обновлений в реальном времени">● offline</div>
 
   <script>
     // SSR константы для movienight.js
@@ -542,6 +549,13 @@
     const USER_DISCORD_ID = {{ user.discord_id or 0 }};
     const COLLECTION_STARTED_BY = {{ (collection.started_by if collection else 0) }};
     const USER_PICK_IDS = [{% for pick in user_picks %}{{ pick.watchlist_id }}{% if not loop.last %},{% endif %}{% endfor %}];
+  </script>
+  <script>
+    function stepLimit(d) {
+      const el = document.getElementById('max_per_user');
+      const v = Math.min(10, Math.max(1, (parseInt(el.value, 10) || 5) + d));
+      el.value = v;
+    }
   </script>
   <script src="/static/js/movienight.js"></script>
 
