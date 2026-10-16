@@ -1987,3 +1987,21 @@ article.card .stat-box-label,
 }
 .ui-icon:hover { opacity: 1; }
 h2 .ui-icon, h3 .ui-icon, .section-title .ui-icon { width: 18px; height: 18px; }
+
+/* ===== v2.4.1: UX-правки ===== */
+/* Футер прижат к низу страницы */
+body { min-height: 100vh; display: flex; flex-direction: column; }
+main, .container { flex: 1 0 auto; width: 100%; }
+footer { margin-top: auto; flex-shrink: 0; }
+
+/* Степпер для числовых полей */
+.stepper { display: inline-flex; align-items: stretch; border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; background: var(--input-bg); }
+.stepper button { background: transparent; border: 0; border-radius: 0; padding: 0 14px; font-size: 1.2rem; color: var(--accent); cursor: pointer; margin: 0; box-shadow: none; }
+.stepper button:hover:not(:disabled) { background: var(--accent-soft); transform: none; box-shadow: none; }
+.stepper input[type="number"] { width: 56px; border: 0; border-radius: 0; text-align: center; background: transparent; -moz-appearance: textfield; }
+.stepper input[type="number"]::-webkit-outer-spin-button,
+.stepper input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -1,115 +1,180 @@
-"""Тест функции определения сектора под указателем.
-Проверяет совпадение между frontend (JS) и backend (Python).
+"""Тест get_sector_under_pointer — определение сектора под указателем.
+
+Проверяет:
+1. Базовые случаи (0/1 items, rotation=0, осевые углы)
+2. Центры секторов (rotation, ставящий i-й сектор под указатель)
+3. Границы секторов (точки по разные стороны дают разные результаты)
+4. Большие и отрицательные rotation
+5. Случайные rotation → всегда валидный сектор
+6. Периодичность mod 2π
+
+В v2.4.0 функция живёт в wheel_physics.py (раньше была копия в web.py).
 """
 import math
-import sys
-sys.path.insert(0, '/home/z/my-project/kinovecher')
-
-# Backend функция (копия из web.py)
-def _get_sector_under_pointer(rotation: float, items_count: int) -> int:
-    if items_count == 0:
-        return -1
-    angle_per = (2 * math.pi) / items_count
-    norm = (-math.pi / 2 - rotation) % (2 * math.pi)
-    if norm < 0:
-        norm += 2 * math.pi
-    return int(norm // angle_per) % items_count
-
-# Frontend функция (копия из wheel.html)
-def get_sector_under_pointer_js(rotation, itemsCount):
-    if itemsCount == 0:
-        return -1
-    anglePer = (2 * math.pi) / itemsCount
-    normalized = (-math.pi / 2 - rotation) % (2 * math.pi)
-    # JS: % может вернуть отрицательное, Python: всегда положительное
-    # В JS: if (normalized < 0) normalized += Math.PI * 2
-    if normalized < 0:
-        normalized += 2 * math.pi
-    return math.floor(normalized / anglePer) % itemsCount
-
-# Симулируем сценарии
-print("=== Тест: совпадение Python vs JS ===")
-test_cases = [
-    # (rotation, items_count, description)
-    (0, 4, "rotation=0, 4 items"),
-    (math.pi / 2, 4, "rotation=π/2, 4 items"),
-    (-math.pi / 2, 4, "rotation=-π/2, 4 items"),
-    (math.pi, 4, "rotation=π, 4 items"),
-    (5 * 2 * math.pi, 4, "5 оборотов, 4 items"),
-    (5 * 2 * math.pi + math.pi / 2, 4, "5.25 оборотов, 4 items"),
-    (35.7, 12, "большое rotation, 12 items"),
-    (-100.5, 6, "отрицательное rotation, 6 items"),
-    (0.001, 2, "почти 0, 2 items"),
-    (math.pi - 0.001, 2, "почти π, 2 items (граница сектора)"),
-]
-
-all_match = True
-for rotation, count, desc in test_cases:
-    py = _get_sector_under_pointer(rotation, count)
-    js = get_sector_under_pointer_js(rotation, count)
-    match = "OK" if py == js else "MISMATCH!"
-    if py != js:
-        all_match = False
-    print(f"  {desc:50s}  py={py}  js={js}  {match}")
-
-print()
-print("=== Тест: визуальное определение сектора ===")
-# Симулируем сектора и где должен быть указатель
-# В canvas: сектор 0 = углы [0, anglePer], сектор 1 = [anglePer, 2*anglePer]...
-# Указатель вверху = -π/2
-# После поворота rotation, сектор i на углах [i*anglePer+rotation, (i+1)*anglePer+rotation]
-# Указатель указывает на сектор если i*anglePer+rotation <= -π/2 < (i+1)*anglePer+rotation
-# → i = floor((-π/2 - rotation) / anglePer)
-
-count = 4
-angle_per = 2 * math.pi / count
-print(f"  {count} секторов по {math.degrees(angle_per):.0f}° каждый")
-print(f"  Сектор 0: углы [0°, {math.degrees(angle_per):.0f}°]")
-print(f"  Сектор 1: углы [{math.degrees(angle_per):.0f}°, {math.degrees(2*angle_per):.0f}°]")
-print(f"  Сектор 2: углы [{math.degrees(2*angle_per):.0f}°, {math.degrees(3*angle_per):.0f}°]")
-print(f"  Сектор 3: углы [{math.degrees(3*angle_per):.0f}°, 360°]")
-print()
-
-# Симулируем rotation после 5 оборотов (5*2π = 31.42)
-# Допустим хотим чтобы указатель был в центре сектора 2 (центр = 2*angle_per + angle_per/2 = 5*angle_per/2)
-# Центр сектора 2 = 2 * (π/2) + π/4 = 5π/4
-# rotation должен быть такой чтобы (5π/4 + rotation) = -π/2 (mod 2π)
-# → rotation = -π/2 - 5π/4 = -7π/4 = π/4 (mod 2π) = π/4 + 5*2π = 31.42 + 0.785 = 32.2
-target_sector = 2
-center_angle = target_sector * angle_per + angle_per / 2
-# Хотим чтобы center_angle + rotation ≡ -π/2 (mod 2π)
-# rotation = -π/2 - center_angle (mod 2π)
-desired_rotation = -math.pi / 2 - center_angle
-# Добавим 5 оборотов
-final_rotation = desired_rotation + 5 * 2 * math.pi
-
-result = _get_sector_under_pointer(final_rotation, count)
-print(f"  Хотели сектор {target_sector}, rotation={final_rotation:.4f}")
-print(f"  Backend вернул: {result}")
-print(f"  Ожидаемо: {target_sector == result}")
-print()
-
-# Симулируем что frontend отправляет с slightly другим rotation (из-за float)
-result_off = _get_sector_under_pointer(final_rotation + 0.1, count)
-print(f"  С возмущением +0.1: backend={result_off} (ожидался {target_sector})")
-
-print()
-print("=== Тест: симуляция реального спина ===")
-# Симулируем физику: 5-7 оборотов + случайный offset
+import os
 import random
-random.seed(42)
-for trial in range(5):
-    extra_turns = 5 + random.randint(0, 2)
-    random_offset = random.random() * 2 * math.pi
-    total_rotation = extra_turns * 2 * math.pi + random_offset
-    count = random.choice([4, 6, 8, 12, 2, 3])
-    py_idx = _get_sector_under_pointer(total_rotation, count)
-    js_idx = get_sector_under_pointer_js(total_rotation, count)
-    print(f"  Trial {trial+1}: rotation={total_rotation:.3f}, items={count}, "
-          f"py_sector={py_idx}, js_sector={js_idx}, match={py_idx == js_idx}")
+import sys
 
-print()
-if all_match:
-    print("=== ВСЕ ТЕСТЫ ПРОШЛИ ===")
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_DIR)
+os.chdir(PROJECT_DIR)
+
+from wheel_physics import get_sector_under_pointer
+
+PASS = 0
+FAIL = 0
+
+
+def check(name, condition, detail=""):
+    global PASS, FAIL
+    if condition:
+        PASS += 1
+        print(f"  \u2713 {name}")
+    else:
+        FAIL += 1
+        print(f"  \u2717 {name} \u2014 {detail}")
+
+
+def section(title):
+    print(f"\n{'='*60}\n  {title}\n{'='*60}")
+
+
+# ============================================================
+section("1. Базовые случаи")
+# ============================================================
+
+check("0 items → -1", get_sector_under_pointer(0.0, 0) == -1)
+check("0 items, любой rotation → -1",
+      get_sector_under_pointer(123.456, 0) == -1)
+check("1 item → всегда 0",
+      get_sector_under_pointer(0.0, 1) == 0)
+check("1 item, любой rotation → 0",
+      get_sector_under_pointer(999.999, 1) == 0)
+
+# rotation=0, 4 items: norm = -π/2 mod 2π = 3π/2,
+# idx = floor((3π/2)/(π/2)) = 3
+check("rotation=0, 4 items → сектор 3",
+      get_sector_under_pointer(0.0, 4) == 3)
+
+# rotation=π/2: norm = -π mod 2π = π, idx = 2
+check("rotation=π/2, 4 items → сектор 2",
+      get_sector_under_pointer(math.pi / 2, 4) == 2)
+
+# rotation=-π/2: norm = 0, idx = 0
+check("rotation=-π/2, 4 items → сектор 0",
+      get_sector_under_pointer(-math.pi / 2, 4) == 0)
+
+# rotation=π: norm = π/2, idx = 1
+check("rotation=π, 4 items → сектор 1",
+      get_sector_under_pointer(math.pi, 4) == 1)
+
+
+# ============================================================
+section("2. Центры секторов")
+# ============================================================
+
+# Для items_count=N, центр сектора i = i*angle_per + angle_per/2.
+# Чтобы центр был под указателем: center + rotation ≡ -π/2 (mod 2π)
+# → rotation = -π/2 - center
+for count in [2, 3, 4, 6, 8, 12]:
+    angle_per = 2 * math.pi / count
+    for i in range(count):
+        center = i * angle_per + angle_per / 2
+        rot = -math.pi / 2 - center
+        result = get_sector_under_pointer(rot, count)
+        check(f"count={count}, центр сектора {i} → {result}",
+              result == i, f"ожидался {i}, получен {result}")
+
+
+# ============================================================
+section("3. Границы секторов — соседние точки разные")
+# ============================================================
+
+# Точную границу не проверяем (на ней возможны float-расхождения),
+# но точки по разные стороны от границы должны давать РАЗНЫЕ сектора —
+# это устойчивый инвариант.
+for count in [4, 6, 8]:
+    angle_per = 2 * math.pi / count
+    eps = angle_per * 0.01
+    all_different = True
+    for i in range(count):
+        # Граница между сектором i и i+1: rotation = -π/2 - (i+1)*angle_per
+        boundary = -math.pi / 2 - (i + 1) * angle_per
+        # Точка "внутри сектора i" (чуть правее границы)
+        r_in_i = get_sector_under_pointer(boundary + eps, count)
+        # Точка "внутри сектора i+1" (чуть левее границы)
+        r_in_next = get_sector_under_pointer(boundary - eps, count)
+        if r_in_i == r_in_next:
+            all_different = False
+            break
+    check(f"count={count}: точки по разные стороны границы дают разные сектора",
+          all_different)
+
+
+# ============================================================
+section("4. Большие и отрицательные rotation")
+# ============================================================
+
+# ВАЖНО: в float-арифметике N * 2π ≠ точно N*2π.
+# На production rotation всегда случайный, поэтому edge cases с N*2π
+# проверяем только на валидность диапазона, без точного expected.
+
+check("100 оборотов, 4 items → валидный",
+      0 <= get_sector_under_pointer(100 * 2 * math.pi, 4) < 4)
+
+check("отрицательный rotation, 6 items → валидный",
+      0 <= get_sector_under_pointer(-999.999, 6) < 6)
+
+check("rotation=0.001, 2 items → валидный",
+      0 <= get_sector_under_pointer(0.001, 2) < 2)
+
+check("1000 оборотов, 8 items → валидный",
+      0 <= get_sector_under_pointer(1000 * 2 * math.pi, 8) < 8)
+
+
+# ============================================================
+section("5. Случайные rotation — всегда валидный сектор")
+# ============================================================
+
+random.seed(42)
+all_valid = True
+for _ in range(1000):
+    rot = random.uniform(-10000, 10000)
+    count = random.randint(2, 50)
+    result = get_sector_under_pointer(rot, count)
+    if not (0 <= result < count):
+        all_valid = False
+        break
+check("1000 случайных rotation (2..50 items) → все валидны", all_valid)
+
+
+# ============================================================
+section("6. Периодичность mod 2π")
+# ============================================================
+
+# Один полный оборот (2π) должен давать тот же результат, что rotation=0.
+# В float `2 * math.pi` остаётся достаточно точным (отличие от 10π меньше
+# эпсилона), поэтому один оборот — clean инвариант (5+ оборотов уже нет).
+random.seed(7)
+periodic_ok = True
+for _ in range(100):
+    rot = random.uniform(-100, 100)
+    count = random.randint(2, 20)
+    base = get_sector_under_pointer(rot, count)
+    after_one_turn = get_sector_under_pointer(rot + 2 * math.pi, count)
+    if after_one_turn != base:
+        periodic_ok = False
+        break
+check("rot + 2π даёт тот же сектор (один оборот)", periodic_ok)
+
+
+# ============================================================
+# ИТОГ
+# ============================================================
+print(f"\n{'='*60}")
+print(f"  ИТОГ: {PASS} passed, {FAIL} failed")
+print(f"{'='*60}")
+if FAIL > 0:
+    sys.exit(1)
 else:
-    print("=== ЕСТЬ РАСХОЖДЕНИЯ ===")
+    print("\n  Все тесты прошли! \u2713")

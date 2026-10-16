@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install httpx aiosqlite itsdangerous cryptography python-multipart
+        pip install httpx aiosqlite itsdangerous cryptography python-multipart jinja2
         pip install fastapi uvicorn discord.py
 
     - name: Syntax check all Python files
@@ -45,5 +45,11 @@ jobs:
         print('All Python files: syntax OK')
         "
 
-    - name: Run v2.4.0 tests
+    - name: Run v2.4.0 tests (wheel physics + ws_manager + wheel_routes + wheel.js)
       run: python scripts/test_v240.py
+
+    - name: Run sector calc tests
+      run: python scripts/test_sector_calc.py
+
+    - name: Run changelog parser tests
+      run: python scripts/test_changelog_parser.py

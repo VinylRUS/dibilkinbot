@@ -84,17 +84,45 @@
     const canvas = document.getElementById('wheel-canvas');
     const ctx = canvas.getContext('2d');
     const canvasSize = 500;
-    canvas.width = canvasSize; canvas.height = canvasSize;
+    // v2.4.1: DPR для чёткой отрисовки на ретине
+    const DPR = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.width = canvasSize * DPR; canvas.height = canvasSize * DPR;
     const center = canvasSize / 2;
     const radius = canvasSize / 2 - 20;
 
+    // v2.4.1: Читаемый цвет текста на секторе по яркости фона
+    function textColorFor(bg) {
+      const m = /^#?([0-9a-f]{6})$/i.exec((bg || '').trim());
+      if (!m) return '#1A1A1A';
+      const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return lum > 0.58 ? '#1A1A1A' : '#FFFFFF';
+    }
+
+    // v2.4.1: Обрезка текста по ширине в пикселях
+    function fitText(text, maxWidth) {
+      if (ctx.measureText(text).width <= maxWidth) return text;
+      let lo = 0, hi = text.length;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (ctx.measureText(text.slice(0, mid) + '…').width <= maxWidth) lo = mid; else hi = mid - 1;
+      }
+      return lo > 0 ? text.slice(0, lo).trimEnd() + '…' : '…';
+    }
+
     function drawWheel(rotation = 0) {
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.clearRect(0, 0, canvasSize, canvasSize);
       if (items.length === 0) {
+        // v2.4.1: Пунктирное кольцо с иконкой вместо серого круга
         ctx.beginPath(); ctx.arc(center, center, radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#333'; ctx.fill(); ctx.strokeStyle = '#666'; ctx.lineWidth = 2; ctx.stroke();
-        ctx.fillStyle = '#999'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('Колесо пустое', center, center);
+        ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
+        ctx.setLineDash([10, 8]); ctx.strokeStyle = 'rgba(255,183,3,0.45)'; ctx.lineWidth = 3; ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#FFB703'; ctx.font = '56px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🎬', center, center - 24);
+        ctx.fillStyle = 'rgba(200,200,210,0.9)'; ctx.font = '600 20px sans-serif';
+        ctx.fillText('Нет лотов', center, center + 38);
         return;
       }
       const anglePer = (Math.PI * 2) / items.length;
@@ -102,8 +130,9 @@
       for (let i = 0; i < items.length; i++) {
         const startAngle = i * anglePer, endAngle = startAngle + anglePer;
         const isHighlighted = (i === highlightIdx);
+        const secColor = items[i].color || '#FFB703';
         ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, radius, startAngle, endAngle); ctx.closePath();
-        ctx.fillStyle = items[i].color || '#FFB703'; ctx.fill();
+        ctx.fillStyle = secColor; ctx.fill();
         ctx.strokeStyle = '#1A1A1A'; ctx.lineWidth = 2; ctx.stroke();
         if (isHighlighted) {
           ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, radius, startAngle, endAngle); ctx.closePath();
@@ -115,10 +144,13 @@
         }
         ctx.save(); ctx.rotate(startAngle + anglePer / 2);
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = isHighlighted ? '#FFD700' : '#1A1A1A';
-        const fontSize = items.length > 15 ? 11 : (items.length > 8 ? 13 : 15);
+        // v2.4.1: Цвет текста по яркости сектора + размер по ширине
+        ctx.fillStyle = isHighlighted ? '#FFD700' : textColorFor(secColor);
+        const arcAtText = 2 * (radius - 18) * Math.sin(anglePer / 2);
+        const fontSize = Math.max(10, Math.min(16, Math.floor(arcAtText * 0.6)));
         ctx.font = `bold ${fontSize}px sans-serif`;
-        const name = items[i].name.length > 30 ? items[i].name.slice(0, 28) + '…' : items[i].name;
+        const maxTextWidth = radius - 18 - 52;
+        const name = fitText(items[i].name, maxTextWidth);
         ctx.fillText(name, radius - 18, 0); ctx.restore();
       }
       ctx.beginPath(); ctx.arc(0, 0, 40, 0, Math.PI * 2);
