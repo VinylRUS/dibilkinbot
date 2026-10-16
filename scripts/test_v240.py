@@ -15,7 +15,7 @@ import sys
 import json
 import random
 
-PROJECT_DIR = '/home/z/my-project/kinovecher'
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 os.chdir(PROJECT_DIR)
 
