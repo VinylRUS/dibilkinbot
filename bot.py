@@ -492,6 +492,14 @@ class KinovecherBot(commands.Bot):
         except Exception as e:
             log.warning("GitHub monitor failed to start: %s", e)
 
+        # === v2.4.1: Modrinth мониторинг — новые версии модпаков (раз в 30 мин) ===
+        try:
+            import modrinth_monitor
+            asyncio.create_task(modrinth_monitor.modrinth_monitor_loop())
+            log.info("Modrinth monitor started (interval=30min)")
+        except Exception as e:
+            log.warning("Modrinth monitor failed to start: %s", e)
+
         # === v2.0: Автосоздание профилей для всех НЕ-ботов сервера ===
         await _auto_create_member_profiles()
 

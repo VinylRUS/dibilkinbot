@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -369,6 +369,22 @@ GUILD_SCHEMA_TEMPLATES = {
             UNIQUE(user_discord_id, achievement_id)
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+    """,
+    # === v2.4.1: Modrinth modpack subscriptions (per-guild, polled every 30 min) ===
+    "modrinth_subs": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            project_id TEXT PRIMARY KEY,
+            slug TEXT,
+            title TEXT,
+            icon_url TEXT,
+            project_type TEXT,
+            last_version_id TEXT,
+            last_version_date TEXT,
+            last_checked_at TEXT,
+            added_by INTEGER NOT NULL,
+            added_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_added_at ON {table}(added_at DESC);
     """,
 }
 

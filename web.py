@@ -768,6 +768,7 @@ KNOWN_TOKENS = [
     ("kinopoisk_token", "Kinopoisk API Token (kinopoiskapiunofficial.tech)"),
     ("steam_api_key", "Steam Web API Key (steamcommunity.com/dev/apikey) — для модуля Тайный Санта"),
     ("github_token", "GitHub Personal Access Token (опционально) — для мониторинга версий. Без него лимит 60 req/hour"),
+    ("modrinth_token", "Modrinth Personal Access Token (опционально) — для подписок на приватные/draft модпаки. Создаётся в modrinth.com/settings/pats"),
 ]
 
 
@@ -793,6 +794,7 @@ async def tokens_save(
     kinopoisk_token: str = Form(""),
     steam_api_key: str = Form(""),
     github_token: str = Form(""),
+    modrinth_token: str = Form(""),
 ):
     updates = {
         "discord_token": discord_token.strip(),
@@ -800,6 +802,7 @@ async def tokens_save(
         "kinopoisk_token": kinopoisk_token.strip(),
         "steam_api_key": steam_api_key.strip(),
         "github_token": github_token.strip(),
+        "modrinth_token": modrinth_token.strip(),
     }
     for key, val in updates.items():
         if val:
@@ -2069,6 +2072,8 @@ async def api_delete_steam_profile(_user: dict = Depends(require_user)):
 # v2.3.3: santa и achievements роуты вынесены в отдельные модули
 import santa_routes
 import achievements_routes
+import modrinth_routes
 app.include_router(santa_routes.router)
 app.include_router(achievements_routes.router)
+app.include_router(modrinth_routes.router)
 

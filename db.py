@@ -4705,3 +4705,168 @@ async def g_mark_watchlist_watched(guild_id: int, title: str) -> int:
         )
         await db.commit()
         return cur.rowcount
+
+
+# === v2.4.1: Modrinth modpack subscriptions ===
+
+async def list_approved_guilds() -> list[int]:
+    """Список ID всех одобренных гильдий (для polling мониторинга).
+
+    Включает guild_id=0 (default) если он есть в БД.
+    """
+    result: list[int] = []
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT guild_id FROM guilds WHERE approved = 1"
+        ) as cur:
+            rows = await cur.fetchall()
+            result = [int(row[0]) for row in rows]
+    # Добавляем 0 (default guild) — он всегда есть, даже если нет в guilds
+    if 0 not in result:
+        result.append(0)
+    return result
+
+
+async def g_list_modrinth_subs(guild_id: int) -> list[dict]:
+    """Получить все подписки на модпаки для гильдии.
+
+    Возвращает список dict'ов с полями:
+    - project_id, slug, title, icon_url, project_type
+    - last_version_id, last_version_date, last_checked_at
+    - added_by, added_at
+    Сортировка: по added_at DESC (свежие подписки первыми).
+    """
+    table = _guild.guild_table(guild_id, "modrinth_subs")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT project_id, slug, title, icon_url, project_type, "
+            f"last_version_id, last_version_date, last_checked_at, "
+            f"added_by, added_at FROM {table} ORDER BY added_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {
+            "project_id": r[0],
+            "slug": r[1],
+            "title": r[2],
+            "icon_url": r[3],
+            "project_type": r[4],
+            "last_version_id": r[5],
+            "last_version_date": r[6],
+            "last_checked_at": r[7],
+            "added_by": r[8],
+            "added_at": r[9],
+        }
+        for r in rows
+    ]
+
+
+async def g_get_modrinth_sub(guild_id: int, project_id: str) -> dict | None:
+    """Получить одну подписку по project_id. None если нет."""
+    table = _guild.guild_table(guild_id, "modrinth_subs")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT project_id, slug, title, icon_url, project_type, "
+            f"last_version_id, last_version_date, last_checked_at, "
+            f"added_by, added_at FROM {table} WHERE project_id = ?",
+            (project_id,)
+        ) as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {
+        "project_id": r[0], "slug": r[1], "title": r[2], "icon_url": r[3],
+        "project_type": r[4], "last_version_id": r[5], "last_version_date": r[6],
+        "last_checked_at": r[7], "added_by": r[8], "added_at": r[9],
+    }
+
+
+async def g_add_modrinth_sub(guild_id: int, project_id: str, slug: str,
+                              title: str, icon_url: str, project_type: str,
+                              added_by: int) -> bool:
+    """Добавить подписку на модпак. Если уже есть — обновляет кеш (slug/title/icon).
+
+    Возвращает True если подписка создана (новая), False если обновлена (уже была).
+    """
+    table = _guild.guild_table(guild_id, "modrinth_subs")
+    async with _connect() as db:
+        # Сначала проверим, существует ли
+        async with db.execute(
+            f"SELECT project_id FROM {table} WHERE project_id = ?",
+            (project_id,)
+        ) as cur:
+            existing = await cur.fetchone()
+        now = datetime.utcnow().isoformat()
+        if existing:
+            await db.execute(
+                f"UPDATE {table} SET slug = ?, title = ?, icon_url = ?, "
+                f"project_type = ? WHERE project_id = ?",
+                (slug, title, icon_url, project_type, project_id)
+            )
+            await db.commit()
+            return False
+        await db.execute(
+            f"INSERT INTO {table} (project_id, slug, title, icon_url, project_type, "
+            f"added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (project_id, slug, title, icon_url, project_type, added_by, now)
+        )
+        await db.commit()
+        return True
+
+
+async def g_remove_modrinth_sub(guild_id: int, project_id: str) -> bool:
+    """Удалить подписку. Возвращает True если удалена, False если не найдена."""
+    table = _guild.guild_table(guild_id, "modrinth_subs")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"DELETE FROM {table} WHERE project_id = ?",
+            (project_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def g_update_modrinth_sub_cache(guild_id: int, project_id: str,
+                                       title: str, icon_url: str) -> None:
+    """Обновить кеш (title, icon_url) подписки — вызывается при polling."""
+    table = _guild.guild_table(guild_id, "modrinth_subs")
+    async with _connect() as db:
+        await db.execute(
+            f"UPDATE {table} SET title = ?, icon_url = ?, last_checked_at = ? "
+            f"WHERE project_id = ?",
+            (title, icon_url, datetime.utcnow().isoformat(), project_id)
+        )
+        await db.commit()
+
+
+async def g_update_modrinth_sub_last_version(guild_id: int, project_id: str,
+                                              version_id: str, version_date: str) -> None:
+    """Обновить last_version_id/date после обнаружения новой версии (или первой проверки)."""
+    table = _guild.guild_table(guild_id, "modrinth_subs")
+    async with _connect() as db:
+        await db.execute(
+            f"UPDATE {table} SET last_version_id = ?, last_version_date = ?, "
+            f"last_checked_at = ? WHERE project_id = ?",
+            (version_id, version_date, datetime.utcnow().isoformat(), project_id)
+        )
+        await db.commit()
+
+
+async def g_find_modrinth_sub_by_slug(guild_id: int, slug: str) -> dict | None:
+    """Найти подписку по slug (а не по project_id). Нужно для удаления по slug."""
+    table = _guild.guild_table(guild_id, "modrinth_subs")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT project_id, slug, title, icon_url, project_type, "
+            f"last_version_id, last_version_date, last_checked_at, "
+            f"added_by, added_at FROM {table} WHERE slug = ?",
+            (slug,)
+        ) as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {
+        "project_id": r[0], "slug": r[1], "title": r[2], "icon_url": r[3],
+        "project_type": r[4], "last_version_id": r[5], "last_version_date": r[6],
+        "last_checked_at": r[7], "added_by": r[8], "added_at": r[9],
+    }
