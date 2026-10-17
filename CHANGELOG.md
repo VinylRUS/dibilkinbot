@@ -1,5 +1,15 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.4.4 (0000000)
+
+#НОВЫЕ_ФИЧИ#
+- Команда /logs в личку боту в Telegram — отправляет последние логи за 24 часа. Только Матка (проверка через tg_link к admin_discord_id). Поддерживает фильтры: /logs warn (только WARNING+), /logs error (только ERROR+), /logs 1h (последний час), /logs 6h warn (комбинация), /logs stats (статистика буфера по уровням). Большие логи автоматически обрезаются до лимита TG (4096 символов) — показываются самые свежие.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- log_buffer.py (новый): in-memory ring buffer для логов. Хранит до 5000 записей за 24ч, подключается как logging.Handler через log_buffer.install() в main.py. Cleanup устаревших записей раз в минуту. Потокобезопасный (deque с GIL).
+- main.py: новый handler handle_logs_command(text, tg_user_id, tg_username) — парсит аргументы, проверяет доступ через db.get_tg_link(admin_discord_id), формирует HTML-ответ с логами. Формат timestamp: HH:MM:SS [LEVEL] logger_name: message.
+- main.py: расширен TG long-polling loop — /logs обрабатывается раньше /linktg кодов (не конфликтуя с ними)
+
 ## v2.4.3 (0000000)
 
 #ИСПРАВЛЕНО#
