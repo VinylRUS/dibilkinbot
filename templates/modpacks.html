@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Модпаки · DeeBeelkin</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .modpack-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 10px;
+      background: var(--card-alt);
+      transition: border-color 0.15s;
+    }
+    .modpack-card:hover { border-color: var(--accent); }
+    .modpack-icon {
+      width: 48px; height: 48px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .modpack-icon.placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+    .modpack-info { flex: 1; min-width: 0; }
+    .modpack-title {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+    .modpack-meta {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .modpack-meta code {
+      background: var(--card);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.74rem;
+    }
+    .modpack-actions { flex-shrink: 0; }
+    .btn-icon {
+      width: 32px; height: 32px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      background: transparent;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-icon:hover { background: var(--red); border-color: var(--red); color: #fff; }
+    .field-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin: 4px 0 14px;
+      line-height: 1.5;
+    }
+    .field-hint code {
+      background: var(--card-alt);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.76rem;
+    }
+    .section-divider {
+      border-top: 1px dashed var(--border);
+      margin: 24px 0 16px;
+      padding-top: 14px;
+    }
+    .section-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .search-dropdown {
+      position: relative;
+      margin-top: 6px;
+    }
+    .search-results {
+      position: absolute;
+      top: 100%;
+      left: 0; right: 0;
+      max-height: 320px;
+      overflow-y: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      z-index: 10;
+      display: none;
+    }
+    .search-results.show { display: block; }
+    .search-item {
+      padding: 10px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+    .search-item:last-child { border-bottom: none; }
+    .search-item:hover { background: var(--card-alt); }
+    .search-item img {
+      width: 32px; height: 32px;
+      border-radius: 6px;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .search-item-icon-placeholder {
+      width: 32px; height: 32px;
+      border-radius: 6px;
+      background: var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .search-item-info { flex: 1; min-width: 0; }
+    .search-item-title {
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .search-item-desc {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .search-item-stats {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 20px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+      z-index: 100;
+      font-size: 0.88rem;
+      max-width: 360px;
+      transition: transform 0.2s, opacity 0.2s;
+      transform: translateY(100px);
+      opacity: 0;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.error { border-color: var(--red); color: var(--red); }
+    .toast.success { border-color: var(--accent); color: var(--accent); }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state-icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  {% include "sidebar.html" %}
+
+  <main class="container">
+    <h2><img src="/static/icons/puzzle.png" alt="" width="16" height="16" class="ui-icon"> Модпаки Modrinth</h2>
+
+    <p class="hint" style="margin-bottom: 18px;">
+      Бот следит за обновлениями модпаков на <a href="https://modrinth.com" target="_blank">Modrinth</a> и постит анонс новых версий в Discord-канал.
+      Проверка происходит раз в 30 минут. Доступ: только админ.
+    </p>
+
+    {% if saved %}
+      <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Канал сохранён.</div>
+    {% endif %}
+
+    <article class="card">
+      <div class="section-title"><img src="/static/icons/video.png" alt="" width="16" height="16" class="ui-icon"> Канал для анонсов</div>
+      <form id="channel-form" method="post" action="/api/modpacks/save_channel">
+        <label>ID канала #modpacks</label>
+        <input type="text" name="channel_modpacks_id" value="{{ channel_modpacks_id }}" placeholder="ID канала Discord (число)">
+        <p class="field-hint">
+          ПКМ по каналу в Discord (режим разработчика) → Копировать ID.
+          Сюда бот постит embed'ы с обновлениями модпаков (название, иконка, changelog, ссылка на .mrpack).
+        </p>
+        <button type="submit">Сохранить канал</button>
+      </form>
+
+      <div class="section-divider"></div>
+
+      <div class="section-title"><img src="/static/icons/plus.png" alt="" width="16" height="16" class="ui-icon"> Добавить подписку</div>
+      <form id="add-form" method="post" action="/api/modpacks/add">
+        <label>Slug, ID или URL модпака</label>
+        <input type="text" id="project-input" name="project" placeholder="Например: cobblemon-fabric или https://modrinth.com/modpack/cobblemon-fabric" autocomplete="off">
+        <div class="search-dropdown">
+          <div id="search-results" class="search-results"></div>
+        </div>
+        <p class="field-hint">
+          Можно вставить:
+          <br>• slug: <code>cobblemon-fabric</code>
+          <br>• ID проекта: <code>5FFgwNNP</code>
+          <br>• URL страницы: <code>modrinth.com/modpack/...</code>
+          <br>• URL файла: <code>cdn.modrinth.com/data/...</code>
+        </p>
+        <button type="submit" id="add-btn">Подписаться</button>
+      </form>
+
+      <div class="section-divider"></div>
+
+      <div class="section-title">
+        <img src="/static/icons/database.png" alt="" width="16" height="16" class="ui-icon">
+        Подписки ({{ subs|length }})
+        <button type="button" id="check-now-btn" class="btn-icon" style="margin-left: 10px; width: auto; padding: 4px 12px; font-size: 0.78rem;" title="Принудительно проверить сейчас">
+          <span id="check-now-text">🔄 Проверить сейчас</span>
+        </button>
+      </div>
+
+      {% if subs %}
+        {% for sub in subs %}
+          <div class="modpack-card" data-project-id="{{ sub.project_id }}">
+            {% if sub.icon_url %}
+              <img src="{{ sub.icon_url }}" alt="" class="modpack-icon">
+            {% else %}
+              <div class="modpack-icon placeholder">📦</div>
+            {% endif %}
+            <div class="modpack-info">
+              <div class="modpack-title">{{ sub.title or sub.slug or sub.project_id }}</div>
+              <div class="modpack-meta">
+                {% if sub.slug %}<span>slug: <code>{{ sub.slug }}</code></span>{% endif %}
+                <span>ID: <code>{{ sub.project_id }}</code></span>
+                {% if sub.last_version_id %}
+                  <span> Последняя версия: <code>{{ sub.last_version_id }}</code></span>
+                {% else %}
+                  <span style="color: var(--text-muted);">⏳ ещё не проверено</span>
+                {% endif %}
+                {% if sub.last_version_date %}
+                  <span> от {{ sub.last_version_date[:10] }}</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="modpack-actions">
+              <button type="button" class="btn-icon remove-btn" data-id="{{ sub.project_id }}" title="Удалить">
+                <img src="/static/icons/trash.png" alt="" width="14" height="14" class="ui-icon">
+              </button>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">
+          <div class="empty-state-icon">📦</div>
+          <p>Подписок пока нет. Добавьте первый модпак выше.</p>
+        </div>
+      {% endif %}
+    </article>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // === Toast ===
+    function showToast(text, kind) {
+      const el = document.getElementById('toast');
+      el.textContent = text;
+      el.className = 'toast show ' + (kind || '');
+      clearTimeout(window._toast_t);
+      window._toast_t = setTimeout(() => {
+        el.className = 'toast' + (kind ? ' ' + kind : '');
+      }, 4000);
+    }
+
+    // === Add form ===
+    const addForm = document.getElementById('add-form');
+    const addBtn = document.getElementById('add-btn');
+    addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(addForm);
+      addBtn.disabled = true;
+      const orig = addBtn.textContent;
+      addBtn.innerHTML = '<span class="spinner"></span>Подписываемся...';
+      try {
+        const r = await fetch('/api/modpacks/add', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          showToast('✅ Подписка добавлена: ' + (data.project?.title || data.project?.slug), 'success');
+          setTimeout(() => location.reload(), 800);
+        } else {
+          showToast('❌ ' + (data.error || 'Ошибка'), 'error');
+          addBtn.disabled = false;
+          addBtn.textContent = orig;
+        }
+      } catch (err) {
+        showToast('❌ Сетевая ошибка: ' + err.message, 'error');
+        addBtn.disabled = false;
+        addBtn.textContent = orig;
+      }
+    });
+
+    // === Remove buttons ===
+    document.querySelectorAll('.remove-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (!confirm('Удалить подписку?')) return;
+        try {
+          const r = await fetch(`/api/modpacks/${encodeURIComponent(id)}/remove`, { method: 'POST' });
+          const data = await r.json();
+          if (r.ok) {
+            showToast('✅ Удалено', 'success');
+            const card = btn.closest('.modpack-card');
+            if (card) card.style.display = 'none';
+            setTimeout(() => location.reload(), 800);
+          } else {
+            showToast('❌ ' + (data.error || 'Ошибка'), 'error');
+          }
+        } catch (err) {
+          showToast('❌ Сетевая ошибка: ' + err.message, 'error');
+        }
+      });
+    });
+
+    // === Channel form (AJAX) ===
+    document.getElementById('channel-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      try {
+        const r = await fetch('/api/modpacks/save_channel', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          showToast('✅ Канал сохранён', 'success');
+        } else {
+          showToast('❌ ' + (data.error || 'Ошибка'), 'error');
+        }
+      } catch (err) {
+        showToast('❌ Сетевая ошибка: ' + err.message, 'error');
+      }
+    });
+
+    // === Check now ===
+    const checkBtn = document.getElementById('check-now-btn');
+    const checkText = document.getElementById('check-now-text');
+    checkBtn.addEventListener('click', async () => {
+      checkBtn.disabled = true;
+      checkText.innerHTML = '<span class="spinner"></span>Проверяем...';
+      try {
+        const r = await fetch('/api/modpacks/check_now', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          const n = data.updates?.length || 0;
+          if (n === 0) {
+            showToast('✅ Проверка завершена — новых версий нет', 'success');
+          } else {
+            showToast(`ℹ️ Найдено ${n} новых версий — анонс уйдёт в Discord при следующем цикле`, 'success');
+            setTimeout(() => location.reload(), 1500);
+          }
+        } else {
+          showToast('❌ ' + (data.error || 'Ошибка'), 'error');
+        }
+      } catch (err) {
+        showToast('❌ Сетевая ошибка: ' + err.message, 'error');
+      } finally {
+        checkBtn.disabled = false;
+        checkText.textContent = '🔄 Проверить сейчас';
+      }
+    });
+
+    // === Search dropdown (debounced) ===
+    const projectInput = document.getElementById('project-input');
+    const searchResults = document.getElementById('search-results');
+    let searchTimer = null;
+
+    projectInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      const q = projectInput.value.trim();
+      if (q.length < 2) {
+        searchResults.classList.remove('show');
+        searchResults.innerHTML = '';
+        return;
+      }
+      searchTimer = setTimeout(async () => {
+        try {
+          const r = await fetch(`/api/modpacks/search?q=${encodeURIComponent(q)}`);
+          const data = await r.json();
+          if (!r.ok || !data.projects || data.projects.length === 0) {
+            searchResults.classList.remove('show');
+            searchResults.innerHTML = '';
+            return;
+          }
+          searchResults.innerHTML = data.projects.map(p => `
+            <div class="search-item" data-slug="${p.slug || p.project_id}">
+              ${p.icon_url
+                ? `<img src="${p.icon_url}" alt="">`
+                : `<div class="search-item-icon-placeholder">📦</div>`}
+              <div class="search-item-info">
+                <div class="search-item-title">${escapeHtml(p.title || p.slug)}</div>
+                ${p.description ? `<div class="search-item-desc">${escapeHtml(p.description)}</div>` : ''}
+                <div class="search-item-stats">⬇️ ${p.downloads || 0} · ❤️ ${p.followers || 0}${p.project_type ? ' · ' + p.project_type : ''}</div>
+              </div>
+            </div>
+          `).join('');
+          searchResults.classList.add('show');
+          searchResults.querySelectorAll('.search-item').forEach(item => {
+            item.addEventListener('click', () => {
+              projectInput.value = item.dataset.slug;
+              searchResults.classList.remove('show');
+            });
+          });
+        } catch (err) {
+          searchResults.classList.remove('show');
+        }
+      }, 350);
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-dropdown') && !e.target.closest('#project-input')) {
+        searchResults.classList.remove('show');
+      }
+    });
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s || '';
+      return div.innerHTML;
+    }
+  </script>
+{% include "_footer.html" %}
+</body>
+</html>

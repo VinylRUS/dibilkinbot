@@ -2069,6 +2069,8 @@ async def api_delete_steam_profile(_user: dict = Depends(require_user)):
 # v2.3.3: santa и achievements роуты вынесены в отдельные модули
 import santa_routes
 import achievements_routes
+import modrinth_routes
 app.include_router(santa_routes.router)
 app.include_router(achievements_routes.router)
+app.include_router(modrinth_routes.router)
 

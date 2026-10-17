@@ -20,13 +20,14 @@
   'users': 'groups',
   'guilds': 'parallel-tasks',
   'achievements': 'medal',
+  'modpacks': 'puzzle',
   'profile': 'user',
   'logout': 'exit',
   'menu': 'menu'
 } -%}
 {%- set icon_name = icon_map.get(name, name) -%}
 <img src="/static/icons/{{ icon_name }}.png" alt="{{ name }}" width="18" height="18" class="sb-liquid-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
-<span style="display:none; width:18px; height:18px;">{% if name == 'dashboard' %}🏠{% elif name == 'movie' %}🎬{% elif name == 'wheel' %}🎡{% elif name == 'trophy' %}🏆{% elif name == 'backlog' %}📋{% elif name == 'quote' %}💬{% elif name == 'santa' %}🎅{% elif name == 'key' %}🔑{% elif name == 'channels' %}📺{% elif name == 'features' %}⚙️{% elif name == 'users' %}👥{% elif name == 'guilds' %}🏰{% elif name == 'achievements' %}🏅{% elif name == 'profile' %}👤{% elif name == 'logout' %}🚪{% elif name == 'menu' %}☰{% endif %}</span>
+<span style="display:none; width:18px; height:18px;">{% if name == 'dashboard' %}🏠{% elif name == 'movie' %}🎬{% elif name == 'wheel' %}🎡{% elif name == 'trophy' %}🏆{% elif name == 'backlog' %}📋{% elif name == 'quote' %}💬{% elif name == 'santa' %}🎅{% elif name == 'key' %}🔑{% elif name == 'channels' %}📺{% elif name == 'features' %}⚙️{% elif name == 'users' %}👥{% elif name == 'guilds' %}🏰{% elif name == 'achievements' %}🏅{% elif name == 'modpacks' %}🧩{% elif name == 'profile' %}👤{% elif name == 'logout' %}🚪{% elif name == 'menu' %}☰{% endif %}</span>
 {%- endmacro -%}
 
 <script>
@@ -102,6 +103,10 @@
     <a href="/achievements" class="sb-item {% if active == 'achievements' %}active{% endif %}" title="Ачивки">
       {{ sb_icon('achievements') }}
       <span class="sb-item-label">Ачивки</span>
+    </a>
+    <a href="/modpacks" class="sb-item {% if active == 'modpacks' %}active{% endif %}" title="Модпаки">
+      {{ sb_icon('modpacks') }}
+      <span class="sb-item-label">Модпаки</span>
     </a>
     {% if user.is_superuser %}
     <a href="/adminpanel" class="sb-item {% if active == 'adminpanel' %}active{% endif %}" title="Админ-панель">
