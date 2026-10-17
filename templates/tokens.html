@@ -33,6 +33,9 @@
             {% if key == 'discord_token' %}Discord Developer Portal → приложение → Bot → Reset Token{% endif %}
             {% if key == 'telegram_token' %}@BotFather → /newbot или /token{% endif %}
             {% if key == 'kinopoisk_token' %}https://kinopoiskapiunofficial.tech/signup → регистрация по email → получить X-API-KEY на /profile. FREE тариф ≈ 500 запросов/день.{% endif %}
+            {% if key == 'steam_api_key' %}https://steamcommunity.com/dev/apikey — для модуля Тайный Санта (проверка вишлистов).{% endif %}
+            {% if key == 'github_token' %}GitHub Settings → Developer settings → Personal access tokens → Fine-grained. Рекомендуемые scopes: <code>repo</code> (для приватных репо) или <code>contents:read</code> для публичных.{% endif %}
+            {% if key == 'modrinth_token' %}<strong>Опционально.</strong> Нужен только для подписок на приватные/draft модпаки (unlisted паки добавляются и без токена). Создаётся на <code>modrinth.com/settings/pats</code> → New PAT → scopes: <code>Read</code>. Без токена публичные и unlisted паки работают.{% endif %}
           </p>
         {% endfor %}
         <button type="submit">Сохранить</button>

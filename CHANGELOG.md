@@ -6,13 +6,14 @@
 - Подписки на модпаки Modrinth: бот следит за обновлениями модпаков и постит embed с ссылкой на скачивание (.mrpack) в Discord-канал при выходе новой версии. Настройка через веб-панель на странице /modpacks (доступ: Матка + Трутень). Polling раз в 30 минут. Принимает slug, ID или URL модпака с modrinth.com.
 
 #ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
-- modrinth.py (новый): клиент Modrinth API v2 (get_project, get_latest_version, format_download_url с mr_download_reason=standalone, parse_project_id_from_url_or_input — принимает bare slug/ID, modrinth.com/modpack/<slug>, cdn.modrinth.com/data/<id>/...)
+- modrinth.py (новый): клиент Modrinth API v2 (get_project, get_latest_version, format_download_url с mr_download_reason=standalone, parse_project_id_from_url_or_input — принимает bare slug/ID, modrinth.com/modpack/<slug>, cdn.modrinth.com/data/<id>/...). Поддержка Personal Access Token (PAT) для приватных/draft модпаков: если в /tokens задан modrinth_token — он автоматически добавляется в Authorization header. Публичные и unlisted паки работают без токена.
 - modrinth_monitor.py (новый): фоновый polling цикл (30 мин), постинг embed'ов в Discord через bot.on_wheel_spin_completed-подобный паттерн. При первой проверке НЕ постит (только запоминает last_version_id) — чтобы не заспамить канал при старте.
-- modrinth_routes.py (новый): FastAPI роутер с HTML-страницей /modpacks и REST API (/api/modpacks, /add, /{id}/remove, /check_now, /save_channel, /search). Все эндпоинты требуют require_admin.
+- modrinth_routes.py (новый): FastAPI роутер с HTML-страницей /modpacks и REST API (/api/modpacks, /add, /{id}/remove, /check_now, /save_channel, /search). Все эндпоинты требуют require_admin. Чёткие ошибки: 404 — «не найден или приватный (нужен PAT)», 401 — «токен невалиден».
 - guild.py: добавлена таблица modrinth_subs (PK project_id, slug, title, icon_url, project_type, last_version_id, last_version_date, last_checked_at, added_by, added_at)
-- db.py: 6 новых функций (list_approved_guilds, g_list/get/add/remove/update_cache/update_last_version/find_by_slug_modrinth_subs)
+- db.py: 7 новых функций (list_approved_guilds, g_list/get/add/remove/update_cache/update_last_version/find_by_slug_modrinth_subs)
 - templates/modpacks.html (новый): страница управления подписками с inline-поиском через Modrinth API, кнопкой "Проверить сейчас", toast-уведомлениями
 - templates/sidebar.html: добавлен пункт "Модпаки" в админскую секцию (icon: puzzle.png)
+- templates/tokens.html: добавлен modrinth_token с подсказкой (опционально, для приватных паков)
 - bot.py: запуск modrinth_monitor.modrinth_monitor_loop() через asyncio.create_task в on_ready
 
 ## v2.4.0 (8a099a7)

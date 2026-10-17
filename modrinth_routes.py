@@ -20,6 +20,7 @@ import modrinth_monitor
 from modrinth import (
     ModrinthError,
     ProjectNotFoundError,
+    UnauthorizedError,
     format_download_url,
     format_filesize,
     format_version_type_emoji,
@@ -91,9 +92,16 @@ async def api_add_modpack(
     try:
         info = await modrinth.get_project(project_id_or_slug)
     except ProjectNotFoundError:
+        # 404 — либо не существует, либо приватный без авторизации
         return JSONResponse(
-            {"error": f"Проект '{project_id_or_slug}' не найден на Modrinth."},
+            {"error": "Проект не найден. Если это приватный/draft модпак — "
+                      "добавьте Modrinth PAT в /tokens (modrinth.com/settings/pats)."},
             status_code=404,
+        )
+    except UnauthorizedError:
+        return JSONResponse(
+            {"error": "Modrinth PAT невалиден или истёк. Обновите токен в /tokens."},
+            status_code=401,
         )
     except ModrinthError as e:
         return JSONResponse(

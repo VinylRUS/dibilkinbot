@@ -11,6 +11,13 @@ Base URL: https://api.modrinth.com/v2
 
 Rate limit: 300 req/min per IP — для нас копейки (polling раз в 30 минут).
 
+АВТОРИЗАЦИЯ (для приватных/draft модпаков):
+- Публичные и unlisted паки — отдаются без токена (достаточно знать slug/ID).
+- Draft и приватные паки — требуют Personal Access Token (PAT) участника команды.
+  PAT создаётся на modrinth.com/settings/pats, передаётся через заголовок
+  Authorization: Bearer <token>. Хранится зашифрованным в settings под ключом
+  'modrinth_token'.
+
 ВАЖНО: Modrinth требует User-Agent в запросах (иначе 403).
 """
 from __future__ import annotations
@@ -33,11 +40,59 @@ class ModrinthError(Exception):
 
 
 class ProjectNotFoundError(ModrinthError):
-    """Проект не найден (404)."""
+    """Проект не найден (404).
+
+    Возвращается в двух случаях:
+    1. Проект не существует
+    2. Проект приватный/draft и нет авторизации (или токен не даёт доступ)
+    """
 
 
-async def get_project(project_id_or_slug: str) -> dict:
+class UnauthorizedError(ModrinthError):
+    """401 — токен невалиден или истёк."""
+
+
+async def _get_auth_token() -> Optional[str]:
+    """Получить Modrinth PAT из БД (если задан).
+
+    Токен хранится зашифрованным в settings под ключом 'modrinth_token'.
+    Возвращает plaintext или None если токен не задан.
+    """
+    try:
+        raw = await db_get_setting("modrinth_token")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        from crypto import decrypt
+        return decrypt(raw)
+    except Exception as e:
+        log.warning("Failed to decrypt modrinth_token: %s", e)
+        return None
+
+
+# Локальный импорт db чтобы избежать circular imports
+async def db_get_setting(key: str):
+    import db
+    return await db.get_setting(key)
+
+
+def _build_headers(token: Optional[str] = None) -> dict:
+    """Собрать HTTP-заголовки. Если token передан — добавляем Authorization."""
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+async def get_project(project_id_or_slug: str, token: Optional[str] = None) -> dict:
     """Получить информацию о проекте по slug или ID.
+
+    Args:
+        project_id_or_slug: slug ('cobblemon-fabric') или ID ('5FFgwNNP')
+        token: опциональный PAT для доступа к приватным/draft проектам.
+               Если None — пробует прочитать 'modrinth_token' из БД.
 
     Возвращает dict с полями:
     - id: внутренний ID проекта (например '5FFgwNNP')
@@ -50,13 +105,20 @@ async def get_project(project_id_or_slug: str) -> dict:
     - followers: int
     - updated: ISO-8601 дата последнего обновления
     """
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    if token is None:
+        token = await _get_auth_token()
+    headers = _build_headers(token)
     url = f"{MODRINTH_API}/project/{quote(project_id_or_slug, safe='')}"
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             r = await client.get(url, headers=headers)
         if r.status_code == 404:
-            raise ProjectNotFoundError(f"Project '{project_id_or_slug}' not found")
+            raise ProjectNotFoundError(
+                f"Project '{project_id_or_slug}' not found"
+                + (" (или приватный — нужен PAT в /tokens)" if not token else "")
+            )
+        if r.status_code == 401:
+            raise UnauthorizedError("Modrinth PAT невалиден или истёк")
         if r.status_code != 200:
             raise ModrinthError(f"HTTP {r.status_code}: {r.text[:200]}")
         return r.json()
@@ -64,8 +126,14 @@ async def get_project(project_id_or_slug: str) -> dict:
         raise ModrinthError(f"Network error: {e}") from e
 
 
-async def get_project_versions(project_id_or_slug: str, limit: int = 20) -> list[dict]:
+async def get_project_versions(project_id_or_slug: str, limit: int = 20,
+                                token: Optional[str] = None) -> list[dict]:
     """Получить список версий проекта, отсортированных от свежей к старой.
+
+    Args:
+        project_id_or_slug: slug или ID проекта
+        limit: максимум версий в ответе
+        token: опциональный PAT (если None — пробует из БД)
 
     Возвращает список dict'ов с полями:
     - id: ID версии (например 'BpTjgzL8')
@@ -79,14 +147,21 @@ async def get_project_versions(project_id_or_slug: str, limit: int = 20) -> list
     - loaders: ['fabric', 'forge', ...]
     - files: [{hashes, url, filename, primary, size, file_type}]
     """
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    if token is None:
+        token = await _get_auth_token()
+    headers = _build_headers(token)
     url = f"{MODRINTH_API}/project/{quote(project_id_or_slug, safe='')}/version"
     params = {"include_changelog": "true"}
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             r = await client.get(url, headers=headers, params=params)
         if r.status_code == 404:
-            raise ProjectNotFoundError(f"Project '{project_id_or_slug}' not found")
+            raise ProjectNotFoundError(
+                f"Project '{project_id_or_slug}' not found"
+                + (" (или приватный — нужен PAT)" if not token else "")
+            )
+        if r.status_code == 401:
+            raise UnauthorizedError("Modrinth PAT невалиден или истёк")
         if r.status_code != 200:
             raise ModrinthError(f"HTTP {r.status_code}: {r.text[:200]}")
         versions = r.json()
@@ -97,9 +172,10 @@ async def get_project_versions(project_id_or_slug: str, limit: int = 20) -> list
         raise ModrinthError(f"Network error: {e}") from e
 
 
-async def get_latest_version(project_id_or_slug: str) -> Optional[dict]:
+async def get_latest_version(project_id_or_slug: str,
+                              token: Optional[str] = None) -> Optional[dict]:
     """Получить самую свежую версию проекта. None если версий нет."""
-    versions = await get_project_versions(project_id_or_slug, limit=1)
+    versions = await get_project_versions(project_id_or_slug, limit=1, token=token)
     return versions[0] if versions else None
 
 
