@@ -9,54 +9,6 @@
     let soundEnabled = true;
     let lastSectorUnderPointer = -1;
     let highlightIdx = -1;
-    // v2.4.2: Safety timeout для зависшего спина.
-    // Если spin_completed не пришёл за duration + 5с — принудительно сбрасываем
-    // spinning и запрашиваем свежее состояние. Защищает от случая когда
-    // WS-коннект упал во время анимации и spin_completed потерялся.
-    let spinSafetyTimeout = null;
-    let currentSpinId = null;
-    let currentSpinDurationMs = 0;
-
-    // === v2.4.2: Safety timeout management ===
-    // Защита от зависания: если spin_completed не пришёл за
-    // duration + 5с после spin_started — принудительно сбросить spinning
-    // и запросить свежее состояние через HTTP.
-    function startSpinSafetyTimeout(durationMs, expectedSpinId) {
-      clearSpinSafetyTimeout();
-      spinSafetyTimeout = setTimeout(async () => {
-        console.warn('[wheel] Safety timeout fired — spin_completed not received within ' +
-                     (durationMs / 1000) + 's. Forcing state reset.');
-        // Проверяем текущее состояние через HTTP
-        try {
-          const r = await fetch('/api/wheel/spin_state');
-          if (r.ok) {
-            const data = await r.json();
-            if (data.active_spin && data.active_spin.spin_id === expectedSpinId) {
-              // На сервере спин ещё активен — продлеваем timeout
-              console.warn('[wheel] Server says spin still active, extending timeout.');
-              startSpinSafetyTimeout(5000, expectedSpinId);
-              return;
-            }
-          }
-        } catch (e) {
-          console.error('[wheel] spin_state check failed:', e);
-        }
-        // Сбрасываем состояние
-        spinning = false;
-        currentSpinId = null;
-        const btn = document.getElementById('spin-btn');
-        if (btn) btn.disabled = items.length < 2;
-        // Запрашиваем свежие items
-        await fetchItems();
-      }, durationMs + 5000);
-    }
-
-    function clearSpinSafetyTimeout() {
-      if (spinSafetyTimeout) {
-        clearTimeout(spinSafetyTimeout);
-        spinSafetyTimeout = null;
-      }
-    }
 
     function setMode(mode) {
       currentMode = mode;
@@ -337,8 +289,6 @@
     async function spin() {
       if (spinning || items.length < 2) return;
       spinning = true;
-      currentSpinId = null; // будет установлен после ответа сервера
-      currentSpinDurationMs = spinDuration;
       document.getElementById('spin-btn').disabled = true;
       document.getElementById('winner-banner').classList.remove('show');
       highlightIdx = -1;
@@ -355,7 +305,6 @@
         }
         alert(data.error || 'Ошибка спина');
         spinning = false;
-        clearSpinSafetyTimeout();
         document.getElementById('spin-btn').disabled = false;
         return;
       }
@@ -363,10 +312,6 @@
       // v2.4.0: Server returned physics params. Animate using them.
       // No more client-side winner determination or /api/wheel/result.
       if (data.physics) {
-        currentSpinId = data.spin_id;
-        // v2.4.2: Запускаем safety timeout — если spin_completed не придёт
-        // за duration + 5с, принудительно сбросим состояние.
-        startSpinSafetyTimeout(spinDuration, data.spin_id);
         animatePhysics(
           data.physics.initial_rotation,
           data.physics.total_rotation,
@@ -377,11 +322,6 @@
             // (server posts to Discord/TG after delay, then broadcasts)
           }
         );
-      } else {
-        // Сервер вернул 200, но без physics — что-то не так, сбрасываем
-        spinning = false;
-        clearSpinSafetyTimeout();
-        document.getElementById('spin-btn').disabled = items.length < 2;
       }
     }
 
@@ -389,8 +329,6 @@
     async function spinElimination() {
       if (spinning || items.length < 2) return;
       spinning = true;
-      currentSpinId = null;
-      currentSpinDurationMs = spinDuration;
       document.getElementById('spin-btn').disabled = true;
       document.getElementById('winner-banner').classList.remove('show');
       highlightIdx = -1;
@@ -407,14 +345,11 @@
         }
         alert(data.error || 'Ошибка спина');
         spinning = false;
-        clearSpinSafetyTimeout();
         document.getElementById('spin-btn').disabled = items.length < 2;
         return;
       }
 
       if (data.physics) {
-        currentSpinId = data.spin_id;
-        startSpinSafetyTimeout(spinDuration, data.spin_id);
         animatePhysics(
           data.physics.initial_rotation,
           data.physics.total_rotation,
@@ -422,10 +357,6 @@
           data.physics.items_count,
           () => { /* wait for spin_completed */ }
         );
-      } else {
-        spinning = false;
-        clearSpinSafetyTimeout();
-        document.getElementById('spin-btn').disabled = items.length < 2;
       }
     }
 
@@ -437,18 +368,7 @@
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'wheel_updated') {
-          // v2.4.2: если клиент думает что spinning=true, но сервер шлёт
-          // wheel_updated (а не spin_started) — значит на сервере нет
-          // активного спина. Сбрасываем зависшее состояние.
-          if (spinning) {
-            console.warn('[wheel] Got wheel_updated while spinning — server has no active spin. Resetting.');
-            spinning = false;
-            currentSpinId = null;
-            clearSpinSafetyTimeout();
-            const btn = document.getElementById('spin-btn');
-            if (btn) btn.disabled = items.length < 2;
-          }
-          items = msg.payload.items || []; renderList();
+          if (!spinning) { items = msg.payload.items || []; renderList(); }
         } else if (msg.type === 'spin_started') {
           // v2.4.0: Server sent physics params. Animate using them.
           // This handles both initiator (who already got physics via HTTP)
@@ -461,14 +381,9 @@
 
           items = p.items; renderList(); ensureAudio();
           spinning = true;
-          currentSpinId = p.spin_id;
-          currentSpinDurationMs = physics.duration_sec * 1000;
           document.getElementById('spin-btn').disabled = true;
           document.getElementById('winner-banner').classList.remove('show');
           highlightIdx = -1;
-
-          // v2.4.2: safety timeout для зрителей тоже
-          startSpinSafetyTimeout(currentSpinDurationMs, p.spin_id);
 
           animatePhysics(
             physics.initial_rotation,
@@ -485,8 +400,6 @@
             drawWheel(currentRotation);
           }
           spinning = false;
-          currentSpinId = null;
-          clearSpinSafetyTimeout();
           document.getElementById('spin-btn').disabled = items.length < 2;
 
           if (p.winner) {

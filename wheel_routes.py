@@ -122,35 +122,6 @@ async def api_wheel_items(_user: dict = Depends(require_user)):
     return JSONResponse({"items": safe_items, "count": len(safe_items)})
 
 
-@router.get("/api/wheel/spin_state")
-async def api_wheel_spin_state(_user: dict = Depends(require_user)):
-    """v2.4.2: Текущее состояние активного спина для данной гильдии.
-
-    Используется клиентом для recovery:
-    - Если safety timeout сработал, клиент дёргает этот endpoint
-      чтобы проверить — действительно ли на сервере ещё активен спин.
-    - Если active_spin == null — клиент сбрасывает spinning=false.
-    - Если active_spin есть с тем же spin_id — продлевает timeout.
-
-    Возвращает:
-    - active_spin: {spin_id, physics, mode, duration, items} или null
-    """
-    guild_id = int(get_current_guild_id(_user))
-    active = _find_active_spin_for_guild(guild_id)
-    if active is None:
-        return JSONResponse({"active_spin": None})
-    physics: SpinPhysics = active["physics"]
-    return JSONResponse({
-        "active_spin": {
-            "spin_id": active["spin_id"],
-            "physics": physics_to_dict(physics),
-            "mode": active["mode"],
-            "duration": active["duration"],
-            "items": anonymize_items(active["items"]),
-        }
-    })
-
-
 # === Wheel API ===
 
 @router.post("/api/wheel/items")
