@@ -1,9 +1,12 @@
 # DeeBeelkin Bot — Changelog
 
-## v2.4.1 (0000000)
+## v2.4.2 (0000000)
 
 #НОВЫЕ_ФИЧИ#
 - Подписки на модпаки Modrinth: бот следит за обновлениями модпаков и постит embed с ссылкой на скачивание (.mrpack) в Discord-канал при выходе новой версии. Настройка через веб-панель на странице /modpacks (доступ: Матка + Трутень). Polling раз в 30 минут. Принимает slug, ID или URL модпака с modrinth.com.
+
+#ИСПРАВЛЕНО#
+- Колесо: зависание UI после спина у части клиентов. Если WS-соединение падало во время 6-30с анимации (мобильный интернет, прокси BotHost, нестабильная связь), spin_completed терялся и spinning оставался true навсегда — нужно было перезагружать страницу чтобы снова крутить. Теперь клиент сам сбрасывает состояние через safety timeout (duration + 5с) + проверяет состояние через новый endpoint /api/wheel/spin_state.
 
 #ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
 - modrinth.py (новый): клиент Modrinth API v2 (get_project, get_latest_version, format_download_url с mr_download_reason=standalone, parse_project_id_from_url_or_input — принимает bare slug/ID, modrinth.com/modpack/<slug>, cdn.modrinth.com/data/<id>/...). Поддержка Personal Access Token (PAT) для приватных/draft модпаков: если в /tokens задан modrinth_token — он автоматически добавляется в Authorization header. Публичные и unlisted паки работают без токена.
@@ -15,6 +18,8 @@
 - templates/sidebar.html: добавлен пункт "Модпаки" в админскую секцию (icon: puzzle.png)
 - templates/tokens.html: добавлен modrinth_token с подсказкой (опционально, для приватных паков)
 - bot.py: запуск modrinth_monitor.modrinth_monitor_loop() через asyncio.create_task в on_ready
+- wheel.js (v2.4.2): safety timeout — если spin_completed не пришёл за duration+5с, клиент дёргает /api/wheel/spin_state, если спин не активен — сбрасывает spinning и запрашивает свежие items. При WS reconnect если spinning=true но сервер шлёт wheel_updated (а не spin_started) — спин уже завершён, сбрасываем состояние.
+- wheel_routes.py: новый endpoint GET /api/wheel/spin_state возвращает активный спин (или null) для recovery клиентов
 
 ## v2.4.0 (8a099a7)
 
