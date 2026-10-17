@@ -1,5 +1,25 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.4.3 (0000000)
+
+#ИСПРАВЛЕНО#
+- Колесо: зависание UI после спина. Корневая причина — баннер победителя показывался ТОЛЬКО когда клиент получал WS spin_completed, а это сообщение может потеряться на нестабильном WS-соединении (мобильный интернет, прокси BotHost, переключение вкладок). Теперь клиент показывает баннер сразу после остановки анимации, используя winner_idx из physics (который сервер прислал в HTTP-ответе POST /api/wheel/spin и в WS spin_started). WS spin_completed стал опциональным — нужен только для синхронизации финального rotation и обновления items.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- wheel.js (v2.4.3): переписан flow показа результата:
+  * Новая функция onSpinAnimationComplete(physics, snapshotItems, mode) — вызывается
+    после завершения animatePhysics, сразу показывает баннер (по winner_idx из physics)
+    и сбрасывает spinning. Не ждёт WS.
+  * spin() и spinElimination() используют snapshot items для callback — чтобы
+    определить winner по индексу даже если items уже обновились через WS.
+  * WS spin_started хендлер тоже использует onSpinAnimationComplete — зрители
+    видят баннер сразу после своей анимации, не дожидаясь spin_completed.
+  * WS spin_completed теперь только: snap к final_rotation (для надёжности),
+    fetchItems() для обновления списка. Если баннер уже показан — не показывает
+    повторно (флаг winnerBannerShown).
+  * Fallback: если onSpinAnimationComplete не вызвался (баг?), spin_completed
+    всё равно покажет баннер.
+
 ## v2.4.1 (0000000)
 
 #НОВЫЕ_ФИЧИ#
