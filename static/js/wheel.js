@@ -9,54 +9,9 @@
     let soundEnabled = true;
     let lastSectorUnderPointer = -1;
     let highlightIdx = -1;
-    // v2.4.2: Safety timeout для зависшего спина.
-    // Если spin_completed не пришёл за duration + 5с — принудительно сбрасываем
-    // spinning и запрашиваем свежее состояние. Защищает от случая когда
-    // WS-коннект упал во время анимации и spin_completed потерялся.
-    let spinSafetyTimeout = null;
-    let currentSpinId = null;
-    let currentSpinDurationMs = 0;
-
-    // === v2.4.2: Safety timeout management ===
-    // Защита от зависания: если spin_completed не пришёл за
-    // duration + 5с после spin_started — принудительно сбросить spinning
-    // и запросить свежее состояние через HTTP.
-    function startSpinSafetyTimeout(durationMs, expectedSpinId) {
-      clearSpinSafetyTimeout();
-      spinSafetyTimeout = setTimeout(async () => {
-        console.warn('[wheel] Safety timeout fired — spin_completed not received within ' +
-                     (durationMs / 1000) + 's. Forcing state reset.');
-        // Проверяем текущее состояние через HTTP
-        try {
-          const r = await fetch('/api/wheel/spin_state');
-          if (r.ok) {
-            const data = await r.json();
-            if (data.active_spin && data.active_spin.spin_id === expectedSpinId) {
-              // На сервере спин ещё активен — продлеваем timeout
-              console.warn('[wheel] Server says spin still active, extending timeout.');
-              startSpinSafetyTimeout(5000, expectedSpinId);
-              return;
-            }
-          }
-        } catch (e) {
-          console.error('[wheel] spin_state check failed:', e);
-        }
-        // Сбрасываем состояние
-        spinning = false;
-        currentSpinId = null;
-        const btn = document.getElementById('spin-btn');
-        if (btn) btn.disabled = items.length < 2;
-        // Запрашиваем свежие items
-        await fetchItems();
-      }, durationMs + 5000);
-    }
-
-    function clearSpinSafetyTimeout() {
-      if (spinSafetyTimeout) {
-        clearTimeout(spinSafetyTimeout);
-        spinSafetyTimeout = null;
-      }
-    }
+    // v2.4.3: флаг что баннер уже показан из callback анимации.
+    // Чтобы spin_completed (если дойдёт) не показал его повторно.
+    let winnerBannerShown = false;
 
     function setMode(mode) {
       currentMode = mode;
@@ -337,8 +292,7 @@
     async function spin() {
       if (spinning || items.length < 2) return;
       spinning = true;
-      currentSpinId = null; // будет установлен после ответа сервера
-      currentSpinDurationMs = spinDuration;
+      winnerBannerShown = false;
       document.getElementById('spin-btn').disabled = true;
       document.getElementById('winner-banner').classList.remove('show');
       highlightIdx = -1;
@@ -355,33 +309,28 @@
         }
         alert(data.error || 'Ошибка спина');
         spinning = false;
-        clearSpinSafetyTimeout();
         document.getElementById('spin-btn').disabled = false;
         return;
       }
 
-      // v2.4.0: Server returned physics params. Animate using them.
-      // No more client-side winner determination or /api/wheel/result.
+      // v2.4.3: Сервер прислал physics с уже определённым winner_idx.
+      // Клиент анимирует и СРАЗУ после остановки показывает баннер —
+      // не ждёт WS spin_completed (он может потеряться на нестабильном WS).
       if (data.physics) {
-        currentSpinId = data.spin_id;
-        // v2.4.2: Запускаем safety timeout — если spin_completed не придёт
-        // за duration + 5с, принудительно сбросим состояние.
-        startSpinSafetyTimeout(spinDuration, data.spin_id);
+        // Снапшот items на момент спина — после остановки items в wheel_updated
+        // могут уже обновиться, но нам нужен индекс из physics.
+        const spinSnapshot = (data.items && data.items.length > 0) ? data.items : items.slice();
         animatePhysics(
           data.physics.initial_rotation,
           data.physics.total_rotation,
           data.physics.duration_sec * 1000,
           data.physics.items_count,
           () => {
-            // Animation complete — wait for spin_completed from server
-            // (server posts to Discord/TG after delay, then broadcasts)
+            // Анимация завершена — показываем результат сразу.
+            // Сервер уже определил winner_idx, мы только отображаем его.
+            onSpinAnimationComplete(data.physics, spinSnapshot, 'classic');
           }
         );
-      } else {
-        // Сервер вернул 200, но без physics — что-то не так, сбрасываем
-        spinning = false;
-        clearSpinSafetyTimeout();
-        document.getElementById('spin-btn').disabled = items.length < 2;
       }
     }
 
@@ -389,8 +338,7 @@
     async function spinElimination() {
       if (spinning || items.length < 2) return;
       spinning = true;
-      currentSpinId = null;
-      currentSpinDurationMs = spinDuration;
+      winnerBannerShown = false;
       document.getElementById('spin-btn').disabled = true;
       document.getElementById('winner-banner').classList.remove('show');
       highlightIdx = -1;
@@ -407,26 +355,81 @@
         }
         alert(data.error || 'Ошибка спина');
         spinning = false;
-        clearSpinSafetyTimeout();
         document.getElementById('spin-btn').disabled = items.length < 2;
         return;
       }
 
       if (data.physics) {
-        currentSpinId = data.spin_id;
-        startSpinSafetyTimeout(spinDuration, data.spin_id);
+        const spinSnapshot = (data.items && data.items.length > 0) ? data.items : items.slice();
+        const mode = data.mode || 'elimination';
         animatePhysics(
           data.physics.initial_rotation,
           data.physics.total_rotation,
           data.physics.duration_sec * 1000,
           data.physics.items_count,
-          () => { /* wait for spin_completed */ }
+          () => {
+            onSpinAnimationComplete(data.physics, spinSnapshot, mode);
+          }
         );
-      } else {
-        spinning = false;
-        clearSpinSafetyTimeout();
-        document.getElementById('spin-btn').disabled = items.length < 2;
       }
+    }
+
+    // === v2.4.3: Показать результат спина сразу после остановки анимации ===
+    // Использует winner_idx из physics — сервер его уже определил.
+    // НЕ ждёт WS spin_completed (он нужен только для sync rotation/списка).
+    function onSpinAnimationComplete(physics, snapshotItems, mode) {
+      const winnerIdx = physics.winner_idx;
+      const itemsCount = snapshotItems.length;
+
+      // Snap к финальной позиции из physics
+      if (physics.final_rotation != null) {
+        currentRotation = physics.final_rotation;
+        drawWheel(currentRotation);
+      }
+
+      // Определяем eliminated/winner по mode + winner_idx
+      let eliminated = null, winner = null, remainingCount = itemsCount;
+      if (winnerIdx >= 0 && winnerIdx < itemsCount) {
+        eliminated = snapshotItems[winnerIdx];
+        if (mode === 'classic') {
+          winner = eliminated;
+          remainingCount = Math.max(0, itemsCount - 1);
+        } else if (mode === 'elimination_final') {
+          // Победитель = другой элемент (не eliminated)
+          winner = snapshotItems.find((it, idx) => idx !== winnerIdx) || null;
+          remainingCount = Math.max(0, itemsCount - 2);
+        } else { // 'elimination'
+          winner = null;
+          remainingCount = Math.max(0, itemsCount - 1);
+        }
+      }
+
+      // Подсветка winner/eliminated сектора
+      if (winnerIdx >= 0 && winnerIdx < itemsCount) {
+        highlightIdx = winnerIdx;
+      }
+
+      // Показываем баннер (используем showWinnerBanner для переиспользования логики)
+      // winner для classic/elimination_final, eliminated для elimination
+      const bannerWinner = winner || eliminated;
+      if (bannerWinner) {
+        showWinnerBanner(mode, bannerWinner,
+          (mode === 'elimination' || mode === 'elimination_final') ? eliminated : null,
+          remainingCount);
+        winnerBannerShown = true;
+      }
+
+      // Сбрасываем spinning — кнопка снова активна, можно крутить снова
+      spinning = false;
+      // items могли обновиться через WS wheel_updated (если уже пришёл),
+      // иначе используем snapshot. Используем snapshot для согласованности с анимацией.
+      if (items.length === 0 || items.length === itemsCount) {
+        // items ещё не обновились — оставим как есть, ждём wheel_updated
+      }
+      document.getElementById('spin-btn').disabled = items.length < 2;
+
+      // Снять подсветку через 5 сек
+      setTimeout(() => { highlightIdx = -1; }, 5000);
     }
 
     // === WebSocket ===
@@ -437,18 +440,9 @@
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'wheel_updated') {
-          // v2.4.2: если клиент думает что spinning=true, но сервер шлёт
-          // wheel_updated (а не spin_started) — значит на сервере нет
-          // активного спина. Сбрасываем зависшее состояние.
-          if (spinning) {
-            console.warn('[wheel] Got wheel_updated while spinning — server has no active spin. Resetting.');
-            spinning = false;
-            currentSpinId = null;
-            clearSpinSafetyTimeout();
-            const btn = document.getElementById('spin-btn');
-            if (btn) btn.disabled = items.length < 2;
-          }
-          items = msg.payload.items || []; renderList();
+          // v2.4.3: Если мы крутим — игнорируем wheel_updated (список ещё не поменялся
+          // для нашего спина). После завершения анимации примем обновление.
+          if (!spinning) { items = msg.payload.items || []; renderList(); }
         } else if (msg.type === 'spin_started') {
           // v2.4.0: Server sent physics params. Animate using them.
           // This handles both initiator (who already got physics via HTTP)
@@ -461,40 +455,54 @@
 
           items = p.items; renderList(); ensureAudio();
           spinning = true;
-          currentSpinId = p.spin_id;
-          currentSpinDurationMs = physics.duration_sec * 1000;
+          winnerBannerShown = false;
           document.getElementById('spin-btn').disabled = true;
           document.getElementById('winner-banner').classList.remove('show');
           highlightIdx = -1;
 
-          // v2.4.2: safety timeout для зрителей тоже
-          startSpinSafetyTimeout(currentSpinDurationMs, p.spin_id);
+          // v2.4.3: Snapshot items для callback — после остановки items могут
+          // уже обновиться через WS, но нам нужен индекс из physics.
+          const viewerSnapshot = p.items.slice();
+          const viewerMode = p.mode || 'classic';
 
           animatePhysics(
             physics.initial_rotation,
             physics.total_rotation,
             physics.duration_sec * 1000,
             physics.items_count,
-            () => { /* wait for spin_completed */ }
+            () => {
+              // v2.4.3: Зритель тоже показывает баннер сразу после остановки.
+              // Не ждёт spin_completed (он может потеряться на нестабильном WS).
+              onSpinAnimationComplete(physics, viewerSnapshot, viewerMode);
+            }
           );
         } else if (msg.type === 'spin_completed') {
-          // v2.4.0: Server confirmed result. Snap to final rotation.
+          // v2.4.3: spin_completed теперь ОПЦИОНАЛЬНЫЙ — баннер уже показан
+          // в onSpinAnimationComplete (callback после анимации).
+          // Здесь только: snap к final_rotation (для надёжности), обновление items.
           const p = msg.payload;
           if (p.final_rotation != null) {
             currentRotation = p.final_rotation;
             drawWheel(currentRotation);
           }
-          spinning = false;
-          currentSpinId = null;
-          clearSpinSafetyTimeout();
-          document.getElementById('spin-btn').disabled = items.length < 2;
+          // Сбрасываем spinning если вдруг анимация ещё идёт (viewer подключился поздно)
+          if (spinning) {
+            spinning = false;
+            document.getElementById('spin-btn').disabled = items.length < 2;
+          }
 
-          if (p.winner) {
+          // Если баннер уже показан — не показываем повторно.
+          // Если не показан (баг? анимация прервалась?) — покажем как fallback.
+          if (p.winner && !winnerBannerShown) {
             const winnerIdx = getSectorUnderPointer(currentRotation, items.length);
             if (winnerIdx >= 0) highlightIdx = winnerIdx;
             showWinnerBanner(p.mode, p.winner, p.eliminated, p.remaining_count);
-            fetchItems();
+            winnerBannerShown = true;
           }
+
+          // Обновим список items (winner уже удалён на сервере)
+          fetchItems();
+
           setTimeout(() => { highlightIdx = -1; }, 3000);
         }
       };
