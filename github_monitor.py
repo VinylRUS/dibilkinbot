@@ -40,6 +40,8 @@ NOTIFY_COOLDOWN = 3600  # 1 час — не спамим Матку чаще
 _last_github_hash: str | None = None
 _last_notify_time: float = 0.0
 _last_was_behind: bool = False
+# v3.0.3: последний presence text — чтобы не логировать одинаковые обновления
+_last_presence_text: str | None = None
 
 
 def _get_local_commit() -> str:
@@ -146,7 +148,13 @@ async def _send_tg_to_admin(text: str) -> None:
 
 
 async def _update_discord_presence(is_behind: bool, local_hash: str, remote_hash: str | None) -> None:
-    """Обновить presence status бота в Discord."""
+    """Обновить presence status бота в Discord.
+
+    v3.0.3: подавлен спам «Discord presence updated» в логах — каждые 10s
+    писалось одно и то же сообщение. Теперь логируем только при реальном
+    изменении activity_text (первый раз / смена статуса / смена версии).
+    """
+    global _last_presence_text
     try:
         import bot as bot_module
         bot = bot_module.get_bot_instance()
@@ -168,7 +176,13 @@ async def _update_discord_presence(is_behind: bool, local_hash: str, remote_hash
                 name=activity_text,
             )
         )
-        log.info("Discord presence updated: %s", activity_text)
+        # Логируем только если текст реально изменился (или первый раз).
+        # Раньше логировали каждый цикл — спамило 360 записей в час.
+        if activity_text != _last_presence_text:
+            log.info("Discord presence updated: %s", activity_text)
+            _last_presence_text = activity_text
+        else:
+            log.debug("Discord presence unchanged: %s", activity_text)
     except Exception as e:
         log.warning("Failed to update Discord presence: %s", e)
 

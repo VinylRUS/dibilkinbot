@@ -22,6 +22,13 @@ log = logging.getLogger("steam")
 STEAM_API_BASE = "https://api.steampowered.com"
 STEAM_STORE_BASE = "https://store.steampowered.com/api"
 
+# v3.0.3: suppress «Steam wishlist for X is private» log spam —
+# log INFO only the FIRST time we see a given steam_id64 fail,
+# then DEBUG for subsequent occurrences (per process lifetime).
+# Browser auto-refresh / pre-fetch of /u/{id} can hit this every 30s
+# which was filling the logs with hundreds of identical entries.
+_private_wishlist_already_logged: set[str] = set()
+
 
 async def get_steam_api_key() -> str | None:
     """Получить Steam API key из БД (зашифрован) или из env."""
@@ -333,7 +340,13 @@ async def get_wishlist(steam_id64: str) -> list[dict] | None:
         async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
             r = await client.get(url)
         if r.status_code == 401 or r.status_code == 403:
-            log.info("Steam wishlist for %s is private (HTTP %s)", steam_id64, r.status_code)
+            # v3.0.3: логируем INFO только первый раз для этого steam_id64,
+            # потом DEBUG — иначе при авто-рефрешше /u/{id} спамит каждые 30s.
+            if steam_id64 not in _private_wishlist_already_logged:
+                log.info("Steam wishlist for %s is private (HTTP %s)", steam_id64, r.status_code)
+                _private_wishlist_already_logged.add(steam_id64)
+            else:
+                log.debug("Steam wishlist for %s still private (HTTP %s)", steam_id64, r.status_code)
             return None
         if r.status_code != 200:
             log.warning("Steam wishlist HTTP %s: %s", r.status_code, r.text[:200])

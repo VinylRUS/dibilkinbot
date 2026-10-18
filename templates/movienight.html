@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Киновечер · DeeBeelkin</title>
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
     .mn-grid {
       display: grid;
@@ -579,7 +579,7 @@
       el.value = v;
     }
   </script>
-  <script src="/static/js/movienight.js"></script>
+  <script src="/static/js/movienight.js?v={{ commit_id }}"></script>
 
 {% include "_footer.html" %}
 </body>

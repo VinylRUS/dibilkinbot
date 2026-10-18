@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Колесо · DeeBeelkin</title>
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
     /* v2.3.3: Убираем хардкод чёрного фона — используем CSS-переменные
        из DESIGN_SYSTEM.md (var(--bg-base), var(--text)). Раньше было
@@ -756,7 +756,7 @@
     const IS_TEST_MODE = {{ 'true' if is_test_mode else 'false' }};
     const IS_SUPERUSER = {{ 'true' if user.is_superuser else 'false' }};
   </script>
-  <script src="/static/js/wheel.js"></script>
+  <script src="/static/js/wheel.js?v={{ commit_id }}"></script>
   {% include "_footer.html" %}
 </body>
 </html>

@@ -71,6 +71,28 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         },
     )
 
+
+# v3.0.3: Cache-Control middleware — HTML responses должны быть no-store,
+# иначе после deploy браузер отдаёт закешированную старую страницу (с старым
+# JS-кодом внутри, который использует устаревший guild_id / Discord ID).
+# Это было причиной бага: /movienight показывал guild_id=0 потому что в
+# кэше браузера лежал HTML с того времени, когда current_guild_id в сессии
+# был 0. /wheel работал потому что пользователь зашёл впервые — HTML был свежий.
+# Static files кэшируются через ?v=commit_id в URL (см. Jinja globals).
+@app.middleware("http")
+async def no_cache_html_middleware(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+    except Exception:
+        pass
+    return response
+
+
 _STATIC_DIR = Path(__file__).parent / "static"
 _cached_bot_version: str | None = None
 

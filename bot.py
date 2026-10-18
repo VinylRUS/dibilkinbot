@@ -384,71 +384,91 @@ class KinovecherBot(commands.Bot):
                      current_version, last_announced, changelog_path, os.path.exists(changelog_path))
 
             if last_announced != current_version:
-                log.info("New version detected: %s (was: %s) — posting update", current_version, last_announced)
+                # v3.0.3: SKIP_CHANGELOG_ANNOUNCE env var — полностью пропускает
+                # постинг в Discord (но last_announced_version всё равно обновляется,
+                # чтобы при следующем старте не пытаться постить снова).
+                # Полезно когда версия содержит только технические правки
+                # (логи, рефакторинг, fixed cache headers) — нечего анонсить.
+                skip_announce = os.environ.get("SKIP_CHANGELOG_ANNOUNCE", "").lower() in ("1", "true", "yes")
 
                 # Загружаем entry один раз — он нужен и для общего канала, и для админских фич
                 entry = get_latest_changelog(changelog_path)
 
-                updates_channel_id_str = await db.get_setting("channel_updates_id")
-                if not updates_channel_id_str or not updates_channel_id_str.isdigit():
-                    log.warning("channel_updates_id not set — skipping changelog post")
-                else:
-                    channel = self.get_channel(int(updates_channel_id_str))
-                    if channel is None:
-                        log.warning("Updates channel %s not found", updates_channel_id_str)
+                # v3.0.3: не постить если в entry нет ни публичных, ни админских секций.
+                # Бывает когда changelog entry содержит только #ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+                # (багфиксы, рефакторинг) — публиковать нечего, просто обновим
+                # last_announced_version.
+                has_public_content = bool(entry and entry.public_sections)
+                has_admin_content = bool(entry and entry.admin_sections)
+
+                if skip_announce or (not has_public_content and not has_admin_content):
+                    if skip_announce:
+                        log.info("Changelog announce SKIPPED (SKIP_CHANGELOG_ANNOUNCE env var) for %s", current_version)
                     else:
-                        embed = discord.Embed(
-                            title=f"🐝 DeeBeelkin обновился до {current_version}!",
-                            color=0xFFB703,
+                        log.info("Changelog announce SKIPPED (no public/admin sections) for %s — only technical changes", current_version)
+                else:
+                    log.info("New version detected: %s (was: %s) — posting update", current_version, last_announced)
+
+                    updates_channel_id_str = await db.get_setting("channel_updates_id")
+                    if not updates_channel_id_str or not updates_channel_id_str.isdigit():
+                        log.warning("channel_updates_id not set — skipping changelog post")
+                    else:
+                        channel = self.get_channel(int(updates_channel_id_str))
+                        if channel is None:
+                            log.warning("Updates channel %s not found", updates_channel_id_str)
+                        else:
+                            embed = discord.Embed(
+                                title=f"🐝 DeeBeelkin обновился до {current_version}!",
+                                color=0xFFB703,
+                                timestamp=datetime.utcnow(),
+                            )
+
+                            # v2.3.2: используем public_sections (без админских и технических)
+                            if entry and entry.public_sections:
+                                for section_title, items in entry.public_sections.items():
+                                    emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() or "улучш" in section_title.lower() else "📋"
+                                    text = "\n".join(f"{emoji} {item}" for item in items[:10])
+                                    if len(text) > 1000:
+                                        text = text[:1000] + "…"
+                                    embed.add_field(name=section_title, value=text, inline=False)
+                            else:
+                                # Нет секций (или старый формат) — отправляем только заголовок
+                                embed.description = "Список изменений см. в репозитории."
+
+                            embed.set_footer(text=f"DeeBeelkin {current_version}")
+                            await channel.send(embed=embed)
+                            log.info("Changelog posted to channel %s", updates_channel_id_str)
+
+                    # v2.3.2: Админские фичи — отдельным сообщением
+                    # Приоритет: 1) канал channel_admin_updates_id (если задан)
+                    #            2) DM админу (если admin_discord_id задан и юзер найден)
+                    if entry and entry.admin_sections:
+                        admin_embed = discord.Embed(
+                            title=f"🛠 Админские фичи {current_version}",
+                            color=0x5865F2,  # Discord Blurple
                             timestamp=datetime.utcnow(),
                         )
+                        for section_title, items in entry.admin_sections.items():
+                            text = "\n".join(f"• {item}" for item in items[:15])
+                            if len(text) > 1000:
+                                text = text[:1000] + "…"
+                            admin_embed.add_field(name=section_title, value=text, inline=False)
+                        admin_embed.set_footer(text=f"DeeBeelkin {current_version} · только для админов")
 
-                        # v2.3.2: используем public_sections (без админских и технических)
-                        if entry and entry.public_sections:
-                            for section_title, items in entry.public_sections.items():
-                                emoji = "🆕" if "нов" in section_title.lower() else "✅" if "испр" in section_title.lower() or "улучш" in section_title.lower() else "📋"
-                                text = "\n".join(f"{emoji} {item}" for item in items[:10])
-                                if len(text) > 1000:
-                                    text = text[:1000] + "…"
-                                embed.add_field(name=section_title, value=text, inline=False)
-                        else:
-                            # Нет секций (или старый формат) — отправляем только заголовок
-                            embed.description = "Список изменений см. в репозитории."
-
-                        embed.set_footer(text=f"DeeBeelkin {current_version}")
-                        await channel.send(embed=embed)
-                        log.info("Changelog posted to channel %s", updates_channel_id_str)
-
-                # v2.3.2: Админские фичи — отдельным сообщением
-                # Приоритет: 1) канал channel_admin_updates_id (если задан)
-                #            2) DM админу (если admin_discord_id задан и юзер найден)
-                if entry and entry.admin_sections:
-                    admin_embed = discord.Embed(
-                        title=f"🛠 Админские фичи {current_version}",
-                        color=0x5865F2,  # Discord Blurple
-                        timestamp=datetime.utcnow(),
-                    )
-                    for section_title, items in entry.admin_sections.items():
-                        text = "\n".join(f"• {item}" for item in items[:15])
-                        if len(text) > 1000:
-                            text = text[:1000] + "…"
-                        admin_embed.add_field(name=section_title, value=text, inline=False)
-                    admin_embed.set_footer(text=f"DeeBeelkin {current_version} · только для админов")
-
-                    admin_sent = False
-                    # 1) Пробуем админский канал (если задан)
-                    try:
-                        admin_channel_id_str = await db.get_setting("channel_admin_updates_id")
-                        if admin_channel_id_str and admin_channel_id_str.isdigit():
-                            admin_channel = self.get_channel(int(admin_channel_id_str))
-                            if admin_channel is not None:
-                                await admin_channel.send(embed=admin_embed)
-                                log.info("Admin changelog posted to channel %s", admin_channel_id_str)
-                                admin_sent = True
-                            else:
-                                log.warning("channel_admin_updates_id %s set but channel not found", admin_channel_id_str)
-                    except Exception as e:
-                        log.warning("Admin changelog channel post failed: %s", e)
+                        admin_sent = False
+                        # 1) Пробуем админский канал (если задан)
+                        try:
+                            admin_channel_id_str = await db.get_setting("channel_admin_updates_id")
+                            if admin_channel_id_str and admin_channel_id_str.isdigit():
+                                admin_channel = self.get_channel(int(admin_channel_id_str))
+                                if admin_channel is not None:
+                                    await admin_channel.send(embed=admin_embed)
+                                    log.info("Admin changelog posted to channel %s", admin_channel_id_str)
+                                    admin_sent = True
+                                else:
+                                    log.warning("channel_admin_updates_id %s set but channel not found", admin_channel_id_str)
+                        except Exception as e:
+                            log.warning("Admin changelog channel post failed: %s", e)
 
                     # 2) Fallback: DM админу (если канал не задан или не найден)
                     if not admin_sent:
