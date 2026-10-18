@@ -12,6 +12,7 @@ import uvicorn
 
 import crypto
 import db
+import log_buffer
 import telegram
 from bot import KinovecherBot, get_token, handle_tg_link_message
 from config import settings
@@ -25,6 +26,10 @@ logging.basicConfig(
 # Глушим спам от httpx INFO логов (TG getUpdates каждый раз пишет "HTTP Request: POST ...")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("main")
+
+# v2.4.3: In-memory ring buffer для команды /logs в TG.
+# Хранит логи за 24ч, доступ через команду /logs (только Матка).
+log_buffer.install()
 
 TG_API = "https://api.telegram.org/bot{token}/{method}"
 
@@ -45,6 +50,105 @@ async def run_bot() -> KinovecherBot | None:
             log.error("Discord bot crashed: %r", exc)
     task.add_done_callback(_check)
     return bot
+
+
+async def handle_logs_command(text: str, tg_user_id: int, tg_username: str | None) -> str | None:
+    """Обработать команду /logs из Telegram. Только Матка.
+
+    Формат:
+      /logs — последние 24 часа, все уровни (INFO+), лимит 500 записей
+      /logs warn — последние 24 часа, только WARNING+
+      /logs error — последние 24 часа, только ERROR+
+      /logs 1h — последний час, все уровни
+      /logs 6h warn — последние 6 часов, WARNING+
+      /logs stats — статистика буфера
+
+    Доступ: только если tg_user_id привязан к admin_discord_id в Discord.
+    """
+    import logging as logging_mod
+    import log_buffer as lb
+
+    # Проверка доступа — пользователь должен быть привязан как Матка
+    admin_discord_id = settings.admin_discord_id
+    if not admin_discord_id:
+        return "❌ Команда доступна только администратору. ADMIN_DISCORD_ID не настроен."
+    admin_tg = await db.get_tg_link(admin_discord_id)
+    if not admin_tg or not admin_tg[1]:
+        return ("❌ Команда доступна только Матке. "
+                "Сначала привяжите Telegram через /linktg в Discord.")
+    admin_tg_id = admin_tg[1]
+    if str(tg_user_id) != str(admin_tg_id):
+        # Не Матка — игнорируем, не сообщаем что команда существует
+        return None
+
+    # Парсим аргументы
+    parts = text.split()
+    args = parts[1:] if len(parts) > 1 else []
+
+    hours = 24.0
+    level = None  # INFO+
+    show_stats = False
+
+    for arg in args:
+        arg_lower = arg.lower()
+        # Часы: 1h, 6h, 12h, 24h
+        if arg_lower.endswith("h") and arg_lower[:-1].isdigit():
+            hours = min(float(arg_lower[:-1]), 24.0)
+        # Уровень
+        elif arg_lower in ("debug", "info", "warn", "warning", "error", "critical"):
+            level_map = {
+                "debug": logging_mod.DEBUG,
+                "info": logging_mod.INFO,
+                "warn": logging_mod.WARNING,
+                "warning": logging_mod.WARNING,
+                "error": logging_mod.ERROR,
+                "critical": logging_mod.CRITICAL,
+            }
+            level = level_map[arg_lower]
+        elif arg_lower == "stats":
+            show_stats = True
+        else:
+            return (f"❓ Неизвестный аргумент: <code>{arg}</code>\n\n"
+                    "<b>Использование:</b>\n"
+                    "<code>/logs</code> — последние 24ч\n"
+                    "<code>/logs warn</code> — только WARNING+\n"
+                    "<code>/logs error</code> — только ERROR+\n"
+                    "<code>/logs 1h</code> — последний час\n"
+                    "<code>/logs 6h warn</code> — 6ч, WARNING+\n"
+                    "<code>/logs stats</code> — статистика буфера")
+
+    handler = lb.get_memory_handler()
+
+    if show_stats:
+        stats = handler.get_stats()
+        by_level = stats["by_level"]
+        lines = [
+            "📊 <b>Статистика лог-буфера</b>",
+            "",
+            f"Всего записей: <b>{stats['total']}</b>",
+            f"Самая старая: <b>{stats['oldest_age_seconds'] // 60} мин назад</b>",
+            f"Retention: <b>{int(stats['retention_hours'])}ч</b>",
+            "",
+            "<b>По уровням:</b>",
+            f"  INFO: {by_level.get('INFO', 0)}",
+            f"  WARNING: {by_level.get('WARNING', 0)}",
+            f"  ERROR: {by_level.get('ERROR', 0)}",
+            f"  CRITICAL: {by_level.get('CRITICAL', 0)}",
+        ]
+        return "\n".join(lines)
+
+    entries = handler.get_recent(hours=hours, level=level, limit=500)
+    level_str = f" ({_level_name(level)}+)" if level else " (INFO+)"
+    header = (f"📋 <b>Логи за последние {hours:.0f}ч{level_str}</b>\n"
+              f"Записей: {len(entries)}\n\n")
+    body = lb.format_logs_for_tg(entries, max_chars=3500 - len(header))
+    return header + body
+
+
+def _level_name(level: int) -> str:
+    """Имя уровня логирования."""
+    import logging as logging_mod
+    return logging_mod.getLevelName(level)
 
 
 async def run_tg_long_polling() -> asyncio.Task | None:
@@ -85,6 +189,13 @@ async def run_tg_long_polling() -> asyncio.Task | None:
                     tg_user_id = tg_user.get("id")
                     tg_username = tg_user.get("username")
                     if not text or not tg_user_id:
+                        continue
+
+                    # v2.4.3: команда /logs (только Матка)
+                    if text.startswith("/logs"):
+                        reply = await handle_logs_command(text, tg_user_id, tg_username)
+                        if reply:
+                            await telegram.send_message(tg_token, str(msg["chat"]["id"]), reply)
                         continue
 
                     reply = await handle_tg_link_message(text, tg_user_id, tg_username)

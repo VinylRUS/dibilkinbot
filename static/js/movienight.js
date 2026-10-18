@@ -9,10 +9,20 @@
 
     // === WebSocket ===
     let ws = null;
+    let wsPingTimer = null;
+    let wsWasClosed = false;
     function connectWS() {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${location.host}/ws/wheel?guild_id=0`);
+      // ВАЖНО: guild_id должен совпадать с гильдией сессии, иначе события
+      // collection_* (рассылаются по guild_id) сюда не дойдут.
+      ws = new WebSocket(`${proto}://${location.host}/ws/wheel?guild_id=${typeof GUILD_ID !== 'undefined' ? GUILD_ID : 0}`);
       ws.onopen = () => {
+        // Heartbeat: прокси часто режут «молчащие» WS через ~60 сек
+        clearInterval(wsPingTimer);
+        wsPingTimer = setInterval(() => { try { ws.send('ping'); } catch (e) {} }, 25000);
+        // После переподключения могли пропустить события — досинхронизируемся
+        if (wsWasClosed && hasCollection) refreshParticipants();
+        wsWasClosed = false;
         const el = document.getElementById('ws-status');
         if (el) {
           el.textContent = '● live';
@@ -20,6 +30,8 @@
         }
       };
       ws.onclose = () => {
+        clearInterval(wsPingTimer);
+        wsWasClosed = true;
         const el = document.getElementById('ws-status');
         if (el) {
           el.textContent = '● offline';
@@ -272,6 +284,17 @@
     function showCollectionCompleted(picksCount) {
       // Заменяем organizer controls на блок «Перейти к колесу»
       const orgControls = document.querySelector('.organizer-controls');
+      if (!orgControls) {
+        // Обычный участник: organizer-controls нет — показываем баннер сверху
+        const slot = document.getElementById('wheel-ready-slot');
+        if (slot && !slot.hasChildNodes()) {
+          slot.innerHTML = `
+            <div class="wheel-ready-banner">
+              <span>✅ Сбор завершён — в колесе ${picksCount} фильм(ов).</span>
+              <a href="/wheel" class="org-btn" style="text-decoration:none;display:inline-block;">🎡 Перейти к колесу</a>
+            </div>`;
+        }
+      }
       if (orgControls) {
         orgControls.innerHTML = `
           <h4>✅ Сбор завершён</h4>

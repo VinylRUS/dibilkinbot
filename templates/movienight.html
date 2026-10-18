@@ -279,6 +279,13 @@
     }
 
     /* === Organizer controls === */
+    .wheel-ready-banner {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      padding: 14px 18px; margin-bottom: 16px;
+      background: var(--accent-soft, rgba(255,183,3,0.12));
+      border: 1px solid var(--accent, #FFB703);
+      border-radius: 12px; font-weight: 600;
+    }
     .organizer-controls {
       background: var(--card-alt);
       border: 1px solid var(--accent);
@@ -382,6 +389,13 @@
         <p>Сбор пока закрыт. Чтобы начать киновечер, запустите сбор фильмов.</p>
       </div>
 
+      {% if wheel_count and wheel_count > 0 %}
+      <div class="wheel-ready-banner">
+        <span>🎡 В колесе уже {{ wheel_count }} фильм(ов) — можно крутить.</span>
+        <a href="/wheel" class="org-btn" style="text-decoration:none;display:inline-block;">Перейти к колесу</a>
+      </div>
+      {% endif %}
+
       <div class="start-form">
         <h3 style="margin: 0 0 14px; font-size: 1.05rem;">Как это работает</h3>
         <ol class="mn-steps" style="margin:0 0 8px;padding-left:22px;font-size:0.95rem;line-height:1.7;max-width:65ch;color:var(--text-soft);">
@@ -405,6 +419,7 @@
       {# === Есть активный сбор === #}
       <div class="mn-grid">
         <div>
+          <div id="wheel-ready-slot"></div>
           <div class="mn-hero">
             <h2><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"> Сбор фильмов активен</h2>
             <p>Лимит: <strong>{{ max_per_user }}</strong> фильм(ов) на участника</p>
@@ -546,6 +561,8 @@
     const IS_ORGANIZER = {{ 'true' if is_organizer else 'false' }};
     const HAS_COLLECTION = {{ 'true' if collection else 'false' }};
     const USER_IS_READY = {{ 'true' if (user_picks_count == max_per_user and max_per_user > 0) else 'false' }};
+    const GUILD_ID = {{ current_guild_id | default(0) }};
+    const WHEEL_COUNT = {{ wheel_count | default(0) }};
     const USER_DISCORD_ID = {{ user.discord_id or 0 }};
     const COLLECTION_STARTED_BY = {{ (collection.started_by if collection else 0) }};
     const USER_PICK_IDS = [{% for pick in user_picks %}{{ pick.watchlist_id }}{% if not loop.last %},{% endif %}{% endfor %}];
