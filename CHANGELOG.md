@@ -1,5 +1,24 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.0.1 (0000000)
+
+#ИСПРАВЛЕНО#
+- Киновечер: страница `/movienight` сломана так же, как было колесо до v3.0.0. WS подключался с округлённым guild_id (JS терял точность для Discord ID > 2^53), падал в бесконечный цикл реконнекта каждые 3s, все события сбора (`collection_participant_joined`, `collection_participant_ready`, `collection_completed`, и т.д.) молча терялись. Теперь `GUILD_ID` в `movienight.html` передаётся как строка.
+- Киновечер: кнопка «Кикнуть участника» могла кикнуть НЕ ТОГО юзера. `onclick="kickParticipant({{ p.user_discord_id }})"` парсился JS как Number (с потерей точности), и на сервер уходил округлённый ID. Теперь ID передаётся как строка в кавычках, JS конвертирует через `String()` для display и URL.
+- Users: кнопка «Сбросить пароль» на `/users` имела тот же баг — `onclick="resetPassword({{ discord_id }})"` мог отправить на сервер округлённый ID, и пароль сбрасывался у чужого юзера (или у несуществующего). SECURITY.
+- Киновечер: `USER_DISCORD_ID` и `COLLECTION_STARTED_BY` передавались как Number. Равенства `=== USER_DISCORD_ID` и `!== COLLECTION_STARTED_BY` работали СЛУЧАЙНО — обе стороны округлялись одинаково. Любое изменение в коде могло сломать. Теперь обе переменные — строки, сравнение через `String()`.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- templates/movienight.html: 3 константы (GUILD_ID, USER_DISCORD_ID, COLLECTION_STARTED_BY) и 1 onclick (kickParticipant) — все теперь передают Discord ID как строку.
+- templates/users.html: onclick resetPassword — теперь с кавычками вокруг ID.
+- static/js/movienight.js:
+  * В refreshParticipants: `const pidStr = String(p.user_discord_id);` — конвертируем JSON Number в строку для display и DOM атрибутов.
+  * Сравнение `pidStr !== COLLECTION_STARTED_BY` — String !== String, корректно.
+  * В onclick kickParticipant: передаём строку `'${pidStr}'` (с кавычками).
+  * data-user-id в DOM: `${pidStr}` — строка.
+  * В onmessage handler для collection_participant_kicked: `String(msg.payload.user_discord_id) === USER_DISCORD_ID` — корректное сравнение.
+  * updateParticipantReady: `String(userId)` для querySelector match.
+
 ## v3.0.0 (0000000)
 
 #ИСПРАВЛЕНО#

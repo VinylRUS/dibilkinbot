@@ -528,7 +528,7 @@
                   </div>
                   <div class="participant-status {{ 'ready' if p.is_ready else ('kicked' if p.kicked_at else 'waiting') }}"></div>
                   {% if is_organizer and not p.kicked_at and p.user_discord_id != collection.started_by %}
-                    <button type="button" class="participant-kick" onclick="kickParticipant({{ p.user_discord_id }})"><img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"></button>
+                    <button type="button" class="participant-kick" onclick="kickParticipant('{{ p.user_discord_id }}')"><img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"></button>
                   {% endif %}
                 </div>
               {% else %}
@@ -557,14 +557,17 @@
 
   <script>
     // SSR константы для movienight.js
+    // v3.0.1: Discord IDs (guild_id, discord_id, started_by) — ВСЕГДА как строки.
+    // JS Number теряет точность для int > 2^53 (Discord IDs — 18-значные).
+    // Было: const GUILD_ID = {{ ... }}; → Number → округлённый ID → WS падал.
     const MAX_PER_USER = {{ max_per_user if collection else 5 }};
     const IS_ORGANIZER = {{ 'true' if is_organizer else 'false' }};
     const HAS_COLLECTION = {{ 'true' if collection else 'false' }};
     const USER_IS_READY = {{ 'true' if (user_picks_count == max_per_user and max_per_user > 0) else 'false' }};
-    const GUILD_ID = {{ current_guild_id | default(0) }};
+    const GUILD_ID = "{{ current_guild_id | default(0) }}";
     const WHEEL_COUNT = {{ wheel_count | default(0) }};
-    const USER_DISCORD_ID = {{ user.discord_id or 0 }};
-    const COLLECTION_STARTED_BY = {{ (collection.started_by if collection else 0) }};
+    const USER_DISCORD_ID = "{{ user.discord_id or 0 }}";
+    const COLLECTION_STARTED_BY = "{{ collection.started_by if collection else 0 }}";
     const USER_PICK_IDS = [{% for pick in user_picks %}{{ pick.watchlist_id }}{% if not loop.last %},{% endif %}{% endfor %}];
   </script>
   <script>

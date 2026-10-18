@@ -130,7 +130,7 @@
                   </select>
                 </form>
               {% endif %}
-              <button type="button" onclick="resetPassword({{ discord_id }})" class="btn-icon danger" title="Сбросить пароль" aria-label="Сбросить пароль"><img src="/static/icons/key.png" alt="" width="16" height="16" class="ui-icon"></button>
+              <button type="button" onclick="resetPassword('{{ discord_id }}')" class="btn-icon danger" title="Сбросить пароль" aria-label="Сбросить пароль"><img src="/static/icons/key.png" alt="" width="16" height="16" class="ui-icon"></button>
             </td>
           </tr>
         {% else %}

@@ -65,7 +65,12 @@
           break;
         case 'collection_participant_kicked':
           // Если кикнули нас — перезагружаем
-          if (msg.payload.user_discord_id === USER_DISCORD_ID) {
+          // v3.0.1: USER_DISCORD_ID теперь строка (SSR передаёт как string).
+          // msg.payload.user_discord_id приходит из JSON как Number (теряет
+          // точность для Discord ID > 2^53). Сравниваем через String() —
+          // иначе Number !== String всегда true, и мы бы никогда не поймали
+          // свой кик.
+          if (String(msg.payload.user_discord_id) === USER_DISCORD_ID) {
             alert('Вас кикнули из сбора.');
             location.reload();
           } else {
@@ -103,17 +108,21 @@
           const isKicked = !!p.kicked_at;
           if (isReady) readyCount++;
           totalPicks += p.picks_count || 0;
-          const displayName = p.display_name || `User#${p.user_discord_id}`;
+          // v3.0.1: user_discord_id из JSON — Number (теряет точность для
+          // Discord ID > 2^53). Конвертируем в String для display + URL.
+          const pidStr = String(p.user_discord_id);
+          const displayName = p.display_name || `User#${pidStr}`;
           const avatarHtml = p.avatar_url
             ? `<img src="${p.avatar_url}" alt="">`
             : '👤';
           const meta = isKicked ? 'кикнут' : (isReady ? '✓ готов' : '⏳ выбирает...');
           const statusClass = isReady ? 'ready' : (isKicked ? 'kicked' : 'waiting');
-          const kickBtn = (isOrganizer && !isKicked && p.user_discord_id !== COLLECTION_STARTED_BY)
-            ? `<button type="button" class="participant-kick" onclick="kickParticipant(${p.user_discord_id})">✕</button>`
+          // v3.0.1: COLLECTION_STARTED_BY теперь строка. Сравниваем через String().
+          const kickBtn = (isOrganizer && !isKicked && pidStr !== COLLECTION_STARTED_BY)
+            ? `<button type="button" class="participant-kick" onclick="kickParticipant('${pidStr}')">✕</button>`
             : '';
           html += `
-            <div class="participant-row ${isKicked ? 'kicked' : ''} ${isReady ? 'ready' : ''}" data-user-id="${p.user_discord_id}">
+            <div class="participant-row ${isKicked ? 'kicked' : ''} ${isReady ? 'ready' : ''}" data-user-id="${pidStr}">
               <div class="participant-avatar">${avatarHtml}</div>
               <div class="participant-info">
                 <div class="participant-name">${displayName}</div>
@@ -148,7 +157,11 @@
     }
 
     function updateParticipantReady(userId, isReady) {
-      const row = document.querySelector(`.participant-row[data-user-id="${userId}"]`);
+      // v3.0.1: userId из JSON может быть Number (теряет точность для
+      // Discord ID > 2^53). data-user-id в DOM — строка. Конвертируем
+      // для надёжного selector match.
+      const uidStr = String(userId);
+      const row = document.querySelector(`.participant-row[data-user-id="${uidStr}"]`);
       if (!row) return;
       row.dataset.isReady = isReady;
       row.classList.toggle('ready', isReady);
