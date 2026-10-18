@@ -433,9 +433,16 @@
     }
 
     // === WebSocket ===
+    let wsPingTimer = null;
     function connectWS() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${protocol}//${location.host}/ws/wheel?guild_id=${typeof GUILD_ID !== 'undefined' ? GUILD_ID : 0}`);
+
+      ws.onopen = () => {
+        // Heartbeat: без трафика прокси (BotHost и т.п.) закрывают WS примерно через минуту
+        clearInterval(wsPingTimer);
+        wsPingTimer = setInterval(() => { try { ws.send('ping'); } catch (e) {} }, 25000);
+      };
 
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
@@ -507,7 +514,7 @@
         }
       };
 
-      ws.onclose = () => { setTimeout(connectWS, 3000); };
+      ws.onclose = () => { clearInterval(wsPingTimer); setTimeout(connectWS, 3000); };
       ws.onerror = (e) => { console.error('WS error', e); ws.close(); };
     }
 

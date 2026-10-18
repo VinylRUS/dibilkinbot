@@ -71,9 +71,14 @@ async def movienight_page(request: Request, _user: dict = Depends(require_user))
         # Проверка — организатор ли текущий юзер
         is_organizer = (collection["started_by"] == user_discord_id) or _user.get("is_admin", False)
 
-    # Проверка bot_instance для Discord-анонсов
+    # Сколько лотов сейчас в колесе — чтобы после завершения сбора можно было
+    # предложить перейти к колесу даже тем, кто пропустил WS-событие.
+    wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
+
     return templates.TemplateResponse(request, "movienight.html", {
         "user": _user,
+        "current_guild_id": guild_id,
+        "wheel_count": len(wheel_items),
         "collection": collection,
         "watchlist": watchlist,
         "user_picks": user_picks,
@@ -418,11 +423,19 @@ async def api_collection_start_spin(
         # на /wheel (пользователь увидит уже загруженное колесо).
         collection_after = await db.g_get_active_collection(guild_id)
         if not collection_after:
-            # Сбор завершён — колесо уже должно быть заполнено предыдущим вызовом
+            # Сбор завершён — колесо уже должно быть заполнено предыдущим вызовом.
+            # НО: возможно предыдущий вызов был тем же организатором (race condition
+            # двойного клика), и broadcast_collection_completed уже ушёл.
+            # На всякий случай шлём ещё раз — idempotent для клиента (он просто
+            # покажет баннер «Сбор завершён» если ещё не показал).
+            # Считаем сколько лотов сейчас в колесе.
+            current_items = await db.g_list_wheel_items(guild_id, active_only=True)
+            await ws_manager.broadcast_collection_completed(guild_id, len(current_items))
             return JSONResponse({
                 "ok": True,
                 "picks_count": 0,
                 "already_completed": True,
+                "wheel_count": len(current_items),
                 "redirect": "/wheel",
             })
         return JSONResponse({"error": "no picks found"}, status_code=400)

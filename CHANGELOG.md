@@ -1,5 +1,21 @@
 # DeeBeelkin Bot — Changelog
 
+## v2.4.5 (0000000)
+
+#ИСПРАВЛЕНО#
+- Киновечер: участники не получали события collection_* (готовность других, завершение сбора) — /movienight.js подключался к WS с захардкоженным guild_id=0, а сервер с v2.4.0 группирует соединения по реальному guild_id сессии. Теперь GUILD_ID передаётся из шаблона (current_guild_id из сессии пользователя).
+- Киновечер: после завершения сбора участники не видели подсказку «Перейти к колесу» — showCollectionCompleted() менял только .organizer-controls (виден лишь организатору). Теперь участники видят баннер «Сбор завершён → Перейти к колесу» через #wheel-ready-slot. Также на закрытом сборе показывается «В колесе уже N фильмов» если есть лоты.
+- Киновечер: WebSocket теперь шлёт ping каждые 25 сек (на /movienight и /wheel) — без трафика прокси BotHost и подобные режут молчащие соединения примерно через минуту, что приводило к потере событий.
+- Киновечер: после WS reconnect страница досинхронизируется через refreshParticipants() — если события за время обрыва пропущены, актуальное состояние подтянется.
+- Киновечер: start_spin с already_completed=true не рассылал collection_completed по WS — участник зависал без баннера. Теперь в этом случае тоже шлётся broadcast_collection_completed.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- movienight_routes.py: в контекст шаблона /movienight добавлены current_guild_id и wheel_count (раньше передавались только в /api/collection/start_spin ответ)
+- templates/movienight.html: добавлены GUILD_ID и WHEEL_COUNT JS-константы; .wheel-ready-banner CSS; баннер «В колесе уже N фильмов» в закрытом состоянии; #wheel-ready-slot div в активном сборе для динамического баннера
+- static/js/movienight.js: WS URL использует GUILD_ID вместо захардкоженного 0; wsPingTimer каждые 25 сек; wsWasClosed флаг → refreshParticipants() после reconnect; showCollectionCompleted показывает баннер и для участников (через #wheel-ready-slot)
+- static/js/wheel.js: добавлен wsPingTimer каждые 25 сек, cleanup в onclose
+- movienight_routes.py: в /api/collection/start_spin при already_completed (race condition) тоже шлётся broadcast_collection_completed + wheel_count в ответе
+
 ## v2.4.4 (0000000)
 
 #НОВЫЕ_ФИЧИ#
