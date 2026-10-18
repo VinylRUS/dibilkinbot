@@ -559,7 +559,9 @@
     // SSR константы для movienight.js
     // v3.0.1: Discord IDs (guild_id, discord_id, started_by) — ВСЕГДА как строки.
     // JS Number теряет точность для int > 2^53 (Discord IDs — 18-значные).
-    // Было: const GUILD_ID = {{ ... }}; → Number → округлённый ID → WS падал.
+    // Было: GUILD_ID передавался как JS Number literal → округлённый ID →
+    // WS подключался к несуществующей таблице → бесконечный реконнект.
+    // Теперь все Discord IDs обёрнуты в двойные кавычки → строки.
     const MAX_PER_USER = {{ max_per_user if collection else 5 }};
     const IS_ORGANIZER = {{ 'true' if is_organizer else 'false' }};
     const HAS_COLLECTION = {{ 'true' if collection else 'false' }};
