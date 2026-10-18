@@ -69,6 +69,12 @@ _wheel_spin_locks: dict[int, asyncio.Lock] = {}
 # для блокировки повторных круток (через lock).
 _active_spins: dict[str, dict] = {}
 
+# v3.0: Strong references to pending _delayed_complete_spin tasks.
+# Python's asyncio docs warn: asyncio.create_task() without keeping a
+# reference may be garbage-collected before completion. We hold them
+# here until the task finishes (success or exception).
+_pending_spin_tasks: set[asyncio.Task] = set()
+
 
 # === Wheel HTML page ===
 
@@ -304,7 +310,11 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
 
         # Планируем завершение спина через duration + 0.5с буфер.
         # Эта задача снимет lock после завершения.
-        asyncio.create_task(_delayed_complete_spin(spin_id))
+        # v3.0: Strong reference — без него asyncio.create_task может быть
+        # собран GC до завершения (см. Python docs). Лосс задачи = зависший спин.
+        task = asyncio.create_task(_delayed_complete_spin(spin_id))
+        _pending_spin_tasks.add(task)
+        task.add_done_callback(_pending_spin_tasks.discard)
 
         success = True
         return JSONResponse({
@@ -418,7 +428,10 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user),
         )
 
         # Планируем завершение — снимет lock после cleanup
-        asyncio.create_task(_delayed_complete_spin(spin_id))
+        # v3.0: Strong reference — см. комментарий в api_spin_wheel.
+        task = asyncio.create_task(_delayed_complete_spin(spin_id))
+        _pending_spin_tasks.add(task)
+        task.add_done_callback(_pending_spin_tasks.discard)
 
         success = True
         return JSONResponse({
@@ -746,6 +759,82 @@ def _find_active_spin_for_guild(guild_id: int) -> dict | None:
     return None
 
 
+# v3.0: WebSocket close codes (custom application-level codes,
+# in the 4000-4999 range reserved for application use per RFC 6455).
+WS_CLOSE_INVALID_GUILD = 4001   # guild_id не approves — клиент не должен реконнектиться
+WS_CLOSE_INTERNAL_ERROR = 4002  # сервер упал в WS handler — клиент может реконнектиться
+WS_CLOSE_NORMAL = 1000          # нормальное закрытие
+
+
+# === REST endpoint для polling fallback (v3.0) ===
+
+@router.get("/api/wheel/state")
+async def api_wheel_state(_user: dict = Depends(require_user)):
+    """Текущее состояние колеса — для polling fallback когда WS мёртв.
+
+    Возвращает:
+    - items: текущие активные лоты (анонимизированные)
+    - active_spin: если идёт спин — {spin_id, physics, mode, items, duration},
+                   иначе null
+    """
+    import json as _json  # noqa: F401  (kept for parity with ws_wheel)
+    guild_id = int(get_current_guild_id(_user))
+    is_test = await _is_wheel_test_mode(guild_id)
+
+    if is_test:
+        items = await db.g_list_test_wheel_items(guild_id)
+    else:
+        items = await db.g_list_wheel_items(guild_id, active_only=True)
+    safe_items = anonymize_items(items)
+
+    active = _find_active_spin_for_guild(guild_id)
+    active_payload = None
+    if active:
+        physics: SpinPhysics = active["physics"]
+        active_payload = {
+            "spin_id": active["spin_id"],
+            "physics": physics_to_dict(physics),
+            "mode": active["mode"],
+            "items": anonymize_items(active["items"]),
+            "duration": active["duration"],
+        }
+
+    return JSONResponse({
+        "items": safe_items,
+        "count": len(safe_items),
+        "active_spin": active_payload,
+        "is_test": is_test,
+    })
+
+
+# === REST endpoint для постера победителя (v3.0) ===
+
+@router.get("/api/wheel/poster")
+async def api_wheel_poster(_user: dict = Depends(require_user), tmdb_id: int = 0):
+    """Получить URL постера фильма по tmdb_id (для карточки победителя).
+
+    Возвращает {poster_url, title, year, plot} или 404 если не найдено.
+    Кешируется на стороне клиента (wheel.js) — повторные запросы для
+    одного и того же tmdb_id не пойдут в API Кинопоиска.
+    """
+    if tmdb_id <= 0:
+        return JSONResponse({"error": "tmdb_id required"}, status_code=400)
+    try:
+        import kinopoisk
+        meta = await kinopoisk.lookup_by_id(tmdb_id)
+        if not meta:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({
+            "poster_url": meta.get("poster_url"),
+            "title": meta.get("title"),
+            "year": meta.get("year"),
+            "plot": meta.get("plot"),
+        })
+    except Exception as e:
+        _log.warning("Wheel poster lookup failed for tmdb_id=%s: %s", tmdb_id, e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # === WebSocket: real-time обновления колеса ===
 
 @router.websocket("/ws/wheel")
@@ -754,11 +843,15 @@ async def ws_wheel(websocket: WebSocket):
 
     guild_id передаётся как query-параметр: /ws/wheel?guild_id=123
 
-    v2.4.0:
-    - Подключение привязывается к guild_id (ws_manager.connect(ws, guild_id)).
-    - При подключении сразу шлём текущее состояние (wheel_updated).
-    - Recovery (P1 #6): если в этой гильдии есть активный спин (SPINNING),
-      шлём spin_started с physics — опоздавший клиент подхватит анимацию.
+    v3.0:
+    - При подключении валидируем guild_id (must be approved). Если нет —
+      шлём WS close с кодом 4001 + сообщением, чтобы клиент НЕ реконнектился
+      бесконечно (был баг: JS терял точность Discord guild_id > 2^53, сервер
+      пытался открыть несуществующую таблицу, WS падал и реконнектился каждые 3s).
+    - Все исключения в handler логируем на WARNING (раньше было DEBUG —
+      невидимо в проде, баг маскировался).
+    - Если гильдия approved, но запрос упал по другой причине — close с 4002,
+      клиент может реконнектиться.
     """
     import json
 
@@ -768,6 +861,33 @@ async def ws_wheel(websocket: WebSocket):
         guild_id = int(guild_id_str)
     except (ValueError, TypeError):
         guild_id = 0
+
+    # v3.0: Валидация guild_id — должна быть approved гильдией.
+    # Гильдия 0 — это legacy default (всегда approved для совместимости).
+    # Если не approved — шлём close с кодом 4001, клиент не реконнектится.
+    try:
+        if guild_id != 0:
+            from guild import is_guild_approved
+            if not await is_guild_approved(guild_id):
+                await websocket.accept()
+                try:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "payload": {
+                            "code": "invalid_guild",
+                            "message": f"Guild {guild_id} is not approved.",
+                        },
+                    }, ensure_ascii=False))
+                except Exception:
+                    pass
+                await websocket.close(code=WS_CLOSE_INVALID_GUILD, reason="guild not approved")
+                _log.warning("WS rejected: guild_id=%s not approved", guild_id)
+                return
+    except Exception as e:
+        _log.warning("WS guild validation failed for %s: %s", guild_id, e)
+        await websocket.accept()
+        await websocket.close(code=WS_CLOSE_INTERNAL_ERROR, reason="validation error")
+        return
 
     await ws_manager.connect(websocket, guild_id)
     try:
@@ -802,5 +922,13 @@ async def ws_wheel(websocket: WebSocket):
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
     except Exception as e:
-        _log.debug("WS error: %s", e)
+        # v3.0: WARNING вместо DEBUG — чтобы такие ошибки были видны в проде.
+        # Раньше было _log.debug, и баг с потерей точности guild_id маскировался
+        # неделю — логи показывали "WS connected/disconnected", но не показывали
+        # настоящую причину (OperationalError: no such table).
+        _log.warning("WS handler error for guild=%s: %s", guild_id, e, exc_info=True)
         await ws_manager.disconnect(websocket)
+        try:
+            await websocket.close(code=WS_CLOSE_INTERNAL_ERROR, reason=str(e))
+        except Exception:
+            pass

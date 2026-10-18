@@ -39,20 +39,33 @@ async def connect(websocket: WebSocket, guild_id: int) -> None:
 
 
 async def disconnect(websocket: WebSocket) -> None:
-    """Удалить подключение."""
+    """Удалить подключение. Идемпотентно — повторный вызов для того же
+    websocket не бросает исключение и не пишет в лог повторно.
+
+    v3.0: добавлен guard от повторных вызовов. Раньше при исключении в
+    wheel_routes.ws_wheel() могло вызываться дважды (в except-блоке и при
+    падении `await websocket.close()`), что порождао два warning'а в логах.
+    """
     guild_id = _ws_to_guild.pop(websocket, None)
-    if guild_id is not None:
-        conns = _guild_connections.get(guild_id)
-        if conns:
-            conns.discard(websocket)
-            if not conns:
-                del _guild_connections[guild_id]
+    if guild_id is None:
+        # Уже удалён — silent no-op.
+        return
+    conns = _guild_connections.get(guild_id)
+    if conns:
+        conns.discard(websocket)
+        if not conns:
+            del _guild_connections[guild_id]
     log.info("WS disconnected: guild=%s, remaining=%d",
              guild_id, sum(len(v) for v in _guild_connections.values()))
 
 
 async def broadcast_guild(guild_id: int, event_type: str, payload: dict) -> None:
-    """Разослать событие всем клиентам конкретной гильдии."""
+    """Разослать событие всем клиентам конкретной гильдии.
+
+    v3.0: каждое исключение пишется на WARNING (раньше было DEBUG —
+    реальные проблемы маскировались). Мёртвые сокеты убираются из
+    пула даже если вся итерация упала.
+    """
     conns = _guild_connections.get(int(guild_id))
     if not conns:
         return
@@ -62,7 +75,8 @@ async def broadcast_guild(guild_id: int, event_type: str, payload: dict) -> None
         try:
             await ws.send_text(message)
         except Exception as e:
-            log.debug("WS send failed, will remove: %s", e)
+            # v3.0: WARNING — раньше DEBUG, проблемы были невидимы
+            log.warning("WS send to %s failed: %s — will remove from pool", type(ws).__name__, e)
             dead.append(ws)
     for ws in dead:
         conns.discard(ws)

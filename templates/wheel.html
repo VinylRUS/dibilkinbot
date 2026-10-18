@@ -330,6 +330,149 @@
       0% { transform: scale(0.5); opacity: 0; }
       100% { transform: scale(1); opacity: 1; }
     }
+
+    /* v3.0: Winner card — крупная карточка победителя с постером */
+    .winner-card {
+      display: none;
+      background: var(--content-bg, rgba(255,255,255,0.06));
+      border: 2px solid var(--accent);
+      border-radius: 18px;
+      padding: 24px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 12px 48px rgba(255, 183, 3, 0.35), 0 0 0 1px rgba(255, 183, 3, 0.15) inset;
+      animation: winner-card-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    .winner-card.show { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    @keyframes winner-card-in {
+      0% { transform: scale(0.7) translateY(20px); opacity: 0; }
+      100% { transform: scale(1) translateY(0); opacity: 1; }
+    }
+    .winner-card::before {
+      content: '';
+      position: absolute;
+      top: -50%; left: -50%;
+      width: 200%; height: 200%;
+      background: radial-gradient(circle, rgba(255, 215, 0, 0.18) 0%, transparent 60%);
+      animation: winner-glow 3s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes winner-glow {
+      0%, 100% { transform: scale(1); opacity: 0.4; }
+      50% { transform: scale(1.15); opacity: 0.7; }
+    }
+    .winner-card-poster {
+      width: 140px;
+      height: 210px;
+      border-radius: 12px;
+      object-fit: cover;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      background: var(--bg, #1A1A1A);
+      position: relative;
+      z-index: 1;
+    }
+    .winner-card-poster.placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+    }
+    .winner-card-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+      z-index: 1;
+      text-align: center;
+    }
+    .winner-card-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      font-weight: 700;
+    }
+    .winner-card-name {
+      font-size: 2rem;
+      font-weight: 900;
+      color: var(--accent);
+      line-height: 1.15;
+      text-shadow: 0 0 20px rgba(255, 183, 3, 0.4);
+      max-width: 480px;
+    }
+    .winner-card-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .winner-card-btn {
+      background: var(--accent);
+      color: var(--accent-text, #1A1A1A);
+      padding: 10px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.9rem;
+      transition: all 0.15s;
+    }
+    .winner-card-btn:hover { background: var(--accent-hover, #FB8500); transform: translateY(-1px); }
+    .winner-card-btn.ghost {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    .winner-card-btn.ghost:hover {
+      background: var(--accent);
+      color: var(--accent-text, #1A1A1A);
+    }
+
+    /* v3.0: Прогресс-бар анимации спина */
+    .spin-progress {
+      display: none;
+      width: 100%;
+      max-width: 600px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .spin-progress.show { display: block; }
+    .spin-progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent) 0%, #FFD700 50%, var(--accent) 100%);
+      background-size: 200% 100%;
+      animation: progress-shimmer 1.5s linear infinite;
+      transition: width 0.05s linear;
+      border-radius: 3px;
+    }
+    @keyframes progress-shimmer {
+      0% { background-position: 0% 0%; }
+      100% { background-position: -200% 0%; }
+    }
+
+    /* v3.0: Spinner overlay поверх колеса во время спина */
+    .wheel-canvas-wrap.spinning::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      box-shadow: 0 0 0 4px var(--accent) inset, 0 0 60px rgba(255, 183, 3, 0.4);
+      border-radius: 50%;
+      animation: wheel-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes wheel-pulse {
+      0%, 100% { box-shadow: 0 0 0 2px var(--accent) inset, 0 0 40px rgba(255, 183, 3, 0.25); }
+      50% { box-shadow: 0 0 0 4px var(--accent) inset, 0 0 80px rgba(255, 183, 3, 0.55); }
+    }
     /* v2.3.3: Pointer bounce при тике */
     .pointer.bouncing {
       animation: pointer-bounce 0.08s ease-out;
@@ -555,7 +698,7 @@
       </details>
       {% endif %}
 
-      <div class="wheel-canvas-wrap">
+      <div class="wheel-canvas-wrap" id="wheel-canvas-wrap">
         <div class="pointer" id="pointer"></div>
         <canvas id="wheel-canvas" width="500" height="500"></canvas>
       </div>
@@ -574,6 +717,21 @@
           <input type="range" id="volume-slider" min="0" max="100" value="40" oninput="setVolume(this.value)" title="Громкость">
         </div>
       </div>
+      <!-- v3.0: Прогресс-бар анимации спина -->
+      <div id="spin-progress" class="spin-progress">
+        <div id="spin-progress-bar" class="spin-progress-bar"></div>
+      </div>
+      <!-- v3.0: Карточка победителя (заменяет баннер) -->
+      <div id="winner-card" class="winner-card">
+        <div id="winner-card-poster" class="winner-card-poster placeholder">🎬</div>
+        <div class="winner-card-body">
+          <div class="winner-card-label">🏆 Победитель</div>
+          <div id="winner-card-name" class="winner-card-name"></div>
+          <div id="winner-card-subtitle" class="winner-card-label" style="text-transform:none;letter-spacing:0;"></div>
+          <div class="winner-card-actions" id="winner-card-actions"></div>
+        </div>
+      </div>
+      <!-- v2: Старый баннер оставлен для обратной совместимости (текстовый alert при elimination) -->
       <div id="winner-banner" class="winner-banner"></div>
     </section>
 
@@ -589,7 +747,10 @@
 
   <script>
     // SSR константы для wheel.js
-    const GUILD_ID = {{ current_guild_id | default(0) }};
+    // v3.0: GUILD_ID передаётся как STRING — JS Number теряет точность
+    // для guild_id > 2^53 (например Discord ID 1515661305011376209
+    // округлялся до 1515661305011376000, WS падал в бесконечный реконнект).
+    const GUILD_ID = "{{ current_guild_id | default(0) }}";
     const INITIAL_ITEMS = {{ items | tojson }};
     // is_test_mode и user.is_superuser для UI
     const IS_TEST_MODE = {{ 'true' if is_test_mode else 'false' }};

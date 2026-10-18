@@ -1,5 +1,42 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.0.0 (0000000)
+
+#ИСПРАВЛЕНО#
+- Колесо: WS падал в бесконечный цикл реконнекта каждые 3 секунды. Корень бага: `templates/wheel.html` передавал `guild_id` как JS Number, а Discord guild_id > 2^53 — JavaScript округлял его (например `1515661305011376209` → `1515661305011376000`). Сервер пытался открыть несуществующую таблицу `guild_1515661305011376000_wheel_items`, ловил `OperationalError: no such table` (на уровне DEBUG — невидимо в проде!), закрывал соединение, клиент реконнектился через 3s. Цикл бесконечный. Теперь `GUILD_ID` передаётся как строка.
+- Колесо: WS-ошибки теперь логируются на WARNING (раньше DEBUG). Баг с потерей точности маскировался неделю — в логах были только "WS connected/disconnected" без причины.
+- Колесо: после спина список лотов не обновлялся — `wheel_updated` приходил через WS, который был мёртв. Теперь есть polling fallback: каждые 3s клиент дёргает `/api/wheel/state` и обновляет список + синхронизирует активный спин.
+- Колесо: баннер победителя «ничего не отображалось» (симптом пользователя). Заменён на крупную карточку победителя с постером фильма (если есть tmdb_id), кнопкой «На Кинопоиске» и кнопкой «Закрыть». Карточка показывается на 12 секунд (раньше баннер — 5s).
+- Колесо: `asyncio.create_task(_delayed_complete_spin)` без сохранения ссылки мог собираться GC до завершения (Python docs явно предупреждают). Спин мог «забыться» на стороне сервера — победитель не записывался, не постился в Discord/TG. Теперь ссылки на таски хранятся в `_pending_spin_tasks` пока не завершатся.
+
+#НОВЫЕ_ФИЧИ#
+- Колесо: карточка победителя с постером фильма (lookup через Kinopoisk API по tmdb_id), кнопкой «🔍 На Кинопоиске» и «✕ Закрыть». Карточка больше и заметнее старого текстового баннера — никто не пропустит результат.
+- Колесо: прогресс-бар под колесом во время анимации — видно, сколько секунд осталось до результата.
+- Колесо: пульсирующая подсветка колеса во время спина — визуальный фидбэк что анимация идёт.
+- Колесо: новый REST endpoint `GET /api/wheel/state` — текущее состояние (items + active_spin). Используется как polling fallback когда WS мёртв.
+- Колесо: новый REST endpoint `GET /api/wheel/poster?tmdb_id=...` — постер фильма по TMDB ID для карточки победителя.
+- Колесо: WS теперь шлёт close-коды приложенческого уровня (4001 = invalid guild, 4002 = server error). Клиент на 4001 прекращает реконнект (раньше реконнектился бесконечно).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- templates/wheel.html: `const GUILD_ID = "{{ current_guild_id | default(0) }}";` — теперь строка, не число. CSS для .winner-card, .spin-progress, .wheel-canvas-wrap.spinning.
+- static/js/wheel.js (v3.0 rewrite, 583 → 870 строк):
+  * Явный state machine: Phase.IDLE → SPINNING → REVEALING → IDLE
+  * Snapshot-based rendering: во время спина canvas использует spinSnapshot (не live items), так что wheel_updated не ломает анимацию
+  * WS onmessage обёрнут в try/catch на каждое сообщение + обработка close-кода 4001
+  * Reconnect с capped exponential backoff (1s, 2s, 4s, 8s, 15s)
+  * Polling каждые 3s через /api/wheel/state — страховка против мёртвого WS
+  * visibilitychange listener — синхронизация состояния при возврате на вкладку
+  * Winner card с async загрузкой постера (кешируется по tmdb_id)
+- wheel_routes.py:
+  * /api/wheel/state — для polling
+  * /api/wheel/poster — постер для winner card
+  * WS handler: валидация guild_id через guild.is_guild_approved(), close с 4001 если не approved
+  * Все WS-исключения на WARNING уровне (раньше DEBUG)
+  * _pending_spin_tasks: set — хранит ссылки на asyncio.Task чтобы не собрал GC
+- ws_manager.py:
+  * disconnect() идемпотентен — повторный вызов не пишет в лог повторно
+  * broadcast_guild: send-исключения на WARNING уровне
+
 ## v2.4.5 (0000000)
 
 #ИСПРАВЛЕНО#
