@@ -147,9 +147,20 @@ async def _post_to_discord(guild_id: int, update: dict) -> None:
             )
 
         if file:
+            download_url = format_download_url(file)
+            filename = file.get('filename', 'mrpack')
+            # v3.0.6: показываем URL не только как markdown link (кликабельный,
+            # но URL скрыт), но и как inline code (выделяемая и копируемая
+            # строка). Пользователь может:
+            # - Кликнуть markdown link → скачать в браузере
+            # - Выделить inline code + Ctrl+C → скопировать URL для шары
+            # - Кликнуть кнопку «⬇️ Скачать .mrpack» под embed'ом (link button)
             embed.add_field(
                 name="Скачать",
-                value=f"[⬇️ {file.get('filename', 'mrpack')}]({format_download_url(file)})",
+                value=(
+                    f"[⬇️ {filename}]({download_url})\n"
+                    f"📋 Копировать ссылку:\n`{download_url}`"
+                ),
                 inline=False,
             )
 
@@ -157,7 +168,29 @@ async def _post_to_discord(guild_id: int, update: dict) -> None:
             text=f"Modrinth · опубликовано {version.get('date_published', '?')[:10]}"
         )
 
-        await channel.send(embed=embed)
+        # v3.0.6: Discord link button под embed'ом.
+        # ButtonStyle.link обрабатывается Discord'ом клиент-сайд — просто
+        # открывает URL в браузере при клике. Не требует callback'а бота,
+        # поэтому View не нужна persistence — кнопка работает даже после
+        # рестарта бота.
+        view = None
+        if file:
+            try:
+                # label limit в Discord — 80 символов
+                label = f"⬇️ Скачать {file.get('filename', 'mrpack')}"
+                if len(label) > 80:
+                    label = label[:77] + "…"
+                view = discord.ui.View(timeout=None)
+                view.add_item(discord.ui.Button(
+                    label=label,
+                    style=discord.ButtonStyle.link,
+                    url=format_download_url(file),
+                ))
+            except Exception as e:
+                log.warning("Failed to build download link button: %s", e)
+                view = None
+
+        await channel.send(embed=embed, view=view)
         log.info("Posted Modrinth update: %s v%s to channel %s",
                  project.get("slug"), version.get("version_number"), channel_id_str)
     except Exception as e:

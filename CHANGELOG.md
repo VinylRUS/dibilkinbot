@@ -1,5 +1,18 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.0.6 (0000000)
+
+#НОВЫЕ_ФИЧИ#
+- Modrinth: в посте о новой версии модпака теперь три способа получить .mrpack файл:
+  1. Кликнуть markdown link `[⬇️ filename.mrpack](url)` в embed поле «Скачать» (как и раньше)
+  2. Выделить inline code URL ниже (например `https://cdn.modrinth.com/.../file.mrpack?mr_download_reason=standalone`) и скопировать через Ctrl+C — для шары в другие каналы/мессенджеры
+  3. Кликнуть большую Discord-кнопку «⬇️ Скачать filename.mrpack» под embed'ом (link button, обрабатывается Discord'ом клиент-сайд — работает даже после рестарта бота)
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- modrinth_monitor.py: в `_post_to_discord` изменено embed поле «Скачать» — добавлен raw URL как inline code ниже markdown link. Также добавлена `discord.ui.View` с одной link-кнопкой под embed'ом.
+- Link button (`discord.ui.Button(style=ButtonStyle.link, url=...)`) не требует callback — Discord открывает URL в браузере клиента, без взаимодействия с ботом. Поэтому View не нужна persistence, кнопка работает даже после рестарта бота.
+- Label ограничен 80 символами (Discord limit) — если filename длинный, обрезается с `…`.
+
 ## v3.0.5 (0000000)
 
 #НОВЫЕ_ФИЧИ#
