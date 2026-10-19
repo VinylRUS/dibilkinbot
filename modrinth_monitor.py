@@ -249,6 +249,19 @@ async def check_once_for_guild(guild_id: int) -> list[dict]:
 
     Возвращает список dict'ов {project_id, project, version, is_first_check}
     для найденных новых версий. Не постит в Discord (только возвращает).
+
+    v3.0.4: ВАЖНО — НЕ обновляем last_version_id в БД здесь!
+    Раньше функция вызывала g_update_modrinth_sub_last_version() что ломало
+    фоновый цикл: когда modrinth_monitor_loop через 30 минут сравнивал
+    latest['id'] == last_version_id, они уже были равны (ручная проверка
+    их приравняла) → возвращал None → пост в Discord не уходил.
+
+    Теперь: только обновляем кеш (title, icon_url — безвредно), но
+    last_version_id остаётся старым до тех пор пока background loop
+    не обнаружит новую версию и не запостит в Discord.
+
+    UI на /modpacks пишет «анонс уйдёт в Discord при следующем цикле» —
+    это наконец-то правда.
     """
     subs = await db.g_list_modrinth_subs(guild_id)
     results: list[dict] = []
@@ -261,17 +274,12 @@ async def check_once_for_guild(guild_id: int) -> list[dict]:
                 "version": update["version"],
                 "is_first_check": update["is_first_check"],
             })
-            # Обновляем БД чтобы при следующем цикле не дублировать
+            # Обновляем только кеш (title, icon_url) — безвредно и нужно для UI.
+            # last_version_id НЕ ТРОГАЕМ — это работа background loop'а.
             await db.g_update_modrinth_sub_cache(
                 guild_id,
                 project_id=sub["project_id"],
                 title=update["project"].get("title", ""),
                 icon_url=update["project"].get("icon_url") or "",
-            )
-            await db.g_update_modrinth_sub_last_version(
-                guild_id,
-                project_id=sub["project_id"],
-                version_id=update["version"]["id"],
-                version_date=update["version"].get("date_published", ""),
             )
     return results

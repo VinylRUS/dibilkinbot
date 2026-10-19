@@ -213,6 +213,26 @@ async def sync_guild_roles_to_db(guild_id: int) -> int:
 _bot_running = False
 _bot_ref = None
 
+# v3.0.4: Strong references to long-running background tasks.
+# Python's asyncio docs warn: asyncio.create_task() without keeping a
+# reference may be garbage-collected before completion. This was the
+# suspected cause of modrinth_monitor_loop dying mid-execution and not
+# posting Discord notifications about new modpack versions.
+_pending_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background_task(coro, name: str = None) -> asyncio.Task:
+    """Запустить фоновую задачу с strong reference чтобы не собрал GC.
+
+    Задача автоматически удаляется из _pending_background_tasks по завершению.
+    Используется для всех долгоживущих loops (db_backup, achievements,
+    github_monitor, modrinth_monitor).
+    """
+    task = asyncio.create_task(coro)
+    _pending_background_tasks.add(task)
+    task.add_done_callback(_pending_background_tasks.discard)
+    return task
+
 
 def _get_bot():
     return _bot_ref
@@ -499,23 +519,23 @@ class KinovecherBot(commands.Bot):
             log.warning("Changelog post failed: %s", e, exc_info=True)
 
         # === Запуск cron-задачи: еженедельный бэкап БД в Telegram ===
-        asyncio.create_task(_db_backup_loop())
+        _spawn_background_task(_db_backup_loop(), name="db_backup")
 
         # === v2.3: Периодическая проверка авто-ачивок (раз в 30 минут) ===
-        asyncio.create_task(_auto_achievements_loop())
+        _spawn_background_task(_auto_achievements_loop(), name="auto_achievements")
 
         # === v2.3.3: GitHub мониторинг — presence status + уведомления Матке ===
         try:
             import github_monitor
             await github_monitor.set_initial_presence()
-            asyncio.create_task(github_monitor.github_monitor_loop())
+            _spawn_background_task(github_monitor.github_monitor_loop(), name="github_monitor")
         except Exception as e:
             log.warning("GitHub monitor failed to start: %s", e)
 
         # === v2.4.1: Modrinth мониторинг — новые версии модпаков (раз в 30 мин) ===
         try:
             import modrinth_monitor
-            asyncio.create_task(modrinth_monitor.modrinth_monitor_loop())
+            _spawn_background_task(modrinth_monitor.modrinth_monitor_loop(), name="modrinth_monitor")
             log.info("Modrinth monitor started (interval=30min)")
         except Exception as e:
             log.warning("Modrinth monitor failed to start: %s", e)

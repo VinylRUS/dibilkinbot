@@ -1,5 +1,11 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.0.4 (0000000)
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- Modrinth: исправлен баг «анонс новой версии модпака не постится в Discord». Корень проблемы — функция `check_once_for_guild` (вызывается кнопкой «Проверить сейчас» на /modpacks) обновляла `last_version_id` в БД сразу после ручной проверки. Когда фоновый modrinth_monitor_loop через 30 минут сравнивал `latest.id == last_version_id`, они уже были равны (ручная проверка их приравняла) → возвращал None → пост не уходил. UI писал «анонс уйдёт в Discord при следующем цикле», но это была ложь. Теперь `check_once_for_guild` обновляет только кеш (title, icon_url), `last_version_id` остаётся старым пока background loop не обнаружит и не запостит.
+- bot.py: 4 фоновых таска (`_db_backup_loop`, `_auto_achievements_loop`, `github_monitor_loop`, `modrinth_monitor_loop`) запускались через `asyncio.create_task()` без сохранения ссылки. Python docs предупреждают что такие таски могут быть собраны GC до завершения. Подозревалось что это причина почему modrinth_monitor_loop мог умирать в проде. Добавлен helper `_spawn_background_task()` который хранит strong reference в `_pending_background_tasks: set` пока таска не завершится.
+
 ## v3.0.3 (0000000)
 
 #ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
