@@ -54,7 +54,7 @@
       font-family: ui-monospace, monospace;
       font-size: 0.74rem;
     }
-    .modpack-actions { flex-shrink: 0; }
+    .modpack-actions { flex-shrink: 0; display: flex; gap: 6px; }
     .btn-icon {
       width: 32px; height: 32px;
       padding: 0;
@@ -66,8 +66,26 @@
       border: 1px solid var(--border);
       cursor: pointer;
       transition: all 0.15s;
+      font-size: 1rem;
+      line-height: 1;
     }
     .btn-icon:hover { background: var(--red); border-color: var(--red); color: #fff; }
+    /* v3.0.5: post-now-btn — выделен отдельно (не краснеет на hover) */
+    .post-now-btn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-text, #1A1A1A);
+    }
+    .post-now-btn:disabled { opacity: 0.5; cursor: wait; }
+    .post-now-btn .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid var(--accent);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .field-hint {
       font-size: 0.78rem;
       color: var(--text-muted);
@@ -280,6 +298,9 @@
               </div>
             </div>
             <div class="modpack-actions">
+              <button type="button" class="btn-icon post-now-btn" data-id="{{ sub.project_id }}" data-title="{{ sub.title or sub.slug or sub.project_id }}" title="📢 Пост принудительно в Discord">
+                📢
+              </button>
               <button type="button" class="btn-icon remove-btn" data-id="{{ sub.project_id }}" title="Удалить">
                 <img src="/static/icons/trash.png" alt="" width="14" height="14" class="ui-icon">
               </button>
@@ -354,6 +375,38 @@
           }
         } catch (err) {
           showToast('❌ Сетевая ошибка: ' + err.message, 'error');
+        }
+      });
+    });
+
+    // === v3.0.5: Force post buttons (📢 Пост принудительно) ===
+    document.querySelectorAll('.post-now-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const title = btn.dataset.title || id;
+        if (!confirm(`📢 Пост принудительно в Discord?\n\nМодпак: ${title}\n\nБудет запощена последняя версия с Modrinth, даже если она уже анонсировалась ранее. После постинга last_version_id обновится в БД (фоновый цикл не запостит дубликат).`)) return;
+        // Оптимистично блокируем кнопку + меняем текст
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>';
+        try {
+          const r = await fetch(`/api/modpacks/${encodeURIComponent(id)}/post_now`, { method: 'POST' });
+          const data = await r.json();
+          if (r.ok && data.posted) {
+            const proj = data.project || {};
+            const ver = data.version || {};
+            const verNum = ver.version_number ? ` v${ver.version_number}` : '';
+            const projTitle = proj.title || title;
+            showToast(`✅ Запощено: ${projTitle}${verNum}`, 'success');
+            setTimeout(() => location.reload(), 1500);
+          } else {
+            showToast('❌ ' + (data.error || 'Пост не отправлен'), 'error');
+          }
+        } catch (err) {
+          showToast('❌ Сетевая ошибка: ' + err.message, 'error');
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = original;
         }
       });
     });

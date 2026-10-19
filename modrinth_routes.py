@@ -239,6 +239,33 @@ async def api_save_channel(
     return JSONResponse({"ok": True, "channel_modpacks_id": channel_modpacks_id})
 
 
+@router.post("/api/modpacks/{project_id}/post_now")
+async def api_post_now(project_id: str, _user: dict = Depends(require_admin)):
+    """v3.0.5: Принудительно запостить embed о последней версии модпака в Discord.
+
+    Кнопка «📢 Пост принудительно» на /modpacks.
+    Игнорирует last_version_id — постит всегда, даже если версия уже
+    анонсировалась. Полезно когда:
+    - channel_modpacks_id только что настроен
+    - предыдущий пост упал (бот лежал / Discord недоступен)
+    - тестируешь формат embed'а
+
+    Возвращает {posted, project, version, error}.
+    """
+    guild_id = get_current_guild_id(_user)
+    try:
+        result = await modrinth_monitor.force_post_to_discord(guild_id, project_id)
+    except Exception as e:
+        _log.error("post_now failed for %s: %s", project_id, e, exc_info=True)
+        return JSONResponse(
+            {"posted": False, "error": f"Внутренняя ошибка: {e}"},
+            status_code=500,
+        )
+    if not result.get("posted"):
+        return JSONResponse(result, status_code=400)
+    return JSONResponse(result)
+
+
 @router.get("/api/modpacks/search")
 async def api_search_modpacks(
     _user: dict = Depends(require_admin),

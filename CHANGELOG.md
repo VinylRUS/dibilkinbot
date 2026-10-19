@@ -1,5 +1,15 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.0.5 (0000000)
+
+#НОВЫЕ_ФИЧИ#
+- Modrinth: кнопка «📢 Пост принудительно» на /modpacks для каждого модпака. Постит embed о последней версии в Discord прямо сейчас, игнорируя `last_version_id`. Полезно когда: только что настроил `channel_modpacks_id` и хочешь retrospectively анонсировать последние версии; предыдущий пост упал (бот лежал / Discord недоступен); тестируешь формат embed'а. После постинга обновляет `last_version_id` в БД чтобы фоновый цикл не запостил дубликат через 30 минут. Админ-only. Endpoint: `POST /api/modpacks/{project_id}/post_now`.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- modrinth_monitor.py: новая функция `force_post_to_discord(guild_id, project_id)` —fetchит project + latest version с Modrinth, постит в Discord через `_post_to_discord`, обновляет кеш + `last_version_id`. Возвращает dict с результатом.
+- modrinth_routes.py: новый endpoint `POST /api/modpacks/{project_id}/post_now` (require_admin). Возвращает `{posted: bool, project: dict, version: dict, error: str|null}`.
+- templates/modpacks.html: в каждой карточке модпака добавлена кнопка 📢 (`.post-now-btn`) слева от кнопки удаления. CSS: hover красит в accent (жёлтый), не в red. JS handler: подтверждение → POST → spinner → toast с результатом → reload через 1.5s.
+
 ## v3.0.4 (0000000)
 
 #ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#

@@ -283,3 +283,85 @@ async def check_once_for_guild(guild_id: int) -> list[dict]:
                 icon_url=update["project"].get("icon_url") or "",
             )
     return results
+
+
+async def force_post_to_discord(guild_id: int, project_id: str) -> dict:
+    """Принудительно запостить в Discord embed о последней версии модпака.
+
+    v3.0.5: вызывается кнопкой «📢 Пост принудительно» на /modpacks.
+    Игнорирует last_version_id — постит всегда, даже если версия уже
+    анонсировалась ранее. Полезно когда:
+    - channel_modpacks_id был только что настроен и хочешь retrospectively
+      анонсировать последние версии
+    - предыдущий пост упал (Discord был недоступен, бот лежал) — теперь можно
+      пере-запостить вручную
+    - хочется протестировать формат embed'а
+
+    После постинга обновляет last_version_id в БД — чтобы фоновый цикл
+    не запостил дубликат через 30 минут.
+
+    Возвращает dict: {posted: bool, project: dict, version: dict, error: str|None}
+    """
+    # Найти подписку в БД
+    subs = await db.g_list_modrinth_subs(guild_id)
+    sub = next((s for s in subs if s["project_id"] == project_id), None)
+    if not sub:
+        return {"posted": False, "error": f"Подписка с project_id={project_id} не найдена",
+                "project": None, "version": None}
+
+    # Получить проект + последнюю версию с Modrinth
+    try:
+        project = await modrinth.get_project(project_id)
+        latest = await modrinth.get_latest_version(project_id)
+    except ProjectNotFoundError:
+        return {"posted": False, "error": f"Проект {project_id} не найден на Modrinth (404)",
+                "project": None, "version": None}
+    except ModrinthError as e:
+        return {"posted": False, "error": f"Modrinth API error: {e}",
+                "project": None, "version": None}
+    except httpx.RequestError as e:
+        return {"posted": False, "error": f"Network error: {e}",
+                "project": None, "version": None}
+
+    if not latest:
+        return {"posted": False, "error": "У проекта нет ни одной версии на Modrinth",
+                "project": None, "version": None}
+
+    update = {"project": project, "version": latest, "is_first_check": False}
+
+    # Постим в Discord
+    try:
+        await _post_to_discord(guild_id, update)
+    except Exception as e:
+        log.error("Force-post to Discord failed for %s: %s", project_id, e, exc_info=True)
+        return {"posted": False, "error": f"Discord post failed: {e}",
+                "project": project, "version": latest}
+
+    # Обновляем last_version_id чтобы background loop не запостил дубликат
+    await db.g_update_modrinth_sub_cache(
+        guild_id,
+        project_id=project_id,
+        title=project.get("title", ""),
+        icon_url=project.get("icon_url") or "",
+    )
+    await db.g_update_modrinth_sub_last_version(
+        guild_id,
+        project_id=project_id,
+        version_id=latest["id"],
+        version_date=latest.get("date_published", ""),
+    )
+
+    log.info("Force-posted Modrinth update: %s v%s (manual, from /modpacks button)",
+             project.get("slug"), latest.get("version_number"))
+
+    return {
+        "posted": True,
+        "error": None,
+        "project": {"title": project.get("title"), "slug": project.get("slug"),
+                    "icon_url": project.get("icon_url")},
+        "version": {"id": latest.get("id"),
+                    "version_number": latest.get("version_number"),
+                    "name": latest.get("name"),
+                    "date_published": latest.get("date_published"),
+                    "version_type": latest.get("version_type")},
+    }
