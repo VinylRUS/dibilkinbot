@@ -1,5 +1,13 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.0.7 (0000000)
+
+#ИСПРАВЛЕНО#
+- Bot: при старте падал с `UnboundLocalError: cannot access local variable 'admin_sent'` в changelog posting logic. Был введён в v3.0.3 когда я реструктурировал блок. Причина: переменная `admin_sent` инициализировалась внутри `if entry and entry.admin_sections:`, но использовалась снаружи этого блока в fallback `if not admin_sent:`. Если у changelog entry не было админских секций — переменная никогда не присваивалась → crash → `last_announced_version` не обновлялся → бот пытался постить снова при следующем старте → бесконечный цикл. Также `admin_embed` был undefined в fallback → второй UnboundLocalError. Фикс: переместил fallback DM ВНУТРЬ блока `if entry and entry.admin_sections:`, чтобы и `admin_sent`, и `admin_embed` всегда были определены перед использованием.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- bot.py: в `on_ready` блоке changelog posting реструктурирован — `if not admin_sent:` fallback теперь находится внутри `if entry and entry.admin_sections:` блока (а не снаружи как раньше). Если у entry нет админских секций, fallback не вызывается вообще (правильное поведение — нечего постить).
+
 ## v3.0.6 (0000000)
 
 #НОВЫЕ_ФИЧИ#
