@@ -1,5 +1,14 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.1.1 (0000000)
+
+#ИСПРАВЛЕНО#
+- Village Quest: при попытке подключения мода к панели в режиме `transport=agent` (Transport B) панель отвечала `HTTP 403 unknown server_id`. Корень: спецификация mod'а `rest_api.md §2` требует `server_id = [a-z0-9._-]{1,32}` — только lowercase. Мод нормализует к lowercase перед отправкой, но панель хранила mixed-case как юзер ввёл → case-sensitive сравнение в `_find_guild_by_server_id_async` не находило гильдию → 403.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- vq_data.py: добавлены `_normalize_server_id()` (lowercase + strip + default 'main') и `_validate_server_id()` (проверка regex `[a-z0-9._-]{1,32}`). `get_server_id()` возвращает lowercased значение — фиксит старые mixed-case данные без re-save. `set_server_id()` валидирует и lowercases перед сохранением.
+- vq_api.py: `save_config()` ловит `ValueError` от `set_server_id` → возвращает `{error: bad_request, message: ...}` вместо 500.
+
 ## v3.1.0 (0000000)
 
 #НОВЫЕ_ФИЧИ#
