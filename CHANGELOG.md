@@ -1,5 +1,14 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.1.3 (0000000)
+
+#ИСПРАВЛЕНО#
+- Village Quest: 403 от gateway возвращался с одинаковым сообщением «unknown server_id» для ВСЕХ причин — отсутствия Authorization header, неправильного формата, mismatch токена, или реального unknown server_id. Юзер не мог понять что именно не так. Теперь 403 возвращает конкретный `reason` в JSON: `unknown_server_id` / `invalid_gateway_token` / `guild_missing_gateway_token` / `missing_authorization` / `invalid_scheme` / `empty_token`. Также добавлено WARNING-логирование со списком просканированных гильдий и их stored server_id — видно какие значения сравнивались.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- vq_gateway.py: `_verify_token()` теперь возвращает `(guild_id, reason)` вместо просто `guild_id`. `_forbidden(reason, server_id)` и `_unauthorized(reason)` возвращают специфичные сообщения. Все 3 endpoints (`/vq/commands`, `/vq/results`, `/vq/events`) обновлены чтобы различать 401 (auth scheme issues) от 403 (server_id/token mismatch). `_find_guild_by_server_id_async` пишет debug info в `_last_scan_debug` global — показывает какие guilds были просканированы и какой stored server_id у каждой.
+- tokens.html: сокращено описание Modrinth токена — было 4 предложения, стало 1.
+
 ## v3.1.1 (0000000)
 
 #ИСПРАВЛЕНО#

@@ -78,50 +78,114 @@ def _find_guild_by_server_id(server_id: str) -> int | None:
 
 
 async def _find_guild_by_server_id_async(server_id: str) -> int | None:
-    """Async version of _find_guild_by_server_id."""
+    """Async version of _find_guild_by_server_id. Returns guild_id if found,
+    None otherwise. Also returns debug info via the global _last_scan_debug
+    so callers can log WHY the lookup failed."""
     import db
+    global _last_scan_debug
+    _last_scan_debug = {
+        "queried_server_id": server_id,
+        "scanned_guilds": [],
+    }
     try:
         guild_ids = await db.list_approved_guilds()
     except Exception as e:
         log.warning("list_approved_guilds failed: %s", e)
+        _last_scan_debug["error"] = f"list_approved_guilds: {e}"
         return None
     for gid in guild_ids:
         try:
             stored_sid = await vq_data.get_server_id(gid)
+            _last_scan_debug["scanned_guilds"].append({
+                "guild_id": gid,
+                "stored_server_id": stored_sid,
+                "match": stored_sid == server_id,
+            })
             if stored_sid == server_id:
                 return gid
-        except Exception:
+        except Exception as e:
+            _last_scan_debug["scanned_guilds"].append({
+                "guild_id": gid,
+                "error": str(e),
+            })
             continue
     return None
 
 
-async def _verify_token(authorization: str | None, server_id: str) -> int | None:
+# v3.1.3: debugging info from the last _find_guild_by_server_id_async call.
+# Used by _verify_token to log WHY auth failed (so user can see in bot logs
+# whether server_id didn't match vs. gateway_token mismatch).
+_last_scan_debug: dict = {}
+
+
+async def _verify_token(authorization: str | None, server_id: str) -> tuple[int | None, str]:
     """Verify Bearer token matches stored gateway_token for the guild identified
-    by server_id. Returns guild_id on success, None on auth failure."""
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
+    by server_id.
+
+    v3.1.3: returns (guild_id, reason) — reason is a human-readable string
+    describing why auth failed (or "ok" on success). Helps debugging 403 errors.
+
+    Reasons:
+    - "ok" — auth succeeded, guild_id is the matched guild
+    - "missing_authorization" — no Authorization header
+    - "invalid_scheme" — Authorization doesn't start with "Bearer "
+    - "empty_token" — Bearer prefix but no token
+    - "unknown_server_id" — server_id not found in any guild
+    - "invalid_gateway_token" — server_id found but token doesn't match
+    """
+    global _last_scan_debug
+    if not authorization:
+        return None, "missing_authorization"
+    if not authorization.startswith("Bearer "):
+        return None, "invalid_scheme"
     token = authorization[7:].strip()
     if not token:
-        return None
+        return None, "empty_token"
     guild_id = await _find_guild_by_server_id_async(server_id)
     if guild_id is None:
-        return None
+        scanned = _last_scan_debug.get("scanned_guilds", [])
+        log.warning("VQ gateway auth failed: unknown server_id=%r. Scanned %d guilds: %s",
+                    server_id, len(scanned),
+                    [{"guild_id": g.get("guild_id"),
+                      "stored": g.get("stored_server_id"),
+                      "match": g.get("match")} for g in scanned])
+        return None, "unknown_server_id"
     stored = await vq_data.get_gateway_token(guild_id)
-    if not stored or stored != token:
-        return None
-    return guild_id
+    if not stored:
+        log.warning("VQ gateway auth failed: guild %s has no gateway_token set "
+                   "(configure on /tokens → VQ block)", guild_id)
+        return None, "guild_missing_gateway_token"
+    if stored != token:
+        log.warning("VQ gateway auth failed: gateway_token mismatch for guild %s "
+                   "(expected %d chars, got %d chars)",
+                   guild_id, len(stored), len(token))
+        return None, "invalid_gateway_token"
+    return guild_id, "ok"
 
 
-def _unauthorized() -> JSONResponse:
+def _unauthorized(reason: str = "missing or invalid bearer token") -> JSONResponse:
     return JSONResponse(
-        {"error": "unauthorized", "message": "missing or invalid bearer token"},
+        {"error": "unauthorized", "message": reason, "reason": reason},
         status_code=401,
     )
 
 
-def _forbidden(server_id: str) -> JSONResponse:
+def _forbidden(reason: str, server_id: str = "") -> JSONResponse:
+    """v3.1.3: returns 403 with SPECIFIC reason — was generic 'unknown server_id'
+    for ALL failures (missing token / bad token / unknown server_id / token mismatch).
+    Now exposes the real reason so user can debug."""
+    msg_map = {
+        "unknown_server_id": f"server_id {server_id!r} not registered in any guild",
+        "invalid_gateway_token": f"gateway_token mismatch for server_id {server_id!r}",
+        "guild_missing_gateway_token": f"guild has no gateway_token configured (set on /tokens)",
+        "invalid_scheme": "Authorization header must be 'Bearer <token>'",
+        "missing_authorization": "missing Authorization header",
+        "empty_token": "Bearer token is empty",
+    }
+    message = msg_map.get(reason, f"auth failed: {reason}")
     return JSONResponse(
-        {"error": "forbidden", "message": f"unknown server_id {server_id!r}"},
+        {"error": "forbidden", "message": message, "reason": reason,
+         "server_id": server_id},
         status_code=403,
     )
 
@@ -142,11 +206,13 @@ async def vq_get_commands(
     Returns pending commands with id > after_id and status IS NULL.
     Body shape: rest_api.md §4.1 ①."""
     if not server_id:
-        return _unauthorized()
-    guild_id = await _verify_token(authorization, server_id)
+        return _unauthorized("missing server_id query param")
+    guild_id, reason = await _verify_token(authorization, server_id)
     if guild_id is None:
-        # Could be unknown server_id OR bad token — both look the same to mod
-        return _forbidden(server_id)
+        # v3.1.3: distinguish missing auth (401) vs forbidden (403)
+        if reason in ("missing_authorization", "invalid_scheme", "empty_token"):
+            return _unauthorized(reason)
+        return _forbidden(reason, server_id)
 
     try:
         commands = await vq_data.list_pending_commands(guild_id, after_id=after_id, limit=100)
@@ -186,9 +252,11 @@ async def vq_post_results(
             status_code=400,
         )
     server_id = body.get("server_id", "")
-    guild_id = await _verify_token(authorization, server_id)
+    guild_id, reason = await _verify_token(authorization, server_id)
     if guild_id is None:
-        return _forbidden(server_id or "")
+        if reason in ("missing_authorization", "invalid_scheme", "empty_token"):
+            return _unauthorized(reason)
+        return _forbidden(reason, server_id or "")
 
     results = body.get("results") or []
     if not isinstance(results, list):
@@ -244,9 +312,11 @@ async def vq_post_events(
             status_code=400,
         )
     server_id = body.get("server_id", "")
-    guild_id = await _verify_token(authorization, server_id)
+    guild_id, reason = await _verify_token(authorization, server_id)
     if guild_id is None:
-        return _forbidden(server_id or "")
+        if reason in ("missing_authorization", "invalid_scheme", "empty_token"):
+            return _unauthorized(reason)
+        return _forbidden(reason, server_id or "")
 
     events = body.get("events") or []
     if not isinstance(events, list):
