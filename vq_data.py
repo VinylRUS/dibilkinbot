@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -35,6 +36,27 @@ CONFIG_KEY_SERVER_ID = "vq_server_id"          # Transport B: server label known
 CONFIG_KEY_LAST_EVENT_ID = "vq_last_event_id"  # cursor: last event_id processed
 CONFIG_KEY_LAST_COMMAND_ID = "vq_last_command_id"  # cursor: last command_id sent to mod (transport B)
 CONFIG_KEY_PANEL_URL = "vq_panel_url"          # informational only — what mod should know
+
+# v3.1.1: per mod spec rest_api.md §2, server_id must match [a-z0-9._-]{1,32}.
+# Mod normalizes to lowercase on its side, so we MUST do the same to match
+# (case-sensitive comparison would fail otherwise → 403 unknown server_id).
+SERVER_ID_RE = re.compile(r"^[a-z0-9._-]{1,32}$")
+
+
+def _normalize_server_id(server_id: str | None) -> str:
+    """Lowercase + strip server_id, default to 'main' if empty.
+    Does NOT validate the regex — caller should do that if needed."""
+    sid = (server_id or "").strip().lower()
+    return sid or "main"
+
+
+def _validate_server_id(server_id: str) -> None:
+    """Raise ValueError if server_id doesn't match mod spec [a-z0-9._-]{1,32}."""
+    if not SERVER_ID_RE.match(server_id):
+        raise ValueError(
+            f"server_id must match [a-z0-9._-] (1-32 chars), got {server_id!r}"
+        )
+
 
 
 # === Config getters / setters ===
@@ -105,15 +127,25 @@ async def set_gateway_token(guild_id: int, token: str) -> None:
 
 
 async def get_server_id(guild_id: int) -> str:
-    """Transport B: server_id label. Defaults to 'main' per mod spec."""
-    return (await db.g_get_setting(guild_id, CONFIG_KEY_SERVER_ID) or "main").strip() or "main"
+    """Transport B: server_id label. Defaults to 'main' per mod spec.
+
+    v3.1.1: returns lowercased value (mod normalizes to lowercase before
+    sending, so we must match)."""
+    raw = await db.g_get_setting(guild_id, CONFIG_KEY_SERVER_ID)
+    return _normalize_server_id(raw)
 
 
 async def set_server_id(guild_id: int, server_id: str) -> None:
-    server_id = (server_id or "").strip()
-    if not server_id:
-        server_id = "main"
-    await db.g_set_setting(guild_id, CONFIG_KEY_SERVER_ID, server_id, is_secret=False)
+    """Set transport B server_id label.
+
+    v3.1.1: normalize to lowercase per mod spec. Validate against
+    [a-z0-9._-]{1,32} — mod rejects invalid server_id with 400.
+
+    Raises ValueError if server_id doesn't match the spec after lowercasing.
+    """
+    sid = _normalize_server_id(server_id)
+    _validate_server_id(sid)
+    await db.g_set_setting(guild_id, CONFIG_KEY_SERVER_ID, sid, is_secret=False)
 
 
 async def get_last_event_id(guild_id: int) -> int:

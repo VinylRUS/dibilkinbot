@@ -240,7 +240,11 @@ async def save_config(guild_id: int, *, transport: Optional[str] = None,
     if gateway_token is not None:
         await vq_data.set_gateway_token(guild_id, gateway_token)
     if server_id is not None:
-        await vq_data.set_server_id(guild_id, server_id)
+        try:
+            await vq_data.set_server_id(guild_id, server_id)
+        except ValueError as e:
+            # v3.1.1: server_id regex validation failed
+            return {"error": "bad_request", "message": str(e)}
     return await get_config(guild_id)
 
 
