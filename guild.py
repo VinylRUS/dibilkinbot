@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -385,6 +385,50 @@ GUILD_SCHEMA_TEMPLATES = {
             added_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_added_at ON {table}(added_at DESC);
+    """,
+    # === v3.1: Village Quest Remake integration (MC mod REST API) ===
+    "vq_events": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            event_id INTEGER PRIMARY KEY,
+            ts INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            player_uuid TEXT,
+            player_name TEXT,
+            data_json TEXT,
+            received_at TEXT NOT NULL,
+            processed INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_type ON {table}(type);
+        CREATE INDEX IF NOT EXISTS idx_{table}_player ON {table}(player_uuid);
+        CREATE INDEX IF NOT EXISTS idx_{table}_ts ON {table}(ts DESC);
+    """,
+    "vq_commands": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            command_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            query TEXT,
+            body_json TEXT,
+            status INTEGER,
+            result_json TEXT,
+            created_at TEXT NOT NULL,
+            sent_at TEXT,
+            result_at TEXT,
+            source TEXT DEFAULT 'panel'
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
+        CREATE INDEX IF NOT EXISTS idx_{table}_created ON {table}(created_at DESC);
+    """,
+    "vq_links": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            discord_id INTEGER PRIMARY KEY,
+            mc_uuid TEXT NOT NULL,
+            mc_name TEXT NOT NULL,
+            discord_username TEXT,
+            linked_at INTEGER NOT NULL,
+            cached_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_mc_uuid ON {table}(mc_uuid);
     """,
 }
 

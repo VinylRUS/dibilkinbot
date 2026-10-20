@@ -171,6 +171,11 @@ def _cookie_secure_flag(request: Request) -> dict:
 
 app.include_router(wheel_routes.router)
 app.include_router(movienight_routes.router)
+# v3.1: Village Quest integration — REST API + gateway endpoints for transport B
+import vq_routes as _vq_routes
+import vq_gateway as _vq_gateway
+app.include_router(_vq_routes.router)
+app.include_router(_vq_gateway.router)
 
 @app.on_event("startup")
 async def _startup():

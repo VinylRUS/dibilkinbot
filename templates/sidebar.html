@@ -108,6 +108,11 @@
       {{ sb_icon('modpacks') }}
       <span class="sb-item-label">Модпаки</span>
     </a>
+    <!-- v3.1: Village Quest (MC mod) integration page -->
+    <a href="/vq" class="sb-item {% if active == 'vq' %}active{% endif %}" title="Village Quest">
+      <img src="/static/icons/globe.png" alt="" width="18" height="18" class="sb-icon">
+      <span class="sb-item-label">Village Quest</span>
+    </a>
     {% if user.is_superuser %}
     <a href="/adminpanel" class="sb-item {% if active == 'adminpanel' %}active{% endif %}" title="Админ-панель">
       {{ sb_icon('features') }}

@@ -450,6 +450,72 @@ async def delete_setting(key: str) -> None:
     _settings_cache.pop(key, None)
 
 
+# === v3.1: Per-guild settings (read/write the guild_{id}_settings table) ===
+# Useful for any module that needs per-guild config (VQ integration etc.)
+#
+# Convention (matches global get_setting/set_setting): is_secret flag is
+# METADATA ONLY — value is stored as-is. Caller is responsible for encrypt/
+# decrypt of secret values (typically via crypto.encrypt() before storing
+# and crypto.decrypt() after reading).
+
+async def g_get_setting(guild_id: int, key: str) -> str | None:
+    """Get a setting value from per-guild settings table. Returns None if not set."""
+    if not _guild:
+        return None
+    table = _guild.guild_table(guild_id, "settings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT value FROM {table} WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def g_set_setting(guild_id: int, key: str, value: str | None,
+                        is_secret: bool = False) -> None:
+    """Set a per-guild setting. If value is None, deletes the key.
+
+    Note: is_secret is metadata only (matches global set_setting pattern).
+    Caller must encrypt secret values via crypto.encrypt() BEFORE calling."""
+    if not _guild:
+        return
+    table = _guild.guild_table(guild_id, "settings")
+    if value is None:
+        async with _connect() as db:
+            await db.execute(f"DELETE FROM {table} WHERE key = ?", (key,))
+            await db.commit()
+        return
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (key, value, is_secret) VALUES (?, ?, ?) "
+            f"ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_secret = excluded.is_secret",
+            (key, value, 1 if is_secret else 0),
+        )
+        await db.commit()
+
+
+async def g_delete_setting(guild_id: int, key: str) -> None:
+    """Delete a per-guild setting. No-op if not exists."""
+    if not _guild:
+        return
+    table = _guild.guild_table(guild_id, "settings")
+    async with _connect() as db:
+        await db.execute(f"DELETE FROM {table} WHERE key = ?", (key,))
+        await db.commit()
+
+
+async def g_list_settings(guild_id: int) -> list[tuple]:
+    """List all per-guild settings (key, value, is_secret)."""
+    if not _guild:
+        return []
+    table = _guild.guild_table(guild_id, "settings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT key, value, is_secret FROM {table} ORDER BY key"
+        ) as cur:
+            return await cur.fetchall()
+
+
 # === Watched ===
 
 async def add_watched(title: str, rating: int | None, watcher_user_id: int) -> bool:

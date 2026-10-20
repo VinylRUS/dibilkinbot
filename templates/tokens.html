@@ -41,7 +41,147 @@
         <button type="submit">Сохранить</button>
       </form>
     </article>
+
+    <!-- v3.1: Village Quest integration config (per-guild, AJAX — не часть основной формы) -->
+    <article class="card" style="margin-top: 16px;">
+      <h3 style="margin-top:0;">
+        <img src="/static/icons/external.png" alt="" width="16" height="16" class="ui-icon">
+        Village Quest (Minecraft мод) — интеграция
+      </h3>
+      <p class="hint">
+        Связь с модом <code>village-quest-remake</code> на MC-сервере. Конфигурация
+        <strong>привязана к текущей гильдии</strong> (multi-tenant). Полная
+        страница управления: <a href="/vq" style="color: var(--accent);">/vq</a>.
+        Подробности в <code>rest_api.md</code> репозитория мода.
+      </p>
+
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:12px;">
+        <label style="display:flex; gap:8px; align-items:center;">
+          <span style="min-width:140px; font-size:0.88rem;">Транспорт</span>
+          <select id="vq-transport" style="flex:1; padding:6px 10px; background: var(--input-bg); border:1px solid var(--border); border-radius:6px; color: var(--text);">
+            <option value="A">A — панель → мод (HTTP, нужны входящие порты)</option>
+            <option value="B">B — мод → панель (agent, для exarathon)</option>
+          </select>
+        </label>
+        <label style="display:flex; gap:8px; align-items:center;">
+          <span style="min-width:140px; font-size:0.88rem;">API URL</span>
+          <input type="text" id="vq-api-url" placeholder="http://1.2.3.4:8790 (транспорт A)"
+                 style="flex:1; padding:6px 10px; background: var(--input-bg); border:1px solid var(--border); border-radius:6px; color: var(--text);">
+        </label>
+        <label style="display:flex; gap:8px; align-items:center;">
+          <span style="min-width:140px; font-size:0.88rem;">API Token</span>
+          <input type="password" id="vq-api-token" placeholder="оставь пустым — не менять"
+                 style="flex:1; padding:6px 10px; background: var(--input-bg); border:1px solid var(--border); border-radius:6px; color: var(--text);">
+        </label>
+        <label style="display:flex; gap:8px; align-items:center;">
+          <span style="min-width:140px; font-size:0.88rem;">Gateway Token</span>
+          <input type="password" id="vq-gateway-token" placeholder="оставь пустым — не менять"
+                 style="flex:1; padding:6px 10px; background: var(--input-bg); border:1px solid var(--border); border-radius:6px; color: var(--text);">
+        </label>
+        <label style="display:flex; gap:8px; align-items:center;">
+          <span style="min-width:140px; font-size:0.88rem;">Server ID</span>
+          <input type="text" id="vq-server-id" placeholder="exarathon-prod (транспорт B)"
+                 style="flex:1; padding:6px 10px; background: var(--input-bg); border:1px solid var(--border); border-radius:6px; color: var(--text);">
+        </label>
+      </div>
+
+      <div id="vq-status-line" style="margin-top:12px; padding:8px 12px; border-radius:6px; background: var(--card-alt); font-size:0.85rem;"></div>
+
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button type="button" id="vq-save" class="btn-primary" style="padding:8px 16px;">
+          💾 Сохранить VQ конфиг
+        </button>
+        <button type="button" id="vq-test" class="btn-ghost" style="padding:8px 16px;">
+          🔌 Тест связи
+        </button>
+        <a href="/vq" class="btn-ghost" style="padding:8px 16px; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+          📊 Открыть /vq страницу
+        </a>
+      </div>
+    </article>
   </main>
+
+  <script>
+    // VQ config handlers — AJAX to /api/vq/* (per-guild config)
+    async function vqApi(method, path, body = null, isForm = false) {
+      const opts = { method };
+      if (body !== null) {
+        if (isForm) {
+          opts.body = body; // FormData
+        } else {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+      }
+      const r = await fetch(path, opts);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw { status: r.status, error: data.error || `http_${r.status}`, message: data.message || 'error' };
+      return data;
+    }
+
+    function vqShowStatus(msg, ok = true) {
+      const el = document.getElementById('vq-status-line');
+      el.textContent = msg;
+      el.style.color = ok ? 'var(--green)' : 'var(--red)';
+    }
+
+    async function vqLoadConfig() {
+      try {
+        const cfg = await vqApi('GET', '/api/vq/config');
+        document.getElementById('vq-transport').value = cfg.transport || 'B';
+        document.getElementById('vq-api-url').value = cfg.api_url || '';
+        document.getElementById('vq-api-token').value = '';
+        document.getElementById('vq-gateway-token').value = '';
+        document.getElementById('vq-server-id').value = cfg.server_id || 'main';
+        const apiOk = cfg.api_token_set ? '✅' : '⛔';
+        const gwOk = cfg.gateway_token_set ? '✅' : '⛔';
+        vqShowStatus(`Транспорт: ${cfg.transport} · API Token: ${apiOk} · Gateway Token: ${gwOk} · Курсор событий: ${cfg.last_event_id || 0}`, true);
+      } catch (e) {
+        vqShowStatus('Ошибка загрузки конфига: ' + (e.message || e), false);
+      }
+    }
+
+    document.getElementById('vq-save').addEventListener('click', async () => {
+      const fd = new FormData();
+      fd.append('transport', document.getElementById('vq-transport').value);
+      fd.append('api_url', document.getElementById('vq-api-url').value);
+      const apiToken = document.getElementById('vq-api-token').value;
+      const gwToken = document.getElementById('vq-gateway-token').value;
+      if (apiToken) fd.append('api_token', apiToken);
+      if (gwToken) fd.append('gateway_token', gwToken);
+      fd.append('server_id', document.getElementById('vq-server-id').value);
+      try {
+        await vqApi('POST', '/api/vq/config', fd, true);
+        vqShowStatus('✅ Конфиг сохранён', true);
+        await vqLoadConfig();
+      } catch (e) {
+        vqShowStatus('❌ ' + (e.message || 'Ошибка'), false);
+      }
+    });
+
+    document.getElementById('vq-test').addEventListener('click', async () => {
+      const btn = document.getElementById('vq-test');
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Тестируем...';
+      try {
+        const r = await fetch('/api/vq/test_connection', { method: 'POST' });
+        const data = await r.json();
+        if (data.ok) {
+          vqShowStatus(`✅ ${data.message}. Версия мода: ${data.health?.mod_version || '?'}. Онлайн: ${data.health?.online_players || 0}/${data.health?.max_players || '?'}`, true);
+        } else {
+          vqShowStatus('❌ ' + (data.message || 'Не удалось'), false);
+        }
+      } catch (e) {
+        vqShowStatus('❌ Сетевая: ' + e.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
+
+    vqLoadConfig();
+  </script>
 {% include "_footer.html" %}
 </body>
 </html>

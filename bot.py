@@ -297,6 +297,7 @@ class KinovecherBot(commands.Bot):
             ("WatchlistCog", WatchlistCog),
             ("SettingsCog", SettingsCog),
             ("LinkCog", LinkCog),
+            ("VillageQuestCog", VillageQuestCog),  # v3.1: /linkmc, /vqme, /unlinkmc
         ]
         for name, cls in cogs:
             try:
@@ -1740,6 +1741,269 @@ class LinkCog(commands.Cog):
             "2. Отправьте боту команду `/start <код>` или просто `<код>`\n"
             "3. Код действителен 10 минут\n\n"
             "После привязки вы будете получать персональные уведомления в TG.",
+            ephemeral=True,
+        )
+
+
+# === v3.1: Village Quest integration — /linkmc, /vqme, /unlinkmc ===
+
+class VillageQuestCog(commands.Cog):
+    """Slash commands for the Village Quest Minecraft mod integration.
+
+    Configured per-guild on the /tokens page (transport A/B + tokens + server_id).
+    Docs: rest_api.md in the village-quest-remake mod repo."""
+
+    def __init__(self, bot: KinovecherBot):
+        self.bot = bot
+
+    async def _get_guild_id(self, interaction: discord.Interaction) -> int | None:
+        """Returns the Discord guild_id (which doubles as our internal guild_id
+        per multi-tenant setup). Returns None for DM (no guild)."""
+        gid = getattr(interaction, "guild_id", None)
+        if gid:
+            return int(gid)
+        return None
+
+    @app_commands.command(name="linkmc", description="Привязать ваш Discord к Minecraft (нужен код из /vq link в MC)")
+    @app_commands.describe(code="6-значный код из команды /vq link в Minecraft (живёт 15 мин)")
+    async def linkmc(self, interaction: discord.Interaction, code: str):
+        import vq_api
+        guild_id = await self._get_guild_id(interaction)
+        if guild_id is None:
+            await interaction.response.send_message(
+                "❌ Команда работает только на сервере (не в DM).",
+                ephemeral=True,
+            )
+            return
+
+        code = code.strip()
+        if not code or not code.isdigit() or len(code) != 6:
+            await interaction.response.send_message(
+                "❌ Код должен быть 6-значным числом. Получите его командой `/vq link` в Minecraft.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            result = await vq_api.claim_link(
+                guild_id, code, int(interaction.user.id), str(interaction.user),
+            )
+        except Exception as e:
+            log.warning("linkmc failed for guild %s user %s: %s",
+                        guild_id, interaction.user.id, e, exc_info=True)
+            await interaction.followup.send(
+                f"❌ Внутренняя ошибка: {e}",
+                ephemeral=True,
+            )
+            return
+
+        # Success: {status: 200, result: {link: {...}}}
+        if result.get("status") == 200 and isinstance(result.get("result"), dict):
+            link = result["result"].get("link") or {}
+            mc_name = link.get("mc_name") or "?"
+            mc_uuid = link.get("mc_uuid") or "?"
+            embed = discord.Embed(
+                title="✅ Аккаунты связаны",
+                description=f"Discord **{interaction.user.mention}** ↔ Minecraft **{mc_name}**",
+                color=0x43B581,
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(name="MC UUID", value=f"`{mc_uuid}`", inline=True)
+            embed.add_field(name="Discord ID", value=f"`{interaction.user.id}`", inline=True)
+            embed.set_footer(text="Village Quest · /vqme — карточка игрока")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            log.info("VQ link: discord=%s → mc=%s (%s) guild=%s",
+                     interaction.user.id, mc_name, mc_uuid, guild_id)
+            return
+
+        # Mod returned an error
+        status = result.get("status") or 0
+        err_msg = result.get("message") or "неизвестная ошибка"
+        if status == 404:
+            err_msg = ("Код не найден или истёк. Получите новый командой "
+                       "`/vq link` в Minecraft (код живёт 15 минут).")
+        elif status == 400:
+            err_msg = "Неверный запрос: " + err_msg
+        await interaction.followup.send(
+            f"❌ Не удалось привязать (HTTP {status}): {err_msg}",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="vqme", description="Показать вашу карточку Village Quest (баланс, квесты, репутация)")
+    async def vqme(self, interaction: discord.Interaction):
+        import vq_api
+        guild_id = await self._get_guild_id(interaction)
+        if guild_id is None:
+            await interaction.response.send_message(
+                "❌ Команда работает только на сервере (не в DM).",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            result = await vq_api.get_player_by_discord(
+                guild_id, int(interaction.user.id)
+            )
+        except Exception as e:
+            log.warning("vqme failed for guild %s user %s: %s",
+                        guild_id, interaction.user.id, e, exc_info=True)
+            await interaction.followup.send(f"❌ Внутренняя ошибка: {e}", ephemeral=True)
+            return
+
+        # Not linked (404 from mod)
+        if result.get("status") == 404:
+            await interaction.followup.send(
+                "❌ Ваш Discord не привязан к Minecraft. "
+                "Введите `/vq link` в Minecraft, получите код, и используйте `/linkmc КОД` здесь.",
+                ephemeral=True,
+            )
+            return
+
+        # Transport errors
+        if result.get("error"):
+            msg = result.get("message") or result.get("error")
+            await interaction.followup.send(
+                f"❌ Не удалось получить данные: {msg}. "
+                "Сервер, возможно, спит (exarathon) или не настроен (см. /tokens → VQ).",
+                ephemeral=True,
+            )
+            return
+
+        # Success
+        player = result.get("result") if "status" in result else None
+        if not isinstance(player, dict):
+            # Wrapped form: {discord_id, link, player}
+            wrapped = result.get("result") or {}
+            player = wrapped.get("player") or wrapped
+
+        if not isinstance(player, dict) or not player:
+            await interaction.followup.send(
+                "❌ Не удалось распарсить ответ мода.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"🏘️ {player.get('name', '?')}",
+            description=(f"Discord: {interaction.user.mention}\n"
+                         f"Баланс: **{player.get('balance', 0)}** серебряных марок"),
+            color=0xFFB703,
+            timestamp=datetime.utcnow(),
+        )
+
+        # Daily quest
+        daily = player.get("daily") or {}
+        if daily:
+            daily_str = "—"
+            if daily.get("active"):
+                daily_str = f"{daily.get('title', '?')}\n{daily.get('progress_line', '')}"
+                if daily.get("completed_today"):
+                    daily_str = f"✅ {daily_str} (завершён)"
+            embed.add_field(
+                name="📅 Дейлик",
+                value=daily_str,
+                inline=False,
+            )
+
+        # Weekly
+        weekly = player.get("weekly") or {}
+        if weekly:
+            weekly_lines = weekly.get("progress_lines") or []
+            weekly_str = f"{weekly.get('title', '?')} ({weekly.get('completed_count', 0)})"
+            if weekly_lines:
+                weekly_str += "\n" + "\n".join(weekly_lines[:5])
+            embed.add_field(name="🗓️ Виклик", value=weekly_str, inline=False)
+
+        # Custom quest
+        custom = player.get("custom") or {}
+        if custom:
+            embed.add_field(
+                name="⚙️ Кастом",
+                value=f"{custom.get('title', '?')} — {custom.get('progress', 0)}/{custom.get('target', '?')}",
+                inline=False,
+            )
+
+        # Reputation
+        rep = player.get("reputation") or {}
+        if rep:
+            tracks = rep.get("tracks") or {}
+            track_str = ", ".join(f"{k}: {v}" for k, v in tracks.items() if v)
+            embed.add_field(
+                name="⭐ Репутация",
+                value=f"Всего: **{rep.get('total', 0)}**\n{track_str or 'нет треков'}",
+                inline=False,
+            )
+
+        # Routes
+        routes = player.get("routes") or {}
+        if routes:
+            embed.add_field(
+                name="🐫 Караваны",
+                value=f"Маршрутов: {routes.get('count', 0)} · Доставок сегодня: {routes.get('income_today', 0)}",
+                inline=True,
+            )
+
+        # Villages
+        if "village_count" in player:
+            embed.add_field(
+                name="🏘️ Деревни",
+                value=str(player.get("village_count", 0)),
+                inline=True,
+            )
+
+        # Quests completed
+        if "quests_completed_total" in player:
+            embed.add_field(
+                name="📜 Квестов закрыто",
+                value=str(player.get("quests_completed_total", 0)),
+                inline=True,
+            )
+
+        embed.set_footer(text="Village Quest · полная карточка на /vq → Игроки")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="unlinkmc", description="Отвязать ваш Discord от Minecraft-аккаунта")
+    async def unlinkmc(self, interaction: discord.Interaction):
+        import vq_api
+        guild_id = await self._get_guild_id(interaction)
+        if guild_id is None:
+            await interaction.response.send_message(
+                "❌ Команда работает только на сервере (не в DM).",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            result = await vq_api.delete_link(guild_id, int(interaction.user.id))
+        except Exception as e:
+            log.warning("unlinkmc failed for guild %s user %s: %s",
+                        guild_id, interaction.user.id, e, exc_info=True)
+            await interaction.followup.send(f"❌ Внутренняя ошибка: {e}", ephemeral=True)
+            return
+
+        if result.get("status") == 200 or result.get("status") == 204:
+            await interaction.followup.send(
+                "✅ Ваш Discord отвязан от Minecraft.",
+                ephemeral=True,
+            )
+            log.info("VQ unlink: discord=%s guild=%s", interaction.user.id, guild_id)
+            return
+
+        # 404 — not linked, also OK (idempotent)
+        if result.get("status") == 404:
+            await interaction.followup.send(
+                "ℹ️ Ваш Discord не был привязан — нечего отвязывать.",
+                ephemeral=True,
+            )
+            return
+
+        # Other error
+        msg = result.get("message") or result.get("error") or "unknown error"
+        await interaction.followup.send(
+            f"❌ Ошибка ({result.get('status', '?')}): {msg}",
             ephemeral=True,
         )
 

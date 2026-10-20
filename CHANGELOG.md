@@ -1,5 +1,53 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.1.0 (0000000)
+
+#НОВЫЕ_ФИЧИ#
+- Village Quest (Minecraft mod) — полная интеграция с модом `village-quest-remake`. Бот связывается с модом через REST API (контракт в `rest_api.md` репозитория мода). Поддержка обоих транспортов — A (HTTP-клиент к моду) и B (gateway для agent-режима, для хостингов без входящих портов как exarathon).
+- Discord slash-команды:
+  - `/linkmc <код>` — привязать Discord-аккаунт к Minecraft (нужен 6-значный код из `/vq link` в игре)
+  - `/vqme` — показать вашу карточку Village Quest: баланс, дейлик, виклик, кастом, репутация, караваны, деревни, квесты
+  - `/unlinkmc` — отвязать Discord от Minecraft
+- Веб-панель `/vq` (доступ: Матка + Трутень) — 9 табов:
+  - 📊 Обзор — статус сервера, экономика, топ по богатству
+  - 👥 Игроки — список + карточки (баланс, квесты, репутация, маршруты)
+  - 🏘️ Деревни — все деревни с владельцами, потребностями, состоянием
+  - 🐫 Караваны — торговые маршруты с инцидентами
+  - 💰 Экономика — money supply, доход, эскроу + 5 лидербордов (богатство, репутация, квесты, маршруты, виклики)
+  - 📜 Квесты — список builtin + CRUD кастомных (create/update/delete, вкл/выкл)
+  - ⚡ События — журнал событий с фильтром по типу (server_started, quest_completed, caravan_arrived, и т.д.)
+  - 🔗 Привязки — список Discord↔MC связей + кнопка «Отвязать»
+  - ⚙️ Конфиг — выбор транспорта (A/B), api_url, api_token, gateway_token, server_id + тест связи
+- Конфигурация на странице `/tokens` — отдельный AJAX-блок для VQ (привязан к текущей гильдии, multi-tenant). Сохранение/тест связи без перезагрузки страницы.
+- Sidebar — добавлен пункт «Village Quest» (виден админам Матка+Трутень).
+- Transport-agnostic API: клиентский код не знает какой транспорт используется — vq_api.py автоматически переключает A (прямой HTTP) или B (enqueue command + wait for result от мода).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- 5 новых Python модулей:
+  * vq_data.py (441 строка) — DB слой: per-guild config (vq_settings keys), events journal, commands queue, links cache. Токены шифруются через crypto.encrypt (как discord_token, telegram_token).
+  * vq_client.py (186 строк) — HTTP клиент для транспорта A. Все эндпоинты rest_api.md §5–§9.
+  * vq_gateway.py (290 строк) — 3 эндпоинта для транспорта B: GET /vq/commands, POST /vq/results, POST /vq/events. Bearer token auth по server_id → gateway_token. Поддержка детекции journal reset (id прыгнул обратно).
+  * vq_api.py (264 строки) — abstraction layer: _transport_a_or_b_call() переключает между A (прямой HTTP) и B (enqueue + poll DB for result, timeout 15s, poll interval 200ms).
+  * vq_routes.py (327 строк) — FastAPI router: GET /vq (HTML), 19 REST endpoints (players, villages, caravans, economy, leaderboards, quests CRUD, events, links CRUD, config, test_connection).
+- bot.py: новый VillageQuestCog с 3 slash-командами (/linkmc, /vqme, /unlinkmc). Команды ephemeral (видит только исполнитель). Все используют vq_api — работают с обоими транспортами.
+- db.py: добавлены g_get_setting / g_set_setting / g_delete_setting / g_list_settings — per-guild versions существующих глобальных settings функций. Полезны для любых модулей с per-guild конфигом.
+- guild.py: 3 новых таблицы в GUILD_SCHEMA_TEMPLATES:
+  * vq_events (event_id PK, ts, type, player_uuid, player_name, data_json, received_at, processed)
+  * vq_commands (command_id PK AUTOINCREMENT, method, path, query, body_json, status, result_json, created_at, sent_at, result_at, source)
+  * vq_links (discord_id PK, mc_uuid, mc_name, discord_username, linked_at, cached_at)
+- templates/vq.html (964 строки) — UI с 9 табами, AJAX-загрузкой, toast-уведомлениями.
+- templates/tokens.html — добавлен отдельный VQ config блок с AJAX-сохранением и тестом связи.
+- templates/sidebar.html — добавлен пункт «Village Quest» в админ-секцию.
+- Конфиг хранится в per-guild settings таблице с key prefix `vq_`:
+  * vq_transport ("A" или "B", default "B")
+  * vq_api_url (транспорт A: http://ip:8790)
+  * vq_api_token (encrypted, транспорт A)
+  * vq_gateway_token (encrypted, транспорт B)
+  * vq_server_id (транспорт B: метка сервера)
+  * vq_last_event_id / vq_last_command_id (cursors)
+- 1 гильдия = 1 MC-сервер (per spec rest_api.md §2, server_id уникален в рамках гильдии). Multi-server-per-guild не поддерживается в v3.1.
+- Не постит автоматически в Discord (только сбор данных) — по запросу пользователя. События сохраняются в БД, юзер смотрит через /vq → События.
+
 ## v3.0.7 (0000000)
 
 #ИСПРАВЛЕНО#

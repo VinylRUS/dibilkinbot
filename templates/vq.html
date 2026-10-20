@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Village Quest · DeeBeelkin</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
+  <style>
+    .back-link {
+      position: fixed; top: 16px; left: 16px;
+      background: var(--glass-bg, rgba(255,255,255,0.06));
+      backdrop-filter: var(--glass-blur, blur(20px) saturate(180%));
+      -webkit-backdrop-filter: var(--glass-blur, blur(20px) saturate(180%));
+      color: var(--accent);
+      padding: 8px 16px; border-radius: 12px;
+      text-decoration: none; font-size: 0.9rem;
+      border: 1px solid var(--glass-border, rgba(255,255,255,0.12));
+      z-index: 100;
+      transition: all 0.15s var(--smooth, ease);
+    }
+    .back-link:hover { background: var(--accent); color: var(--accent-text, #1A1A1A); }
+
+    .vq-page { max-width: 1400px; margin: 0 auto; padding: 24px; min-height: 100vh; }
+    .vq-header { display: flex; align-items: center; justify-content: space-between;
+                  gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+    .vq-title { font-size: 1.6rem; font-weight: 800; color: var(--accent);
+                 text-shadow: 0 0 20px rgba(255, 183, 3, 0.5); margin: 0; }
+    .vq-transport-badge {
+      padding: 6px 12px; border-radius: 8px; font-size: 0.78rem; font-weight: 700;
+      background: var(--accent-soft, rgba(255,183,3,0.18));
+      color: var(--accent);
+    }
+    .vq-tabs {
+      display: flex; gap: 4px; padding: 4px;
+      background: var(--content-bg, rgba(255,255,255,0.04));
+      border: 1px solid var(--content-border, rgba(255,255,255,0.08));
+      border-radius: 12px; margin-bottom: 16px;
+      overflow-x: auto;
+    }
+    .vq-tab {
+      background: transparent; border: none; color: var(--text-muted, #888);
+      padding: 8px 14px; border-radius: 8px; cursor: pointer;
+      font-size: 0.85rem; font-weight: 600; white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .vq-tab:hover { color: var(--accent); background: rgba(255,183,3,0.08); }
+    .vq-tab.active { background: var(--accent); color: var(--accent-text, #1A1A1A); }
+
+    .vq-tab-content { display: none; }
+    .vq-tab-content.active { display: block; }
+
+    .vq-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .vq-card {
+      background: var(--content-bg, rgba(255,255,255,0.04));
+      border: 1px solid var(--content-border, rgba(255,255,255,0.08));
+      border-radius: 12px; padding: 16px;
+    }
+    .vq-card h3 { margin: 0 0 8px; color: var(--accent); font-size: 1rem; }
+    .vq-card .vq-stat {
+      display: flex; justify-content: space-between; padding: 4px 0;
+      border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+      font-size: 0.88rem;
+    }
+    .vq-card .vq-stat:last-child { border-bottom: none; }
+    .vq-card .vq-stat strong { color: var(--text); font-weight: 700; }
+
+    .vq-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .vq-table th, .vq-table td { padding: 8px 12px; text-align: left;
+                                  border-bottom: 1px solid var(--border, rgba(255,255,255,0.06)); }
+    .vq-table th { color: var(--text-muted); font-weight: 600; font-size: 0.78rem;
+                    text-transform: uppercase; letter-spacing: 0.04em; }
+    .vq-table tr:hover { background: var(--card-alt, rgba(248,242,226,0.5)); }
+
+    .vq-empty { text-align: center; padding: 32px; color: var(--text-muted);
+                font-style: italic; }
+
+    .vq-loading {
+      text-align: center; padding: 40px; color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .vq-loading::after {
+      content: ''; display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--accent); border-top-color: transparent;
+      border-radius: 50%; margin-left: 8px;
+      animation: vq-spin 0.8s linear infinite;
+    }
+    @keyframes vq-spin { to { transform: rotate(360deg); } }
+
+    .vq-btn {
+      background: var(--accent); color: var(--accent-text, #1A1A1A);
+      border: none; padding: 8px 16px; border-radius: 8px;
+      cursor: pointer; font-weight: 600; font-size: 0.85rem;
+      transition: all 0.15s;
+    }
+    .vq-btn:hover:not(:disabled) { background: var(--accent-hover, #FB8500); }
+    .vq-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .vq-btn.ghost {
+      background: transparent; color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    .vq-btn.ghost:hover:not(:disabled) { background: var(--accent); color: var(--accent-text, #1A1A1A); }
+    .vq-btn.danger {
+      background: transparent; color: var(--red, #E4583E);
+      border: 1px solid var(--red, #E4583E);
+    }
+    .vq-btn.danger:hover:not(:disabled) { background: var(--red, #E4583E); color: #fff; }
+
+    .vq-event-row {
+      padding: 10px 12px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+      font-size: 0.88rem; display: flex; gap: 12px; align-items: flex-start;
+    }
+    .vq-event-type {
+      display: inline-block; padding: 2px 8px; border-radius: 6px;
+      font-size: 0.74rem; font-weight: 700; background: var(--accent-soft, rgba(255,183,3,0.18));
+      color: var(--accent); white-space: nowrap;
+    }
+    .vq-event-type.quest_completed { background: rgba(67,181,129,0.15); color: var(--green); }
+    .vq-event-type.caravan_arrived { background: rgba(255,183,3,0.15); color: var(--accent); }
+    .vq-event-type.caravan_incident_failed { background: rgba(228,88,62,0.15); color: var(--red); }
+    .vq-event-type.server_started { background: rgba(67,181,129,0.15); color: var(--green); }
+    .vq-event-type.server_stopping { background: rgba(228,88,62,0.15); color: var(--red); }
+    .vq-event-type.player_joined { background: rgba(67,181,129,0.15); color: var(--green); }
+
+    .vq-toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 1000;
+      padding: 12px 20px; border-radius: 8px;
+      background: var(--content-bg, rgba(255,255,255,0.95));
+      border: 1px solid var(--accent);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      font-size: 0.9rem; max-width: 360px;
+      animation: vq-toast-in 0.3s ease-out;
+    }
+    .vq-toast.error { border-color: var(--red, #E4583E); }
+    .vq-toast.success { border-color: var(--green, #43B581); }
+    @keyframes vq-toast-in {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .vq-form-row {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .vq-form-row label { font-size: 0.85rem; color: var(--text-muted); min-width: 120px; }
+    .vq-form-row input, .vq-form-row select {
+      flex: 1; min-width: 200px; padding: 6px 10px;
+      background: var(--input-bg, rgba(255,255,255,0.5));
+      border: 1px solid var(--border, rgba(255,255,255,0.15));
+      border-radius: 6px; color: var(--text); font-size: 0.85rem;
+    }
+
+    .vq-config-row {
+      display: flex; gap: 8px; align-items: center; padding: 8px 0;
+      border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+    }
+    .vq-config-row:last-child { border-bottom: none; }
+    .vq-config-label { font-size: 0.88rem; min-width: 160px; font-weight: 600; }
+    .vq-config-value { font-size: 0.85rem; color: var(--text-muted); flex: 1; }
+    .vq-config-value code { background: var(--card-alt, rgba(248,242,226,0.5));
+                              padding: 2px 6px; border-radius: 4px;
+                              font-family: ui-monospace, monospace; font-size: 0.82rem; }
+
+    .vq-status-dot { display: inline-block; width: 8px; height: 8px;
+                     border-radius: 50%; margin-right: 6px; }
+    .vq-status-dot.ok { background: var(--green, #43B581); }
+    .vq-status-dot.offline { background: var(--red, #E4583E); }
+    .vq-status-dot.unknown { background: var(--text-muted, #888); }
+
+    @media (max-width: 768px) {
+      .vq-page { padding: 16px; }
+      .vq-grid { grid-template-columns: 1fr; }
+      .vq-tabs { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a href="/" class="back-link">← В панель</a>
+  <main class="vq-page">
+    <div class="vq-header">
+      <h1 class="vq-title">
+        🏘️ Village Quest
+        <span class="vq-transport-badge" id="transport-badge">
+          Транспорт: {{ vq_config.transport }}
+        </span>
+      </h1>
+      <button id="refresh-btn" class="vq-btn ghost">🔄 Обновить</button>
+    </div>
+
+    <div class="vq-tabs" role="tablist">
+      <button class="vq-tab active" data-tab="overview" role="tab">📊 Обзор</button>
+      <button class="vq-tab" data-tab="players" role="tab">👥 Игроки</button>
+      <button class="vq-tab" data-tab="villages" role="tab">🏘️ Деревни</button>
+      <button class="vq-tab" data-tab="caravans" role="tab">🐫 Караваны</button>
+      <button class="vq-tab" data-tab="economy" role="tab">💰 Экономика</button>
+      <button class="vq-tab" data-tab="quests" role="tab">📜 Квесты</button>
+      <button class="vq-tab" data-tab="events" role="tab">⚡ События</button>
+      <button class="vq-tab" data-tab="links" role="tab">🔗 Привязки</button>
+      <button class="vq-tab" data-tab="config" role="tab">⚙️ Конфиг</button>
+    </div>
+
+    <!-- Overview -->
+    <div class="vq-tab-content active" id="tab-overview">
+      <div class="vq-grid" id="overview-cards">
+        <div class="vq-card">
+          <h3>🔌 Статус сервера</h3>
+          <div id="health-card" class="vq-loading">Загрузка...</div>
+        </div>
+        <div class="vq-card">
+          <h3>💰 Экономика</h3>
+          <div id="economy-card" class="vq-loading">Загрузка...</div>
+        </div>
+        <div class="vq-card">
+          <h3>🏆 Топ по богатству</h3>
+          <div id="leaderboard-card" class="vq-loading">Загрузка...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Players -->
+    <div class="vq-tab-content" id="tab-players">
+      <div class="vq-card" style="margin-bottom: 12px;">
+        <button id="players-load-all" class="vq-btn ghost">📋 Загрузить всех</button>
+      </div>
+      <div class="vq-card">
+        <h3>👥 Игроки</h3>
+        <div id="players-list" class="vq-loading">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- Villages -->
+    <div class="vq-tab-content" id="tab-villages">
+      <div class="vq-card">
+        <h3>🏘️ Деревни</h3>
+        <div id="villages-list" class="vq-loading">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- Caravans -->
+    <div class="vq-tab-content" id="tab-caravans">
+      <div class="vq-card">
+        <h3>🐫 Караваны и торговые маршруты</h3>
+        <div id="caravans-list" class="vq-loading">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- Economy -->
+    <div class="vq-tab-content" id="tab-economy">
+      <div class="vq-card">
+        <h3>💰 Экономика сервера</h3>
+        <div id="economy-detail" class="vq-loading">Загрузка...</div>
+      </div>
+      <div class="vq-grid" style="margin-top: 12px;">
+        <div class="vq-card">
+          <h3>🏆 Топ по богатству</h3>
+          <div id="leaderboard-wealth" class="vq-loading">Загрузка...</div>
+        </div>
+        <div class="vq-card">
+          <h3>⭐ Топ по репутации</h3>
+          <div id="leaderboard-reputation" class="vq-loading">Загрузка...</div>
+        </div>
+        <div class="vq-card">
+          <h3>📜 Топ по квестам</h3>
+          <div id="leaderboard-quests_total" class="vq-loading">Загрузка...</div>
+        </div>
+        <div class="vq-card">
+          <h3>🐫 Топ по маршрутам</h3>
+          <div id="leaderboard-route_successes" class="vq-loading">Загрузка...</div>
+        </div>
+        <div class="vq-card">
+          <h3>📅 Топ по викликам</h3>
+          <div id="leaderboard-weekly_completed" class="vq-loading">Загрузка...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quests -->
+    <div class="vq-tab-content" id="tab-quests">
+      <div class="vq-card">
+        <h3>📜 Квесты сервера</h3>
+        <div id="quests-list" class="vq-loading">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- Events -->
+    <div class="vq-tab-content" id="tab-events">
+      <div class="vq-card">
+        <h3>⚡ Журнал событий</h3>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+          <label for="event-filter" style="font-size:0.85rem; color:var(--text-muted);">Фильтр:</label>
+          <select id="event-filter" style="padding:4px 8px; border-radius:6px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text);">
+            <option value="">Все события</option>
+            <option value="server_started">server_started</option>
+            <option value="server_stopping">server_stopping</option>
+            <option value="player_joined">player_joined</option>
+            <option value="player_left">player_left</option>
+            <option value="quest_completed">quest_completed</option>
+            <option value="custom_quest_accepted">custom_quest_accepted</option>
+            <option value="custom_quest_abandoned">custom_quest_abandoned</option>
+            <option value="caravan_arrived">caravan_arrived</option>
+            <option value="caravan_incident_resolved">caravan_incident_resolved</option>
+            <option value="caravan_incident_failed">caravan_incident_failed</option>
+            <option value="caravan_crew_lost">caravan_crew_lost</option>
+            <option value="link_claimed">link_claimed</option>
+            <option value="custom_quest_created">custom_quest_created</option>
+            <option value="custom_quest_updated">custom_quest_updated</option>
+            <option value="custom_quest_deleted">custom_quest_deleted</option>
+            <option value="api_token_rotated">api_token_rotated</option>
+          </select>
+          <button id="events-load-more" class="vq-btn ghost">Загрузить ещё</button>
+        </div>
+        <div id="events-list" class="vq-loading">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- Links -->
+    <div class="vq-tab-content" id="tab-links">
+      <div class="vq-card">
+        <h3>🔗 Привязки Discord ↔ Minecraft</h3>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0 0 12px;">
+          Чтобы привязать аккаунт: игрок в MC вводит <code>/vq link</code>,
+          получает 6-значный код, и отправляет его боту в Discord через
+          <code>/linkmc КОД</code>. Кеш обновляется автоматически.
+        </p>
+        <div id="links-list" class="vq-loading">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- Config -->
+    <div class="vq-tab-content" id="tab-config">
+      <div class="vq-card" style="max-width: 600px;">
+        <h3>⚙️ Конфигурация</h3>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0 0 16px;">
+          Настройки также доступны на странице <a href="/tokens" style="color: var(--accent);">/tokens</a>.
+          Здесь они показаны для быстрого редактирования.
+        </p>
+
+        <div class="vq-form-row">
+          <label>Транспорт</label>
+          <select id="cfg-transport" style="flex:1;">
+            <option value="A">A — панель → мод (HTTP)</option>
+            <option value="B">B — мод → панель (agent, для exarathon)</option>
+          </select>
+        </div>
+        <div class="vq-form-row">
+          <label>API URL</label>
+          <input type="text" id="cfg-api-url" placeholder="http://1.2.3.4:8790 (для транспорта A)" />
+        </div>
+        <div class="vq-form-row">
+          <label>API Token</label>
+          <input type="password" id="cfg-api-token" placeholder="(транспорт A) оставь пустым — не менять" />
+        </div>
+        <div class="vq-form-row">
+          <label>Gateway Token</label>
+          <input type="password" id="cfg-gateway-token" placeholder="(транспорт B) оставь пустым — не менять" />
+        </div>
+        <div class="vq-form-row">
+          <label>Server ID</label>
+          <input type="text" id="cfg-server-id" placeholder="exarathon-prod (транспорт B)" />
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:16px;">
+          <button id="cfg-save" class="vq-btn">💾 Сохранить</button>
+          <button id="cfg-test" class="vq-btn ghost">🔌 Тест связи</button>
+        </div>
+
+        <div style="margin-top: 24px;">
+          <h3 style="font-size: 0.95rem;">Текущее состояние</h3>
+          <div id="cfg-status" class="vq-loading">Загрузка...</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // === State ===
+    let currentTab = 'overview';
+    let loadedTabs = new Set();
+    let eventsCursor = 0;
+    let eventsFilter = '';
+
+    // === Helpers ===
+    async function api(method, path, body = null) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body !== null) opts.body = JSON.stringify(body);
+      try {
+        const r = await fetch(path, opts);
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw { status: r.status, error: data.error || `http_${r.status}`, message: data.message || 'error', details: data };
+        }
+        return data;
+      } catch (e) {
+        if (e.error) throw e;
+        throw { status: 0, error: 'network', message: 'Сетевая ошибка: ' + (e.message || e) };
+      }
+    }
+
+    function showToast(message, kind = '') {
+      const el = document.createElement('div');
+      el.className = 'vq-toast ' + kind;
+      el.textContent = message;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s == null ? '' : String(s);
+      return div.innerHTML;
+    }
+
+    function formatTs(ts) {
+      if (!ts) return '?';
+      const d = new Date(ts);
+      return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function setLoading(id) {
+      const el = document.getElementById(id);
+      if (el) el.className = 'vq-loading';
+      if (el) el.textContent = 'Загрузка';
+    }
+
+    // === Tab switching ===
+    document.querySelectorAll('.vq-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.vq-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.vq-tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + tab).classList.add('active');
+        currentTab = tab;
+        if (!loadedTabs.has(tab)) {
+          loadedTabs.add(tab);
+          loadTabData(tab);
+        }
+      });
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+      loadedTabs.clear();
+      loadedTabs.add(currentTab);
+      loadTabData(currentTab);
+      showToast('🔄 Обновлено');
+    });
+
+    // === Tab loaders ===
+    async function loadTabData(tab) {
+      try {
+        switch (tab) {
+          case 'overview': await loadOverview(); break;
+          case 'players': await loadPlayers(false); break;
+          case 'villages': await loadVillages(); break;
+          case 'caravans': await loadCaravans(); break;
+          case 'economy': await loadEconomy(); break;
+          case 'quests': await loadQuests(); break;
+          case 'events': await loadEvents(true); break;
+          case 'links': await loadLinks(); break;
+          case 'config': await loadConfig(); break;
+        }
+      } catch (e) {
+        const target = tab + '-list';
+        // Some tabs have non-standard IDs
+        const targets = {
+          overview: ['health-card', 'economy-card', 'leaderboard-card'],
+          economy: ['economy-detail', 'leaderboard-wealth', 'leaderboard-reputation', 'leaderboard-quests_total', 'leaderboard-route_successes', 'leaderboard-weekly_completed'],
+          config: ['cfg-status'],
+        };
+        const ids = targets[tab] || [target];
+        ids.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) {
+            el.className = '';
+            el.innerHTML = `<div style="color: var(--red); padding: 8px;">❌ ${escapeHtml(e.message || 'error')}</div>`;
+          }
+        });
+      }
+    }
+
+    async function loadOverview() {
+      try {
+        const h = await api('GET', '/api/vq/health');
+        const card = document.getElementById('health-card');
+        card.className = '';
+        card.innerHTML = `
+          <div class="vq-stat"><span>Статус</span><strong><span class="vq-status-dot ok"></span>${escapeHtml(h.status || 'ok')}</strong></div>
+          <div class="vq-stat"><span>Версия мода</span><strong>${escapeHtml(h.mod_version || '?')}</strong></div>
+          <div class="vq-stat"><span>Игроков онлайн</span><strong>${h.online_players || 0}/${h.max_players || '?'}</strong></div>
+          <div class="vq-stat"><span>Аптайм</span><strong>${Math.floor((h.uptime_seconds || 0)/60)} мин</strong></div>
+          <div class="vq-stat"><span>Событий в журнале</span><strong>${h.events_last_id || 0}</strong></div>
+          <div class="vq-stat"><span>Кастомных квестов</span><strong>${h.custom_quests || 0}</strong></div>
+        `;
+      } catch (e) {
+        document.getElementById('health-card').innerHTML =
+          `<div style="color: var(--red); padding: 8px;"><span class="vq-status-dot offline"></span>${escapeHtml(e.message || 'offline')}</div>`;
+      }
+
+      try {
+        const ec = await api('GET', '/api/vq/economy');
+        const card = document.getElementById('economy-card');
+        card.className = '';
+        card.innerHTML = `
+          <div class="vq-stat"><span>Отслеживается</span><strong>${ec.players_tracked || 0}</strong></div>
+          <div class="vq-stat"><span>Денег в обороте</span><strong>${ec.money_supply || 0}</strong></div>
+          <div class="vq-stat"><span>Доход сегодня</span><strong>${ec.income_today || 0}</strong></div>
+          <div class="vq-stat"><span>Квестов закрыто</span><strong>${ec.quests_completed_total || 0}</strong></div>
+        `;
+      } catch (e) {
+        document.getElementById('economy-card').innerHTML = `<div style="color: var(--red); padding: 8px;">❌ ${escapeHtml(e.message || 'error')}</div>`;
+      }
+
+      try {
+        const lb = await api('GET', '/api/vq/leaderboards/wealth?limit=5');
+        const card = document.getElementById('leaderboard-card');
+        card.className = '';
+        if (!lb.entries || !lb.entries.length) {
+          card.innerHTML = '<div class="vq-empty">Пока пусто</div>';
+        } else {
+          card.innerHTML = lb.entries.map(e =>
+            `<div class="vq-stat"><span>#${e.rank} ${escapeHtml(e.name)}</span><strong>${e.value}</strong></div>`
+          ).join('');
+        }
+      } catch (e) {
+        document.getElementById('leaderboard-card').innerHTML = `<div style="color: var(--red); padding: 8px;">❌ ${escapeHtml(e.message || 'error')}</div>`;
+      }
+    }
+
+    async function loadPlayers(all) {
+      const url = '/api/vq/players' + (all ? '?all=true' : '');
+      const data = await api('GET', url);
+      const list = document.getElementById('players-list');
+      list.className = '';
+      if (!data.players || !data.players.length) {
+        list.innerHTML = '<div class="vq-empty">Игроков нет</div>';
+        return;
+      }
+      list.innerHTML = `
+        <table class="vq-table">
+          <thead><tr><th>UUID</th><th>Имя</th><th>Статус</th><th></th></tr></thead>
+          <tbody>
+            ${data.players.map(p => `
+              <tr>
+                <td><code>${escapeHtml(p.uuid)}</code></td>
+                <td>${escapeHtml(p.name)}</td>
+                <td>${p.online ? '🟢 онлайн' : '⚫ офлайн'}</td>
+                <td><button class="vq-btn ghost" onclick="showPlayer('${p.uuid}')">Карточка</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    window.showPlayer = async function(uuid) {
+      try {
+        const p = await api('GET', '/api/vq/players/' + uuid);
+        const lines = [
+          `<div class="vq-stat"><span>UUID</span><strong><code>${escapeHtml(p.uuid)}</code></strong></div>`,
+          `<div class="vq-stat"><span>Имя</span><strong>${escapeHtml(p.name)}</strong></div>`,
+          `<div class="vq-stat"><span>Баланс</span><strong>${p.balance || 0} серебра</strong></div>`,
+        ];
+        if (p.daily) lines.push(`<div class="vq-stat"><span>Дейлик</span><strong>${escapeHtml(p.daily.title || '?')} (${p.daily.progress_line || '?'})</strong></div>`);
+        if (p.weekly) lines.push(`<div class="vq-stat"><span>Виклик</span><strong>${escapeHtml(p.weekly.title || '?')} (${p.weekly.completed_count || 0})</strong></div>`);
+        if (p.custom) lines.push(`<div class="vq-stat"><span>Кастом</span><strong>${escapeHtml(p.custom.title || '?')} (${p.custom.progress || 0}/${p.custom.target || '?'})</strong></div>`);
+        if (p.reputation) lines.push(`<div class="vq-stat"><span>Репутация</span><strong>${p.reputation.total || 0}</strong></div>`);
+        if (p.quests_completed_total !== undefined) lines.push(`<div class="vq-stat"><span>Квестов закрыто</span><strong>${p.quests_completed_total || 0}</strong></div>`);
+        if (p.discord_link) lines.push(`<div class="vq-stat"><span>Discord</span><strong>${escapeHtml(p.discord_link.discord_username || '?')}</strong></div>`);
+        alert(lines.join('\n').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+      } catch (e) {
+        alert('Ошибка: ' + (e.message || e));
+      }
+    };
+
+    document.getElementById('players-load-all').addEventListener('click', () => loadPlayers(true));
+
+    async function loadVillages() {
+      const data = await api('GET', '/api/vq/villages?limit=200');
+      const list = document.getElementById('villages-list');
+      list.className = '';
+      if (!data.villages || !data.villages.length) {
+        list.innerHTML = '<div class="vq-empty">Деревень нет</div>';
+        return;
+      }
+      list.innerHTML = `
+        <table class="vq-table">
+          <thead><tr><th>Владелец</th><th>Тип</th><th>Потребность</th><th>Состояние</th><th>Координаты</th><th>Циклов</th><th>Караваны</th></tr></thead>
+          <tbody>
+            ${data.villages.map(v => `
+              <tr>
+                <td>${escapeHtml(v.owner_name)}</td>
+                <td>${escapeHtml(v.type || '?')}</td>
+                <td>${escapeHtml(v.need_label || v.need || '?')}</td>
+                <td>${escapeHtml(v.condition || '?')}</td>
+                <td>${v.x}, ${v.z}</td>
+                <td>${v.cycles_completed || 0}</td>
+                <td>${v.route_arrivals || 0}/${v.route_failures || 0}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function loadCaravans() {
+      const data = await api('GET', '/api/vq/caravans');
+      const list = document.getElementById('caravans-list');
+      list.className = '';
+      if (!data.players || !data.players.length) {
+        list.innerHTML = '<div class="vq-empty">Караванов нет</div>';
+        return;
+      }
+      list.innerHTML = data.players.map(p => `
+        <div class="vq-card" style="margin-bottom: 8px;">
+          <h3>${escapeHtml(p.name)} ${p.online ? '🟢' : '⚫'}</h3>
+          <div class="vq-stat"><span>Доставок</span><strong>${p.total_successes || 0}</strong></div>
+          <div class="vq-stat"><span>Доход сегодня</span><strong>${p.income_today || 0}</strong></div>
+          ${p.routes ? p.routes.map(r => `
+            <div class="vq-stat"><span>${escapeHtml(r.name || 'Маршрут')}</span><strong>${r.successes || 0} ${r.active_event ? ' ⚠️ инцидент' : ''}</strong></div>
+          `).join('') : ''}
+        </div>
+      `).join('');
+    }
+
+    async function loadEconomy() {
+      // Load all leaderboards in parallel
+      const types = ['wealth', 'reputation', 'quests_total', 'route_successes', 'weekly_completed'];
+      try {
+        const ec = await api('GET', '/api/vq/economy');
+        const card = document.getElementById('economy-detail');
+        card.className = '';
+        card.innerHTML = `
+          <div class="vq-stat"><span>Отслеживается игроков</span><strong>${ec.players_tracked || 0}</strong></div>
+          <div class="vq-stat"><span>Онлайн</span><strong>${ec.online_players || 0}</strong></div>
+          <div class="vq-stat"><span>Денег в обороте</span><strong>${ec.money_supply || 0}</strong></div>
+          <div class="vq-stat"><span>Доход сегодня</span><strong>${ec.income_today || 0}</strong></div>
+          <div class="vq-stat"><span>В эскроу</span><strong>${ec.escrow || 0}</strong></div>
+          <div class="vq-stat"><span>Квестов закрыто всего</span><strong>${ec.quests_completed_total || 0}</strong></div>
+          <div class="vq-stat"><span>Валюта</span><strong>${escapeHtml(ec.currency_unit || '?')}</strong></div>
+        `;
+      } catch (e) {
+        document.getElementById('economy-detail').innerHTML =
+          `<div style="color: var(--red);">❌ ${escapeHtml(e.message || 'error')}</div>`;
+      }
+
+      for (const t of types) {
+        try {
+          const lb = await api('GET', `/api/vq/leaderboards/${t}?limit=10`);
+          const el = document.getElementById('leaderboard-' + t);
+          el.className = '';
+          if (!lb.entries || !lb.entries.length) {
+            el.innerHTML = '<div class="vq-empty">Пусто</div>';
+          } else {
+            el.innerHTML = lb.entries.map(e =>
+              `<div class="vq-stat"><span>#${e.rank} ${escapeHtml(e.name)}</span><strong>${e.value}</strong></div>`
+            ).join('');
+          }
+        } catch (e) {
+          const el = document.getElementById('leaderboard-' + t);
+          if (el) el.innerHTML = `<div style="color: var(--red);">❌ ${escapeHtml(e.message || 'error')}</div>`;
+        }
+      }
+    }
+
+    async function loadQuests() {
+      const data = await api('GET', '/api/vq/quests');
+      const list = document.getElementById('quests-list');
+      list.className = '';
+      if (!data.quests || !data.quests.length) {
+        list.innerHTML = '<div class="vq-empty">Квестов нет</div>';
+        return;
+      }
+      const builtin = data.quests.filter(q => q.source !== 'custom');
+      const custom = data.quests.filter(q => q.source === 'custom');
+      let html = '';
+      if (builtin.length) {
+        html += `<h4 style="margin: 16px 0 8px; color: var(--text);">📚 Встроенные (${builtin.length})</h4>`;
+        html += `<table class="vq-table"><thead><tr><th>ID</th><th>Цикл</th><th>Категория</th><th>Название (RU)</th></tr></thead><tbody>`;
+        html += builtin.map(q => `
+          <tr>
+            <td><code>${escapeHtml(q.id)}</code></td>
+            <td>${escapeHtml(q.cycle || '?')}</td>
+            <td>${escapeHtml(q.category || '')}</td>
+            <td>${escapeHtml(q.title_ru || q.title_en || '?')}</td>
+          </tr>
+        `).join('');
+        html += '</tbody></table>';
+      }
+      if (custom.length) {
+        html += `<h4 style="margin: 16px 0 8px; color: var(--text);">⚙️ Кастомные (${custom.length})</h4>`;
+        html += `<table class="vq-table"><thead><tr><th>ID</th><th>Название</th><th>Цель</th><th>Статус</th><th></th></tr></thead><tbody>`;
+        html += custom.map(q => `
+          <tr>
+            <td><code>${escapeHtml(q.short_id || q.id)}</code></td>
+            <td>${escapeHtml(q.title_ru || q.title_en || '?')}</td>
+            <td>${escapeHtml(q.goal ? (q.goal.kind || '?') : '?')} ×${q.goal ? (q.goal.amount || '?') : '?'}</td>
+            <td>${q.enabled ? '✅ вкл' : '⛔ выкл'}</td>
+            <td>
+              <button class="vq-btn ghost" onclick="toggleQuest('${escapeHtml(q.short_id)}', ${!q.enabled})" style="padding: 4px 10px;">
+                ${q.enabled ? 'Выключить' : 'Включить'}
+              </button>
+              <button class="vq-btn danger" onclick="deleteQuest('${escapeHtml(q.short_id)}')" style="padding: 4px 10px;">×</button>
+            </td>
+          </tr>
+        `).join('');
+        html += '</tbody></table>';
+      }
+      list.innerHTML = html;
+    }
+
+    window.toggleQuest = async function(shortId, enable) {
+      try {
+        await api('PATCH', `/api/vq/quests/custom/${shortId}`, { enabled: enable });
+        showToast(`Квест ${enable ? 'включён' : 'выключён'}`, 'success');
+        await loadQuests();
+      } catch (e) {
+        showToast('Ошибка: ' + (e.message || e), 'error');
+      }
+    };
+
+    window.deleteQuest = async function(shortId) {
+      if (!confirm(`Удалить квест ${shortId}? Действие необратимо.`)) return;
+      try {
+        await api('DELETE', `/api/vq/quests/custom/${shortId}`);
+        showToast('Квест удалён', 'success');
+        await loadQuests();
+      } catch (e) {
+        showToast('Ошибка: ' + (e.message || e), 'error');
+      }
+    };
+
+    async function loadEvents(resetCursor) {
+      if (resetCursor) eventsCursor = 0;
+      eventsFilter = document.getElementById('event-filter').value;
+      const url = `/api/vq/events?after_id=${eventsCursor}&limit=50` +
+                  (eventsFilter ? `&type=${encodeURIComponent(eventsFilter)}` : '');
+      const data = await api('GET', url);
+      const list = document.getElementById('events-list');
+      if (resetCursor) {
+        list.className = '';
+        if (!data.events || !data.events.length) {
+          list.innerHTML = '<div class="vq-empty">Событий нет</div>';
+          return;
+        }
+      }
+      const html = (data.events || []).map(ev => {
+        const d = ev.data || {};
+        let desc = '';
+        switch (ev.type) {
+          case 'quest_completed':
+            desc = `📜 ${escapeHtml(ev.player_name || '?')}: ${escapeHtml(d.title || d.quest_id || '?')} (${d.cycle || '?'})`;
+            break;
+          case 'caravan_arrived':
+            desc = `📦 ${escapeHtml(ev.player_name || '?')}: караван довёз +${d.reward || 0} серебра`;
+            break;
+          case 'caravan_incident_failed':
+            desc = `⚔️ ${escapeHtml(ev.player_name || '?')}: инцидент провален (${escapeHtml(d.event || '?')})`;
+            break;
+          case 'caravan_incident_resolved':
+            desc = `🛡️ ${escapeHtml(ev.player_name || '?')}: инцидент отражён (${escapeHtml(d.event || '?')})`;
+            break;
+          case 'caravan_crew_lost':
+            desc = `💀 ${escapeHtml(ev.player_name || '?')}: член экипажа погиб (${escapeHtml(d.entity || '?')})`;
+            break;
+          case 'server_started':
+            desc = `🟢 Сервер поднялся (онлайн: ${d.online_players || 0})`;
+            break;
+          case 'server_stopping':
+            desc = `🔴 Сервер останавливается`;
+            break;
+          case 'player_joined':
+            desc = `➡️ ${escapeHtml(ev.player_name || '?')} вошёл (онлайн: ${d.online_after || '?'})`;
+            break;
+          case 'player_left':
+            desc = `⬅️ ${escapeHtml(ev.player_name || '?')} вышел (онлайн: ${d.online_after || '?'})`;
+            break;
+          case 'link_claimed':
+            desc = `🔗 ${escapeHtml(d.mc_name || '?')} привязан к Discord ID ${d.discord_id}`;
+            break;
+          case 'custom_quest_created':
+            desc = `➕ Создан квест: ${escapeHtml(d.quest_title || d.quest_id || '?')}`;
+            break;
+          case 'custom_quest_updated':
+            desc = `✏️ Обновлён квест: ${escapeHtml(d.quest_id || '?')}`;
+            break;
+          case 'custom_quest_deleted':
+            desc = `🗑️ Удалён квест: ${escapeHtml(d.quest_id || '?')}`;
+            break;
+          case 'custom_quest_accepted':
+            desc = `✅ ${escapeHtml(ev.player_name || '?')} принял квест: ${escapeHtml(d.quest_title || '?')}`;
+            break;
+          case 'custom_quest_abandoned':
+            desc = `❌ ${escapeHtml(ev.player_name || '?')} отменил квест: ${escapeHtml(d.quest_title || '?')}`;
+            break;
+          case 'api_token_rotated':
+            desc = `🔑 Токен ротирован ${escapeHtml(d.by || '?')}`;
+            break;
+          default:
+            desc = `<code>${JSON.stringify(d).slice(0, 200)}</code>`;
+        }
+        return `
+          <div class="vq-event-row">
+            <span class="vq-event-type ${ev.type}">${escapeHtml(ev.type)}</span>
+            <span style="color: var(--text-muted); white-space: nowrap;">${formatTs(ev.ts)}</span>
+            <span style="flex:1;">${desc}</span>
+          </div>
+        `;
+      }).join('');
+      if (resetCursor) {
+        list.innerHTML = html || '<div class="vq-empty">Событий нет</div>';
+      } else {
+        list.insertAdjacentHTML('beforeend', html);
+      }
+      // Update cursor for "load more"
+      if (data.events && data.events.length > 0) {
+        eventsCursor = data.events[data.events.length - 1].id;
+      }
+      if (data.last_id) eventsCursor = Math.max(eventsCursor, data.last_id);
+    }
+
+    document.getElementById('event-filter').addEventListener('change', () => loadEvents(true));
+    document.getElementById('events-load-more').addEventListener('click', () => loadEvents(false));
+
+    async function loadLinks() {
+      const list = document.getElementById('links-list');
+      list.className = '';
+      list.innerHTML = '<div class="vq-empty">Загрузка списка привязок из кеша мода...</div>';
+      // Try to get all players (which includes link info)
+      try {
+        const data = await api('GET', '/api/vq/players?all=true');
+        const linked = (data.players || []).filter(p => p.discord_link);
+        if (!linked.length) {
+          list.innerHTML = '<div class="vq-empty">Нет привязанных аккаунтов</div>';
+          return;
+        }
+        list.innerHTML = `
+          <table class="vq-table">
+            <thead><tr><th>Minecraft</th><th>Discord</th><th>Привязан</th><th></th></tr></thead>
+            <tbody>
+              ${linked.map(p => `
+                <tr>
+                  <td>${escapeHtml(p.name)} <code style="opacity:0.5;">${escapeHtml(p.uuid.slice(0, 8))}...</code></td>
+                  <td>${escapeHtml(p.discord_link.discord_username || '?')} <code style="opacity:0.5;">${p.discord_link.discord_id}</code></td>
+                  <td>${formatTs(p.discord_link.linked_at)}</td>
+                  <td><button class="vq-btn danger" onclick="unlinkMc(${p.discord_link.discord_id})" style="padding: 4px 10px;">Отвязать</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (e) {
+        list.innerHTML = `<div style="color: var(--red);">❌ ${escapeHtml(e.message || 'error')}</div>`;
+      }
+    }
+
+    window.unlinkMc = async function(discordId) {
+      if (!confirm(`Отвязать Discord ID ${discordId}?`)) return;
+      try {
+        await api('DELETE', '/api/vq/links/' + discordId);
+        showToast('Отвязано', 'success');
+        await loadLinks();
+      } catch (e) {
+        showToast('Ошибка: ' + (e.message || e), 'error');
+      }
+    };
+
+    // === Config tab ===
+    async function loadConfig() {
+      try {
+        const cfg = await api('GET', '/api/vq/config');
+        document.getElementById('cfg-transport').value = cfg.transport || 'B';
+        document.getElementById('cfg-api-url').value = cfg.api_url || '';
+        document.getElementById('cfg-api-token').value = '';
+        document.getElementById('cfg-gateway-token').value = '';
+        document.getElementById('cfg-server-id').value = cfg.server_id || 'main';
+
+        const statusEl = document.getElementById('cfg-status');
+        statusEl.className = '';
+        statusEl.innerHTML = `
+          <div class="vq-config-row">
+            <span class="vq-config-label">Транспорт</span>
+            <span class="vq-config-value">${cfg.transport === 'A' ? 'A (HTTP клиент)' : 'B (gateway)'}</span>
+          </div>
+          <div class="vq-config-row">
+            <span class="vq-config-label">API Token</span>
+            <span class="vq-config-value">${cfg.api_token_set ? '✅ установлен' : '⛔ не задан'}</span>
+          </div>
+          <div class="vq-config-row">
+            <span class="vq-config-label">Gateway Token</span>
+            <span class="vq-config-value">${cfg.gateway_token_set ? '✅ установлен' : '⛔ не задан'}</span>
+          </div>
+          <div class="vq-config-row">
+            <span class="vq-config-label">Курсор событий</span>
+            <span class="vq-config-value"><code>${cfg.last_event_id || 0}</code></span>
+          </div>
+          <div class="vq-config-row">
+            <span class="vq-config-label">Курсор команд</span>
+            <span class="vq-config-value"><code>${cfg.last_command_id || 0}</code></span>
+          </div>
+        `;
+      } catch (e) {
+        const statusEl = document.getElementById('cfg-status');
+        if (statusEl) {
+          statusEl.className = '';
+          statusEl.innerHTML = `<div style="color: var(--red);">❌ ${escapeHtml(e.message || 'error')}</div>`;
+        }
+      }
+    }
+
+    document.getElementById('cfg-save').addEventListener('click', async () => {
+      const formData = new FormData();
+      formData.append('transport', document.getElementById('cfg-transport').value);
+      formData.append('api_url', document.getElementById('cfg-api-url').value);
+      // Only send tokens if user entered something (empty string would clear them)
+      const apiToken = document.getElementById('cfg-api-token').value;
+      const gwToken = document.getElementById('cfg-gateway-token').value;
+      if (apiToken) formData.append('api_token', apiToken);
+      if (gwToken) formData.append('gateway_token', gwToken);
+      formData.append('server_id', document.getElementById('cfg-server-id').value);
+      try {
+        const r = await fetch('/api/vq/config', { method: 'POST', body: formData });
+        const data = await r.json();
+        if (r.ok) {
+          showToast('✅ Конфиг сохранён', 'success');
+          await loadConfig();
+        } else {
+          showToast('❌ ' + (data.error || 'Ошибка'), 'error');
+        }
+      } catch (e) {
+        showToast('❌ Сетевая: ' + e.message, 'error');
+      }
+    });
+
+    document.getElementById('cfg-test').addEventListener('click', async () => {
+      const btn = document.getElementById('cfg-test');
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Тестируем...';
+      try {
+        const r = await fetch('/api/vq/test_connection', { method: 'POST' });
+        const data = await r.json();
+        if (data.ok) {
+          showToast(`✅ ${data.message}. Версия: ${data.health?.mod_version || '?'}`, 'success');
+        } else {
+          showToast(`❌ ${data.message}`, 'error');
+        }
+      } catch (e) {
+        showToast('❌ Сетевая: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
+
+    // === Init: load first tab ===
+    loadTabData('overview');
+    loadedTabs.add('overview');
+  </script>
+  {% include "_footer.html" %}
+</body>
+</html>
