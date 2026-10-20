@@ -7,21 +7,6 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
   <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
-    .back-link {
-      position: fixed; top: 16px; left: 16px;
-      background: var(--glass-bg, rgba(255,255,255,0.06));
-      backdrop-filter: var(--glass-blur, blur(20px) saturate(180%));
-      -webkit-backdrop-filter: var(--glass-blur, blur(20px) saturate(180%));
-      color: var(--accent);
-      padding: 8px 16px; border-radius: 12px;
-      text-decoration: none; font-size: 0.9rem;
-      border: 1px solid var(--glass-border, rgba(255,255,255,0.12));
-      z-index: 100;
-      transition: all 0.15s var(--smooth, ease);
-    }
-    .back-link:hover { background: var(--accent); color: var(--accent-text, #1A1A1A); }
-
-    .vq-page { max-width: 1400px; margin: 0 auto; padding: 24px; min-height: 100vh; }
     .vq-header { display: flex; align-items: center; justify-content: space-between;
                   gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
     .vq-title { font-size: 1.6rem; font-weight: 800; color: var(--accent);
@@ -178,8 +163,8 @@
   </style>
 </head>
 <body>
-  <a href="/" class="back-link">← В панель</a>
-  <main class="vq-page">
+  {% include "sidebar.html" %}
+  <main class="container">
     <div class="vq-header">
       <h1 class="vq-title">
         🏘️ Village Quest
@@ -540,40 +525,36 @@
       }
       list.innerHTML = `
         <table class="vq-table">
-          <thead><tr><th>UUID</th><th>Имя</th><th>Статус</th><th></th></tr></thead>
+          <thead><tr><th>UUID</th><th>Имя</th><th>Статус</th><th>Discord</th><th></th></tr></thead>
           <tbody>
-            ${data.players.map(p => `
-              <tr>
-                <td><code>${escapeHtml(p.uuid)}</code></td>
-                <td>${escapeHtml(p.name)}</td>
-                <td>${p.online ? '🟢 онлайн' : '⚫ офлайн'}</td>
-                <td><button class="vq-btn ghost" onclick="showPlayer('${p.uuid}')">Карточка</button></td>
-              </tr>
-            `).join('')}
+            ${data.players.map(p => {
+              const dl = p.discord_link || {};
+              const discordId = dl.discord_id;
+              const discordUsername = dl.discord_username || (discordId ? '#' + discordId : '');
+              const profileLink = discordId ? `/u/${discordId}` : null;
+              return `
+                <tr>
+                  <td><code>${escapeHtml(p.uuid)}</code></td>
+                  <td>${escapeHtml(p.name)}</td>
+                  <td>${p.online ? '🟢 онлайн' : '⚫ офлайн'}</td>
+                  <td>${discordUsername ? (profileLink
+                          ? `<a href="${profileLink}" style="color: var(--accent); text-decoration: none;">${escapeHtml(discordUsername)}</a>`
+                          : escapeHtml(discordUsername)) : '<span style="opacity:0.5;">—</span>'}</td>
+                  <td>
+                    <a href="${profileLink || '#'}" class="vq-btn ${profileLink ? 'ghost' : ''}"
+                       style="${profileLink ? '' : 'pointer-events:none; opacity:0.4;'}"
+                       ${profileLink ? '' : 'aria-disabled="true"'}
+                       title="${profileLink ? 'Открыть публичный профиль Discord' : 'Discord не привязан'}">
+                      ${profileLink ? '👤 Профиль' : '—'}
+                    </a>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       `;
     }
-
-    window.showPlayer = async function(uuid) {
-      try {
-        const p = await api('GET', '/api/vq/players/' + uuid);
-        const lines = [
-          `<div class="vq-stat"><span>UUID</span><strong><code>${escapeHtml(p.uuid)}</code></strong></div>`,
-          `<div class="vq-stat"><span>Имя</span><strong>${escapeHtml(p.name)}</strong></div>`,
-          `<div class="vq-stat"><span>Баланс</span><strong>${p.balance || 0} серебра</strong></div>`,
-        ];
-        if (p.daily) lines.push(`<div class="vq-stat"><span>Дейлик</span><strong>${escapeHtml(p.daily.title || '?')} (${p.daily.progress_line || '?'})</strong></div>`);
-        if (p.weekly) lines.push(`<div class="vq-stat"><span>Виклик</span><strong>${escapeHtml(p.weekly.title || '?')} (${p.weekly.completed_count || 0})</strong></div>`);
-        if (p.custom) lines.push(`<div class="vq-stat"><span>Кастом</span><strong>${escapeHtml(p.custom.title || '?')} (${p.custom.progress || 0}/${p.custom.target || '?'})</strong></div>`);
-        if (p.reputation) lines.push(`<div class="vq-stat"><span>Репутация</span><strong>${p.reputation.total || 0}</strong></div>`);
-        if (p.quests_completed_total !== undefined) lines.push(`<div class="vq-stat"><span>Квестов закрыто</span><strong>${p.quests_completed_total || 0}</strong></div>`);
-        if (p.discord_link) lines.push(`<div class="vq-stat"><span>Discord</span><strong>${escapeHtml(p.discord_link.discord_username || '?')}</strong></div>`);
-        alert(lines.join('\n').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
-      } catch (e) {
-        alert('Ошибка: ' + (e.message || e));
-      }
-    };
 
     document.getElementById('players-load-all').addEventListener('click', () => loadPlayers(true));
 

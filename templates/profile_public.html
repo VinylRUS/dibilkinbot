@@ -530,6 +530,115 @@
     </article>
     {% endif %}
 
+    {# === v3.1.5: Village Quest (Minecraft) — данные с MC-сервера === #}
+    {% if vq_link %}
+    <h3 class="section-title"><img src="/static/icons/globe.png" alt="" width="16" height="16" class="ui-icon"> Village Quest (Minecraft)</h3>
+    <article class="card">
+      <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
+        {% if vq_link.mc_name %}
+          <div style="font-size: 1.05rem; font-weight: 700; color: var(--accent);">
+            🏘️ {{ vq_link.mc_name }}
+          </div>
+        {% endif %}
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-left: auto;">
+          Привязан к Discord · {{ vq_link.linked_at | default(0) | int | default(0) }}
+        </div>
+      </div>
+
+      {% if vq_player %}
+        {# Карточка игрока загружена с MC-сервера #}
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
+          {% if vq_player.balance is defined %}
+          <div class="stat-card">
+            <div class="stat-value">💰 {{ vq_player.balance }}</div>
+            <div class="stat-label">серебряных марок</div>
+          </div>
+          {% endif %}
+          {% if vq_player.quests_completed_total is defined %}
+          <div class="stat-card">
+            <div class="stat-value">📜 {{ vq_player.quests_completed_total }}</div>
+            <div class="stat-label">квестов закрыто</div>
+          </div>
+          {% endif %}
+          {% if vq_player.village_count is defined %}
+          <div class="stat-card">
+            <div class="stat-value">🏘️ {{ vq_player.village_count }}</div>
+            <div class="stat-label">деревень</div>
+          </div>
+          {% endif %}
+          {% if vq_player.reputation and vq_player.reputation.total is defined %}
+          <div class="stat-card">
+            <div class="stat-value">⭐ {{ vq_player.reputation.total }}</div>
+            <div class="stat-label">репутация всего</div>
+          </div>
+          {% endif %}
+        </div>
+
+        {# Дейлик #}
+        {% if vq_player.daily and vq_player.daily.active %}
+        <div style="margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--card-alt, rgba(255,183,3,0.05)); border-radius: 0 6px 6px 0;">
+          <div style="font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">📅 Дейлик</div>
+          <div style="font-weight: 600;">{{ vq_player.daily.title or '?' }}</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">{{ vq_player.daily.progress_line or '' }}</div>
+        </div>
+        {% endif %}
+
+        {# Виклик #}
+        {% if vq_player.weekly and vq_player.weekly.active %}
+        <div style="margin-top: 8px; padding: 10px 12px; border-left: 3px solid var(--green, #43B581); background: var(--card-alt, rgba(67,181,129,0.05)); border-radius: 0 6px 6px 0;">
+          <div style="font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">🗓️ Виклик</div>
+          <div style="font-weight: 600;">{{ vq_player.weekly.title or '?' }} ({{ vq_player.weekly.completed_count | default(0) }})</div>
+        </div>
+        {% endif %}
+
+        {# Кастом #}
+        {% if vq_player.custom %}
+        <div style="margin-top: 8px; padding: 10px 12px; border-left: 3px solid #5865F2; background: var(--card-alt, rgba(88,101,242,0.05)); border-radius: 0 6px 6px 0;">
+          <div style="font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">⚙️ Кастом квест</div>
+          <div style="font-weight: 600;">{{ vq_player.custom.title or '?' }}</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">
+            {{ vq_player.custom.progress | default(0) }} / {{ vq_player.custom.target | default('?') }}
+          </div>
+        </div>
+        {% endif %}
+
+        {# Караваны #}
+        {% if vq_player.routes and vq_player.routes.count is defined %}
+        <div style="margin-top: 12px; display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.85rem;">
+          <span>🐫 Маршрутов: <strong>{{ vq_player.routes.count }}</strong></span>
+          <span>📦 Доставок сегодня: <strong>{{ vq_player.routes.income_today | default(0) }}</strong></span>
+          <span>✅ Всего успехов: <strong>{{ vq_player.routes.total_successes | default(0) }}</strong></span>
+        </div>
+        {% endif %}
+
+        {# Репутация по трекам #}
+        {% if vq_player.reputation and vq_player.reputation.tracks %}
+        <div style="margin-top: 12px;">
+          <div style="font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; margin-bottom: 6px;">⭐ Репутация по трекам</div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            {% for track, value in vq_player.reputation.tracks.items() if value %}
+            <span style="padding: 4px 8px; background: var(--card-alt); border-radius: 6px; font-size: 0.78rem;">
+              {{ track }}: <strong>{{ value }}</strong>
+            </span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+      {% else %}
+        {# Линк есть, но карточку не удалось получить (сервер спит или таймаут) #}
+        <p style="margin: 0; padding: 12px; color: var(--text-muted); font-size: 0.85rem; font-style: italic; background: var(--card-alt); border-radius: 6px;">
+          🌙 Minecraft-сервер сейчас спит (exarathon) — карточка недоступна.
+          Зайдите позже, когда кто-то будет в игре.
+        </p>
+      {% endif %}
+
+      <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
+        <code style="font-size: 0.72rem; color: var(--text-muted);">{{ vq_link.mc_uuid }}</code>
+      </div>
+    </article>
+    {% endif %}
+
     {# Recent ratings #}
     {% if recent_ratings %}
     <h3 class="section-title"><img src="/static/icons/star.png" alt="" width="16" height="16" class="ui-icon"> Последние оценки</h3>

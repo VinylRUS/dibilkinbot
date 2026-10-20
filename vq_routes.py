@@ -62,6 +62,7 @@ async def vq_page(request: Request, _user: dict = Depends(require_admin)):
         "user": _user,
         "vq_config": config,
         "current_guild_id": guild_id,
+        "active": "vq",  # for sidebar.html highlight
     })
 
 
