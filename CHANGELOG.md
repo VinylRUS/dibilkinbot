@@ -1,5 +1,24 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.1.4 (0000000)
+
+#ИСПРАВЛЕНО#
+- Village Quest: **БРЕЙКИНГ ФИКС** — gateway возвращал 403 «unknown server_id» потому что я в v3.1.0 реализовал auth через server_id → gateway_token lookup (с обязательной регистрацией server_id на /tokens). Но эталонная реализация `tools/gateway_reference.py` из репо мода НЕ требует регистрации server_id — она авторизует ТОЛЬКО по `Authorization: Bearer <gateway_token>`, server_id — произвольная метка в query/body. Моя реализация нарушала контракт.
+
+Теперь auth работает как в reference:
+- Bearer token → находим гильдию (token идентифицирует гильдию)
+- ВСЕ auth ошибки возвращают **401 unauthorized** (не 403 forbidden)
+- server_id — только для логирования, не валидируется
+- Сравнение gateway_token — побайтовое (без trim/normalize), что совпадает с reference
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- vq_gateway.py:
+  * Новая `_find_guild_by_gateway_token_async(token)` — ищет гильдию по совпадению gateway_token. Если несколько гильдий имеют один токен — логирует WARNING (config error).
+  * `_verify_token(authorization, server_id)` переписан: token из Authorization header → lookup guild by token. server_id — только для логов. Все auth failures → 401.
+  * `_forbidden()` удалён (403 больше не используется). Все ошибки — `_unauthorized(reason, server_id)` → 401.
+  * 3 endpoints обновлены: `if reason in (missing_authorization, invalid_scheme, empty_token)` ветка убрана — все причины идут через 401.
+  * `_find_guild_by_server_id_async()` оставлен как DEPRECATED (для backward compat / logging), но больше не используется в auth path.
+
 ## v3.1.3 (0000000)
 
 #ИСПРАВЛЕНО#
