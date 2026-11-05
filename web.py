@@ -1394,11 +1394,14 @@ async def api_movie_poster(
 # === Users management (admin only) ===
 
 @app.get("/users", response_class=HTMLResponse)
-async def users_page(request: Request, _user: dict = Depends(require_superuser)):
-    users = await db.list_users()
+async def users_page(request: Request, _user: dict = Depends(require_superuser),
+                     show_left: bool = False):
+    """v3.2: show_left=true — показать также покинувших сервер юзеров."""
+    users = await db.list_users(include_left=show_left)
     return templates.TemplateResponse(request, "users.html", {
         "user": _user,
         "users": users,
+        "show_left": show_left,
     })
 
 

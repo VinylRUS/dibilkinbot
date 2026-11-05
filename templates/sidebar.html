@@ -128,7 +128,7 @@
     <a href="/u/{{ user.discord_id }}" class="sb-user" style="text-decoration:none; color:inherit;" title="Мой профиль">
       <div class="sb-user-avatar">
         {% if user.avatar_url %}
-          <img src="{{ user.avatar_url }}" alt="">
+          <img src="{{ user.avatar_url }}" alt="{{ user.username or user.display_name or '' }}" data-name="{{ user.username or user.display_name or '' }}">
         {% else %}
           👤
         {% endif %}

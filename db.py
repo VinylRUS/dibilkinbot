@@ -194,6 +194,8 @@ async def init_db() -> None:
                 "last_viewed_achievements_at": "TEXT",
                 # v2.3.2: показывать ли Steam-вишлист в публичном профиле (0/1)
                 "show_wishlist": "INTEGER DEFAULT 0",
+                # v3.2: когда юзер покинул Discord-сервер (NULL = активен)
+                "left_at": "TEXT",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in existing_cols:
@@ -702,7 +704,8 @@ async def upsert_user(
             "  roles = COALESCE(excluded.roles, users.roles), "
             "  top_role = COALESCE(excluded.top_role, users.top_role), "
             "  guild_name = COALESCE(excluded.guild_name, users.guild_name), "
-            "  last_login_at = excluded.last_login_at",
+            "  last_login_at = excluded.last_login_at, "
+            "  left_at = NULL",  # v3.2: clear 'left' status on any upsert (user is active)
             (discord_id, username, display_name, avatar_url, roles_json, top_role, guild_name,
              datetime.utcnow().isoformat(), datetime.utcnow().isoformat()),
         )
@@ -799,13 +802,44 @@ async def set_admin(discord_id: int, is_admin_flag: bool) -> None:
     await set_user_role(discord_id, 'junior-admin' if is_admin_flag else 'user')
 
 
-async def list_users() -> list[tuple]:
+async def list_users(include_left: bool = False) -> list[tuple]:
+    """Список юзеров. По умолчанию только активные (left_at IS NULL).
+    include_left=True — показать всех включая покинувших сервер."""
+    sql = ("SELECT discord_id, username, display_name, is_admin, last_login_at, "
+           "avatar_url, top_role, guild_name, role, left_at "
+           "FROM users")
+    if not include_left:
+        sql += " WHERE left_at IS NULL"
+    sql += " ORDER BY created_at DESC"
     async with _connect() as db:
-        async with db.execute(
-            "SELECT discord_id, username, display_name, is_admin, last_login_at, avatar_url, top_role, guild_name, role "
-            "FROM users ORDER BY created_at DESC"
-        ) as cur:
+        async with db.execute(sql) as cur:
             return await cur.fetchall()
+
+
+# v3.2: Functions for tracking when users leave/rejoin Discord server
+
+async def mark_user_left(discord_id: int) -> bool:
+    """Mark user as having left the Discord server (sets left_at timestamp).
+    Returns True if user was found and updated."""
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE users SET left_at = ? WHERE discord_id = ? AND left_at IS NULL",
+            (datetime.utcnow().isoformat(), discord_id),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def clear_user_left(discord_id: int) -> bool:
+    """Clear 'left' status when user rejoins the Discord server.
+    Returns True if user was found and updated."""
+    async with _connect() as db:
+        cur = await db.execute(
+            "UPDATE users SET left_at = NULL WHERE discord_id = ? AND left_at IS NOT NULL",
+            (discord_id,),
+        )
+        await db.commit()
+        return cur.rowcount > 0
 
 
 async def list_guild_user_ids(guild_id: int) -> list[int]:

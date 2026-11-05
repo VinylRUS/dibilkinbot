@@ -76,6 +76,11 @@
 
   <main class="container">
     <h2><img src="/static/icons/users.png" alt="" width="16" height="16" class="ui-icon"> Пользователи панели</h2>
+    <div style="margin-bottom: 12px;">
+      <a href="/users{% if not show_left %}?show_left=true{% endif %}" class="btn-ghost" style="font-size: 0.78rem; padding: 4px 12px; text-decoration: none;">
+        {% if show_left %}👤 Только активные{% else %}👻 Показать покинувших{% endif %}
+      </a>
+    </div>
     {% if request.query_params.get('saved') %}
       <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Изменения сохранены.</div>
     {% endif %}
@@ -88,17 +93,19 @@
           <th>Последний вход</th>
           <th>Управление</th>
         </tr>
-        {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name, role in users %}
-          <tr>
+        {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name, role, left_at in users %}
+          <tr{% if left_at %} style="opacity: 0.5;"{% endif %}>
             <td>
               <a href="/u/{{ discord_id }}" class="user-row" style="border-bottom:none; padding:0; text-decoration:none; color:inherit;">
                 {% if avatar_url %}
-                  <img src="{{ avatar_url }}" alt="" class="avatar">
+                  <img src="{{ avatar_url }}" alt="{{ display_name or username or '' }}" class="avatar">
                 {% else %}
                   <div class="avatar-placeholder">{{ (display_name or username or '?')[0]|upper }}</div>
                 {% endif %}
                 <div class="user-info">
-                  <div class="user-name">{{ display_name or username or '—' }}</div>
+                  <div class="user-name">{{ display_name or username or '—' }}
+                    {% if left_at %}<span class="badge" style="background: var(--text-muted); color: #fff; font-size: 0.65rem; padding: 1px 6px;">👻 покинул</span>{% endif %}
+                  </div>
                   {% if top_role %}
                     <div class="user-meta">роль: {{ top_role }}</div>
                   {% endif %}

@@ -572,7 +572,8 @@ class KinovecherBot(commands.Bot):
             log.warning("presence_update error for %s: %s", after.id, e)
 
     async def on_member_join(self, member):
-        """v2.0: Автосоздание профиля при входе на сервер."""
+        """v2.0: Автосоздание профиля при входе на сервер.
+        v3.2: Также очищает left_at (если юзер возвращается)."""
         if member.bot:
             return
         try:
@@ -585,9 +586,26 @@ class KinovecherBot(commands.Bot):
                 top_role=member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None,
                 guild_name=member.guild.name,
             )
+            # v3.2: clear left_at (upsert_user already does this via SQL,
+            # but call explicitly for logging clarity)
+            await db.clear_user_left(member.id)
             log.info("Auto-created profile for new member: %s (id=%s)", member.display_name, member.id)
         except Exception as e:
             log.warning("Failed to auto-create profile for %s: %s", member.id, e)
+
+    async def on_member_remove(self, member):
+        """v3.2: Вызывается когда юзер покидает сервер (кик, бан, сам вышел).
+        Помечаем в БД как left_at = now() — чтобы /users панель не показывала
+        удалённых юзеров. Данные сохраняем (на случай возврата / для истории).
+        """
+        if member.bot:
+            return
+        try:
+            marked = await db.mark_user_left(member.id)
+            if marked:
+                log.info("User left guild: %s (id=%s) — marked as left_at", member, member.id)
+        except Exception as e:
+            log.warning("Failed to mark user %s as left: %s", member.id, e)
 
     async def on_message(self, message: discord.Message) -> None:
         """Авто-захват цитат: если сообщение в канале #цитатник от человека —
@@ -2011,15 +2029,21 @@ class VillageQuestCog(commands.Cog):
 # === v2.0: Discord integration — auto-profiles, voice tracking, presence ===
 
 async def _auto_create_member_profiles():
-    """Создать профили в БД для всех НЕ-ботов на всех серверах бота."""
+    """Создать профили в БД для всех НЕ-ботов на всех серверах бота.
+    v3.2: Также выполняет cleanup pass — помечает left_at для юзеров
+    которые больше не на сервере (но ещё есть в БД)."""
     bot = _get_bot()
     if not bot:
         return
+
+    # 1. Собираем все ID текущих участников (не ботов) со всех серверов
+    current_member_ids: set[int] = set()
     total = 0
     for guild in bot.guilds:
         for member in guild.members:
             if member.bot:
                 continue
+            current_member_ids.add(member.id)
             try:
                 existing = await db.get_user(member.id)
                 if not existing:
@@ -2037,6 +2061,23 @@ async def _auto_create_member_profiles():
                 log.warning("Auto-create profile failed for %s: %s", member.id, e)
     if total > 0:
         log.info("v2.0: Auto-created %d member profiles", total)
+
+    # 2. v3.2: Cleanup — помечаем left_at для юзеров которые покинули сервер
+    # но ещё есть в БД с left_at IS NULL. upsert_user уже очистит left_at
+    # для тех кто на сервере — значит те у кого left_at IS NULL после upsert
+    # pass'а — реально ушли.
+    try:
+        all_users = await db.list_users(include_left=False)
+        marked_left = 0
+        for user_tuple in all_users:
+            uid = user_tuple[0]  # discord_id
+            if uid not in current_member_ids:
+                await db.mark_user_left(uid)
+                marked_left += 1
+        if marked_left > 0:
+            log.info("v3.2: Marked %d users as left (no longer in any guild)", marked_left)
+    except Exception as e:
+        log.warning("v3.2: Cleanup left users failed: %s", e)
 
 
 async def _handle_voice_state_change(member, before, after):

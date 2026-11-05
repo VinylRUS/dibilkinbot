@@ -346,7 +346,7 @@
         <div class="profile-avatar-wrap avatar-wrap lg">
           <div class="profile-avatar">
             {% if target.avatar_url %}
-              <img src="{{ target.avatar_url }}" alt="">
+              <img src="{{ target.avatar_url }}" alt="{{ target.display_name or target.username or '' }}" data-name="{{ target.display_name or target.username or '' }}">
             {% else %}
               {{ target.display_name[:1] | upper if target.display_name else '?' }}
             {% endif %}
@@ -464,7 +464,7 @@
       <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border);">
         <a href="/u/{{ co.other_user_id }}" style="text-decoration: none;">
           {% if co.avatar_url %}
-            <img src="{{ co.avatar_url }}" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">
+            <img src="{{ co.avatar_url }}" alt="{{ co.display_name or '' }}" data-name="{{ co.display_name or '' }}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">
           {% else %}
             <div style="width:24px;height:24px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;font-size:0.7rem;">{{ co.display_name[:1]|upper }}</div>
           {% endif %}

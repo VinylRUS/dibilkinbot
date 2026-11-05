@@ -4,3 +4,60 @@
 <footer class="page-footer-version" style="text-align:center;font-size:0.68rem;color:var(--text-muted);padding:8px 16px;border-top:1px solid var(--border);opacity:0.6;letter-spacing:0.02em;margin-top:auto;">
   {{ bot_version_with_commit | default('v?(unknown)') }}
 </footer>
+
+<script>
+// v3.2: Глобальный fallback для аватарок Discord CDN.
+// Если <img src="cdn.discordapp.com/avatars/..."> не загружается
+// (юзер сменил аватар, удалил аккаунт, Discord ротировал hash),
+// заменяем на букву-инициал в цветном кружке.
+// Event delegation на capture phase — ловит ВСЕ img errors во всём DOM.
+(function() {
+  document.addEventListener('error', function(e) {
+    const img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.src) return;
+    // Только для Discord CDN URLs
+    if (!img.src.includes('cdn.discordapp.com') && !img.src.includes('discord.com')) return;
+    // Защита от повторного срабатывания
+    if (img.dataset.avatarFallbackApplied) return;
+    img.dataset.avatarFallbackApplied = '1';
+
+    // Определяем размер из CSS или атрибутов
+    const rect = img.getBoundingClientRect();
+    const size = Math.max(rect.width || img.offsetWidth || 36, 16);
+
+    // Определяем имя для инициала
+    // alt, data-name, title, или ищем текст в соседних элементах
+    let name = img.alt || img.dataset.name || img.title || '';
+    if (!name) {
+      // Ищем ближайший элемент с именем юзера
+      const parent = img.closest('[data-username], .item-name, .participant-name, .sb-item-label, .profile-name, .user-name');
+      if (parent) name = parent.textContent || parent.dataset.username || '';
+    }
+    const letter = (String(name).trim().charAt(0) || '?').toUpperCase();
+
+    // Создаём fallback элемент
+    const fallback = document.createElement('div');
+    fallback.className = img.className || '';
+    fallback.style.cssText = [
+      'width:' + size + 'px',
+      'height:' + size + 'px',
+      'border-radius:50%',
+      'background:var(--accent-soft, rgba(255,183,3,0.15))',
+      'color:var(--accent, #FFB703)',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'font-weight:700',
+      'font-size:' + Math.floor(size * 0.45) + 'px',
+      'flex-shrink:0',
+      'object-fit:cover',
+    ].join(';') + ';';
+
+    fallback.textContent = letter;
+
+    // Скрываем оригинальный img и вставляем fallback рядом
+    img.style.display = 'none';
+    img.insertAdjacentElement('afterend', fallback);
+  }, true); // capture=true — ловит errors на всех img до bubbling
+})();
+</script>
