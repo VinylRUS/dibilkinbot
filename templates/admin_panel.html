@@ -147,6 +147,18 @@
   <main class="container">
     <h2>Админ-панель</h2>
 
+    {# v3.3: Self-update section (для BotHost где git не работает) #}
+    <div style="background: var(--content-bg); border: 1px solid var(--content-border); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 200px;">
+        <div style="font-size: 0.85rem; color: var(--text-muted);">Текущая версия:</div>
+        <div style="font-weight: 700; color: var(--accent);">{{ current_version | default('?') }} ({{ current_commit | default('?') }})</div>
+      </div>
+      <button id="self-update-btn" class="btn-primary" style="padding: 8px 20px; font-size: 0.9rem;">
+        🔄 Обновить с GitHub
+      </button>
+      <div id="self-update-status" style="font-size: 0.82rem; flex: 1; min-width: 200px;"></div>
+    </div>
+
     <div class="admin-tabs">
       <a class="admin-tab {% if active_tab == 'users' %}active{% endif %}" href="/adminpanel?tab=users"><img src="/static/icons/users.png" alt="" width="16" height="16" class="ui-icon"> Юзеры</a>
       <a class="admin-tab {% if active_tab == 'tokens' %}active{% endif %}" href="/adminpanel?tab=tokens"><img src="/static/icons/key.png" alt="" width="16" height="16" class="ui-icon"> Токены</a>
@@ -313,6 +325,38 @@
   </main>
 
   <script>
+    // v3.3: Self-update — скачивает zip с GitHub main, заменяет файлы
+    const updateBtn = document.getElementById('self-update-btn');
+    const updateStatus = document.getElementById('self-update-status');
+    if (updateBtn) {
+      updateBtn.addEventListener('click', async () => {
+        if (!confirm('Обновить бот с GitHub main?\n\nСкачается zip архив, заменятся .py/templates/static файлы.\ndata/ и .env сохранятся.\nПосле обновления нужно перезапустить процесс на BotHost.')) return;
+        updateBtn.disabled = true;
+        updateBtn.textContent = '⏳ Скачиваем...';
+        updateStatus.style.color = 'var(--text-muted)';
+        updateStatus.textContent = 'Скачиваю zip с GitHub...';
+        try {
+          const r = await fetch('/api/admin/self_update', { method: 'POST' });
+          const data = await r.json();
+          if (data.ok) {
+            updateStatus.style.color = 'var(--green)';
+            updateStatus.innerHTML = `✅ ${data.message}<br><span style="font-size:0.75rem;">Скопировано файлов: ${data.files_copied}. Теперь нажми Restart на BotHost.</span>`;
+            updateBtn.textContent = '✅ Готово';
+          } else {
+            updateStatus.style.color = 'var(--red)';
+            updateStatus.textContent = '❌ ' + (data.error || 'Ошибка');
+            updateBtn.textContent = '🔄 Обновить с GitHub';
+            updateBtn.disabled = false;
+          }
+        } catch (e) {
+          updateStatus.style.color = 'var(--red)';
+          updateStatus.textContent = '❌ Сетевая ошибка: ' + e.message;
+          updateBtn.textContent = '🔄 Обновить с GitHub';
+          updateBtn.disabled = false;
+        }
+      });
+    }
+
     // Табы
     // (управляется через URL ?tab=X, JS не нужен — обычные ссылки)
 

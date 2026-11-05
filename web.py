@@ -960,6 +960,11 @@ async def admin_panel_page(request: Request, _user: dict = Depends(require_super
     import guild as guild_module
     guilds = await guild_module.list_guilds(approved_only=False)
 
+    # v3.3: latest commit info for self-update button
+    from deps import _get_bot_version, _get_git_commit_id
+    current_version = _get_bot_version()
+    current_commit = _get_git_commit_id()
+
     return templates.TemplateResponse(request, "admin_panel.html", {
         "user": _user,
         "users": users,
@@ -972,7 +977,124 @@ async def admin_panel_page(request: Request, _user: dict = Depends(require_super
         "guilds": guilds,
         "role_labels": db.ROLE_LABELS,
         "active_tab": request.query_params.get("tab", "users"),
+        "current_version": current_version,
+        "current_commit": current_commit,
     })
+
+
+@app.post("/api/admin/self_update")
+async def api_self_update(_user: dict = Depends(require_superuser)):
+    """v3.3: Self-update — скачивает zip с GitHub main и заменяет файлы.
+
+    Для BotHost где git не работает. Бот уже имеет httpx (используется для
+    Modrinth, GitHub monitor, Kinopoisk) — используем его для скачивания.
+
+    Сохраняет: data/, .env, bot.db, config/, __pycache__/
+    Заменяет: все .py, templates/, static/, CHANGELOG.md, и т.д.
+
+    После обновления нужно перезапустить процесс (кнопка Restart на BotHost).
+    """
+    import httpx
+    import zipfile
+    import tempfile
+    import shutil
+    import os
+
+    GITHUB_ZIP_URL = "https://github.com/VinylRUS/dibilkinbot/archive/refs/heads/main.zip"
+
+    try:
+        # 1. Download zip from GitHub
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+            r = await client.get(GITHUB_ZIP_URL)
+        if r.status_code != 200:
+            return JSONResponse(
+                {"ok": False, "error": f"GitHub returned HTTP {r.status_code}"},
+                status_code=502,
+            )
+
+        # 2. Save to temp file
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp.write(r.content)
+            tmp_path = tmp.name
+
+        try:
+            # 3. Extract to temp directory
+            extract_dir = tempfile.mkdtemp()
+            with zipfile.ZipFile(tmp_path, 'r') as zf:
+                zf.extractall(extract_dir)
+
+            # GitHub zip has a top-level dir like "dibilkinbot-main/"
+            entries = os.listdir(extract_dir)
+            if len(entries) == 1 and os.path.isdir(os.path.join(extract_dir, entries[0])):
+                source_dir = os.path.join(extract_dir, entries[0])
+            else:
+                source_dir = extract_dir
+
+            # 4. Current directory (where the bot runs)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+
+            # 5. Files/dirs to PRESERVE (don't overwrite)
+            preserve = {
+                'data', '.git', 'config', '__pycache__', '.env',
+                'bot.db', '.env.example', '.gitignore', '.dockerignore',
+                '.github',  # GitHub Actions workflows
+            }
+
+            # 6. Copy new files over current ones
+            copied = 0
+            skipped = []
+            for item in os.listdir(source_dir):
+                if item in preserve:
+                    skipped.append(item)
+                    continue
+                src = os.path.join(source_dir, item)
+                dst = os.path.join(current_dir, item)
+                try:
+                    if os.path.isdir(src):
+                        if os.path.exists(dst):
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+                    copied += 1
+                except Exception as e:
+                    skipped.append(f"{item} (error: {e})")
+
+            # 7. Get new version from downloaded CHANGELOG
+            new_changelog = os.path.join(source_dir, "CHANGELOG.md")
+            new_version = "?"
+            try:
+                with open(new_changelog) as f:
+                    for line in f:
+                        if line.startswith("## v"):
+                            new_version = line.strip().split()[0]
+                            break
+            except Exception:
+                pass
+
+            import logging
+            logging.getLogger("deploy").info(
+                "Self-update: %d files copied, %d skipped, new version=%s",
+                copied, len(skipped), new_version,
+            )
+
+            return JSONResponse({
+                "ok": True,
+                "message": f"Обновлено {copied} файлов. Версия: {new_version}. "
+                           f"Перезапустите процесс на BotHost чтобы применить.",
+                "files_copied": copied,
+                "skipped": skipped,
+                "new_version": new_version,
+            })
+        finally:
+            os.unlink(tmp_path)
+            shutil.rmtree(extract_dir, ignore_errors=True)
+
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": f"Update failed: {e}"},
+            status_code=500,
+        )
 
 
 @app.post("/api/admin/add_user")
