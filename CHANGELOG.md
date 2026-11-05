@@ -1,5 +1,17 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.2.0 (0000000)
+
+#ИСПРАВЛЕНО#
+- Аватарки: некоторые аватарки юзеров не грузились — Discord CDN возвращал «Invalid resource» (юзер сменил аватар, удалил аккаунт, Discord ротировал hash). Добавлен глобальный JS fallback в `_footer.html`: при ошибке загрузки `<img>` заменяется на цветной кружок с инициалом юзера. Работает на всех страницах без правки шаблонов.
+- /users панель: показывала удалённых из Discord-сервера юзеров. Не было `on_member_remove` handler, `list_users()` возвращала всех из БД. Добавлена `left_at` колонка + cleanup pass на старте бота. По умолчанию /users показывает только активных. Кнопка «👻 Показать покинувших» для отображения всех.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- _footer.html: глобальный JS avatar fallback (event delegation на capture phase)
+- db.py: миграция `left_at TEXT` + `mark_user_left()` + `clear_user_left()` + `list_users(include_left=False)`
+- bot.py: `on_member_remove` handler + cleanup pass в `_auto_create_member_profiles`
+- templates/users.html: toggle кнопка show_left + ghost badge + alt атрибуты
+
 ## v3.1.5 (0000000)
 
 #НОВЫЕ_ФИЧИ#
