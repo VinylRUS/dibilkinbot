@@ -1,5 +1,36 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.4.3 (0000000)
+
+#ИСПРАВЛЕНО#
+- Аватарки: endpoint `/avatars/{discord_id}` падал с `NameError: FileResponse not defined` — `FileResponse` не был импортирован в начале `web.py`. Все аватарки возвращали 500 ошибку.
+- Слайдеры фич: после v3.4.2 toggle switch стал `<label>` и унаследовал `flex: 1` от `.feature-row label` → слайдер занимал пол-экрана. Фикс: `flex: 1` только для первого дочернего `<label>`, toggle-switch получает `flex-shrink: 0`.
+
+## v3.4.2 (0000000)
+
+#ИСПРАВЛЕНО#
+- Слайдеры фич: toggle не реагировал на клик. Был `<div class="toggle-switch">` с невидимым `<input>` — клик по слайдеру не доходил до чекбокса. Изменено на `<label class="toggle-switch" for="...">` — клик по слайдеру или тексту фичи переключает чекбокс.
+
+## v3.4.1 (0000000)
+
+#ИСПРАВЛЕНО#
+- **КРИТИЧЕСКИЙ ФИКС**: `upsert_user(avatar_url=new_url)` вызывался с только `avatar_url` (из `on_user_update` и `refresh_all_avatars`). SQL делал `username = excluded.username` без `COALESCE` → перезаписывал username и display_name на `None`. Все ники юзеров стали «None». Фикс: `COALESCE(excluded.username, users.username)` — если параметр None, сохраняется старое значение. Также `_auto_create_member_profiles` теперь ВСЕГДА вызывает `upsert_user` (не только для новых) → восстановит None'd ники при рестарте.
+
+## v3.4.0 (0000000)
+
+#НОВЫЕ_ФИЧИ#
+- Локальный кэш аватарок: бот скачивает аватарки с Discord CDN при запуске, хранит в `/app/data/avatars/{discord_id}.png`, раздаёт через `GET /avatars/{discord_id}`. Шаблоны используют `{{ avatar_url(discord_id) }}` вместо прямого CDN URL. 3 уровня fallback: кэшированный PNG → download с Discord → SVG letter avatar. `on_user_update` handler перекеширует при смене аватара юзером.
+
+## v3.3.0 (0000000)
+
+#НОВЫЕ_ФИЧИ#
+- Self-update через HTTP: кнопка «🔄 Обновить с GitHub» на `/adminpanel`. Бот скачивает zip с GitHub main, распаковывает, заменяет файлы (сохраняет `data/`, `.env`, `bot.db`). Для BotHost где git не работает.
+
+## v3.2.1 (0000000)
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- CHANGELOG: добавлена пропущенная v3.2.0 запись.
+
 ## v3.2.0 (0000000)
 
 #ИСПРАВЛЕНО#
