@@ -1,5 +1,16 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.5.0 (0000000)
+
+#НОВЫЕ_ФИЧИ#
+- Performance monitor: фоновый цикл каждые 5 минут проверяет HTTP latency (login page, static CSS), DB query timing, Discord connection status. При проблемах — TG-уведомление Матке. Тихо когда всё ОК. Recovery-нотификация при восстановлении. Cooldown 15 мин на каждый тип алерта (не спамит).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- perf_monitor.py (новый, ~200 строк): _check_internal_http(), _check_db(), _check_discord(), _send_tg_alert(), _run_perf_check(), perf_monitor_loop()
+- bot.py: _spawn_background_task(perf_monitor.perf_monitor_loop(port=settings.port))
+- Thresholds: HTTP > 2s — WARNING, > 5s — CRITICAL. 5xx — CRITICAL. Discord disconnected — CRITICAL. DB > 1s — WARNING. Cooldown: 15 min per alert type. Recovery notification when problem resolves.
+- Checks: localhost:{port}/login (HTTP 200 expected), localhost:{port}/static/style.css (HTTP 200), DB SELECT COUNT(*) FROM users (timing), bot.is_ready() + bot.is_closed() + bot.latency (Discord status)
+
 ## v3.4.3 (0000000)
 
 #ИСПРАВЛЕНО#

@@ -535,6 +535,17 @@ class KinovecherBot(commands.Bot):
         except Exception as e:
             log.warning("Avatar refresh failed to start: %s", e)
 
+        # === v3.5: Performance monitor — checks every 5 min, TG alerts on problems ===
+        try:
+            import perf_monitor
+            from config import settings as _cfg
+            _spawn_background_task(
+                perf_monitor.perf_monitor_loop(port=_cfg.port),
+                name="perf_monitor"
+            )
+        except Exception as e:
+            log.warning("Perf monitor failed to start: %s", e)
+
         # === v2.3: Периодическая проверка авто-ачивок (раз в 30 минут) ===
         _spawn_background_task(_auto_achievements_loop(), name="auto_achievements")
 
