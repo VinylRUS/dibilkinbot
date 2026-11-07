@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -119,7 +119,6 @@ async def serve_cached_avatar(discord_id: int):
     - User not in DB
     - User has no avatar_url stored"""
     import avatar_cache
-    from fastapi.responses import Response
 
     # 1. Check if cached file exists
     path = avatar_cache.get_avatar_path(discord_id)
@@ -175,7 +174,7 @@ except Exception as _e:
 async def _serve_custom_icon(filename: str):
     """v2.1.0: Fallback-роут для раздачи custom_*.png из /app/data/icons,
     если symlink не сработал (Windows-хосты без прав)."""
-    from fastapi.responses import FileResponse
+    # FileResponse импортирован в начале файла (v3.4.2)
     # Защита от path traversal
     if ".." in filename or "/" in filename:
         return JSONResponse({"error": "invalid filename"}, status_code=400)

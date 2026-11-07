@@ -120,8 +120,8 @@
     /* Фичи */
     .feature-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
     .feature-row:last-child { border-bottom: none; }
-    .feature-row label { flex: 1; color: var(--text); font-size: 0.85rem; }
-    .toggle-switch { position: relative; width: 44px; height: 24px; cursor: pointer; display: inline-block; }
+    .feature-row > label:first-child { flex: 1; color: var(--text); font-size: 0.85rem; }
+    .toggle-switch { position: relative; width: 44px; height: 24px; cursor: pointer; display: inline-block; flex-shrink: 0; }
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
     .toggle-slider {
       position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
