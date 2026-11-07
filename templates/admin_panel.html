@@ -121,7 +121,7 @@
     .feature-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
     .feature-row:last-child { border-bottom: none; }
     .feature-row label { flex: 1; color: var(--text); font-size: 0.85rem; }
-    .toggle-switch { position: relative; width: 44px; height: 24px; }
+    .toggle-switch { position: relative; width: 44px; height: 24px; cursor: pointer; display: inline-block; }
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
     .toggle-slider {
       position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
@@ -287,11 +287,11 @@
       <form method="post" action="/features">
         {% for key, label, default in features %}
         <div class="feature-row">
-          <label>{{ label }}</label>
-          <div class="toggle-switch">
-            <input type="checkbox" name="{{ key }}" {% if feature_values.get(key) == '1' %}checked{% endif %}>
+          <label for="feat-{{ key }}">{{ label }}</label>
+          <label class="toggle-switch" for="feat-{{ key }}">
+            <input type="checkbox" id="feat-{{ key }}" name="{{ key }}" {% if feature_values.get(key) == '1' %}checked{% endif %}>
             <span class="toggle-slider"></span>
-          </div>
+          </label>
         </div>
         {% endfor %}
         <button type="submit" class="btn-primary" style="margin-top:8px;"><img src="/static/icons/check.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
