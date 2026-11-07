@@ -2067,22 +2067,23 @@ async def _auto_create_member_profiles():
                 continue
             current_member_ids.add(member.id)
             try:
-                existing = await db.get_user(member.id)
-                if not existing:
-                    await db.upsert_user(
-                        member.id,
-                        username=str(member),
-                        display_name=member.display_name,
-                        avatar_url=str(member.display_avatar.url) if member.display_avatar else None,
-                        roles=[r.name for r in member.roles if r.name != "@everyone"],
-                        top_role=member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None,
-                        guild_name=guild.name,
-                    )
-                    total += 1
+                # v3.4.1: ALWAYS call upsert_user (not just for new users)
+                # This refreshes username/display_name/avatar_url from Discord
+                # Fixes the bug where upsert_user with partial params None'd them
+                await db.upsert_user(
+                    member.id,
+                    username=str(member),
+                    display_name=member.display_name,
+                    avatar_url=str(member.display_avatar.url) if member.display_avatar else None,
+                    roles=[r.name for r in member.roles if r.name != "@everyone"],
+                    top_role=member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None,
+                    guild_name=guild.name,
+                )
+                total += 1
             except Exception as e:
-                log.warning("Auto-create profile failed for %s: %s", member.id, e)
+                log.warning("Auto-create/update profile failed for %s: %s", member.id, e)
     if total > 0:
-        log.info("v2.0: Auto-created %d member profiles", total)
+        log.info("v2.0: Auto-created/updated %d member profiles", total)
 
     # 2. v3.2: Cleanup — помечаем left_at для юзеров которые покинули сервер
     # но ещё есть в БД с left_at IS NULL. upsert_user уже очистит left_at

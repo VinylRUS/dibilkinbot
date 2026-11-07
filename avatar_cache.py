@@ -162,11 +162,10 @@ async def refresh_all_avatars() -> int:
             try:
                 avatar_url = str(member.display_avatar.url) if member.display_avatar else None
                 if avatar_url:
-                    # Also update the stored URL in DB (might have changed)
-                    await db.upsert_user(
-                        member.id,
-                        avatar_url=avatar_url,
-                    )
+                    # v3.4.1: Don't call upsert_user here — it was causing
+                    # username/display_name to be None'd (before the COALESCE fix).
+                    # Avatar URL is already updated by _auto_create_member_profiles
+                    # which runs on the same startup. We just download the file.
                     ok = await download_avatar(member.id, avatar_url)
                     if ok:
                         count += 1
