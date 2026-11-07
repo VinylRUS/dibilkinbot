@@ -51,6 +51,8 @@ app = FastAPI(title="Kinovecher Panel", docs_url=None, redoc_url=None, openapi_u
 templates.env.globals['bot_version'] = _get_bot_version()
 templates.env.globals['commit_id'] = _get_git_commit_id()
 templates.env.globals['bot_version_with_commit'] = f"{_get_bot_version()}({_get_git_commit_id()})"
+# v3.4: avatar_url function for templates — serves from local cache
+templates.env.globals['avatar_url'] = lambda discord_id: f"/avatars/{int(discord_id)}" if discord_id else "/static/icons/user.png"
 
 
 # v2.0.4: Глобальный handler для 422 — FastAPI по умолчанию возвращает {detail: [{loc, msg, type, ...}]}
@@ -105,6 +107,45 @@ _cached_bot_version: str | None = None
 # Используется /api/wheel/result для валидации и fallback-таймером.
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# v3.4: Avatar proxy — serves cached Discord avatars from local storage.
+# Templates use {{ avatar_url(discord_id) }} which returns /avatars/{id}.
+# If not cached → downloads from Discord CDN → caches → serves.
+# If download fails → serves SVG letter avatar fallback.
+@app.get("/avatars/{discord_id}")
+async def serve_cached_avatar(discord_id: int):
+    """Serve avatar from local cache. Falls back to SVG letter avatar if:
+    - Avatar not cached and can't be downloaded (404, network error)
+    - User not in DB
+    - User has no avatar_url stored"""
+    import avatar_cache
+    from fastapi.responses import Response
+
+    # 1. Check if cached file exists
+    path = avatar_cache.get_avatar_path(discord_id)
+    if path.exists() and path.stat().st_size > 100:
+        return FileResponse(str(path), media_type="image/png")
+
+    # 2. Not cached — try to download from Discord (via stored URL in DB)
+    cached = await avatar_cache.ensure_cached(discord_id)
+    if cached:
+        # Download succeeded — serve the cached file
+        if path.exists() and path.stat().st_size > 100:
+            return FileResponse(str(path), media_type="image/png")
+
+    # 3. Download failed — serve SVG letter avatar
+    # Get user's name for the initial letter
+    name = ""
+    try:
+        user = await db.get_user(discord_id)
+        if user:
+            name = user[2] or user[1] or ""  # display_name or username
+    except Exception:
+        pass
+
+    svg = avatar_cache.generate_letter_avatar_svg(name, discord_id)
+    return Response(content=svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=300"})  # 5 min cache for fallback
 
 # v2.1.0: C3 fix — custom_*.png иконки ачивок сохраняем в /app/data/icons
 # (персистентный путь, переживает redeploy Docker-образа). Создаём symlink

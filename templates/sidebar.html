@@ -127,11 +127,7 @@
     {% if user.discord_id %}
     <a href="/u/{{ user.discord_id }}" class="sb-user" style="text-decoration:none; color:inherit;" title="Мой профиль">
       <div class="sb-user-avatar">
-        {% if user.avatar_url %}
-          <img src="{{ user.avatar_url }}" alt="{{ user.username or user.display_name or '' }}" data-name="{{ user.username or user.display_name or '' }}">
-        {% else %}
-          👤
-        {% endif %}
+        <img src="{{ avatar_url(user.discord_id) }}" alt="{{ user.username or user.display_name or '' }}" data-name="{{ user.username or user.display_name or '' }}">
       </div>
     </a>
     {% endif %}
@@ -473,7 +469,7 @@ window.showRatingsModal = function(winnerId, filmTitle) {
         const name = r.display_name || r.username || 'User#' + r.user_discord_id;
         const initials = (name || '?')[0].toUpperCase();
         const avatar = r.avatar_url
-          ? `<img src="${r.avatar_url}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">`
+          ? `<img src="/avatars/${r.discord_id}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">`
           : `<div style="width:36px;height:36px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;">${initials}</div>`;
         return `
           <a href="/u/${r.user_discord_id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;">

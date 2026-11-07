@@ -528,6 +528,13 @@ class KinovecherBot(commands.Bot):
         # === Запуск cron-задачи: еженедельный бэкап БД в Telegram ===
         _spawn_background_task(_db_backup_loop(), name="db_backup")
 
+        # === v3.4: Refresh avatar cache (download fresh avatars from Discord) ===
+        try:
+            import avatar_cache
+            _spawn_background_task(avatar_cache.refresh_all_avatars(), name="avatar_refresh")
+        except Exception as e:
+            log.warning("Avatar refresh failed to start: %s", e)
+
         # === v2.3: Периодическая проверка авто-ачивок (раз в 30 минут) ===
         _spawn_background_task(_auto_achievements_loop(), name="auto_achievements")
 
@@ -606,6 +613,21 @@ class KinovecherBot(commands.Bot):
                 log.info("User left guild: %s (id=%s) — marked as left_at", member, member.id)
         except Exception as e:
             log.warning("Failed to mark user %s as left: %s", member.id, e)
+
+    async def on_user_update(self, before, after):
+        """v3.4: Вызывается когда юзер меняет профиль (аватар, имя и т.д.).
+        Если сменил аватар — обновляем URL в БД + перекешируем локально."""
+        try:
+            if before.avatar != after.avatar:
+                # Аватар изменился — обновляем URL в БД
+                new_url = str(after.display_avatar.url) if after.display_avatar else None
+                await db.upsert_user(after.id, avatar_url=new_url)
+                # Перекешируем локальную аватарку
+                import avatar_cache
+                await avatar_cache.refresh_avatar(after.id, new_url)
+                log.info("User %s changed avatar — cached new version", after.id)
+        except Exception as e:
+            log.warning("on_user_update avatar refresh failed for %s: %s", after.id, e)
 
     async def on_message(self, message: discord.Message) -> None:
         """Авто-захват цитат: если сообщение в канале #цитатник от человека —

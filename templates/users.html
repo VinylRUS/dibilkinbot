@@ -97,11 +97,8 @@
           <tr{% if left_at %} style="opacity: 0.5;"{% endif %}>
             <td>
               <a href="/u/{{ discord_id }}" class="user-row" style="border-bottom:none; padding:0; text-decoration:none; color:inherit;">
-                {% if avatar_url %}
-                  <img src="{{ avatar_url }}" alt="{{ display_name or username or '' }}" class="avatar">
-                {% else %}
-                  <div class="avatar-placeholder">{{ (display_name or username or '?')[0]|upper }}</div>
-                {% endif %}
+                <img src="{{ avatar_url(discord_id) }}" alt="{{ display_name or username or '' }}" class="avatar">
+
                 <div class="user-info">
                   <div class="user-name">{{ display_name or username or '—' }}
                     {% if left_at %}<span class="badge" style="background: var(--text-muted); color: #fff; font-size: 0.65rem; padding: 1px 6px;">👻 покинул</span>{% endif %}
