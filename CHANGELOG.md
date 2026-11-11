@@ -1,5 +1,53 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.9.0 (0000000) — Тур по вебпанели (Driver.js)
+
+#НОВЫЕ_ФИЧИ#
+- **Тур по вебпанели для новых юзеров** — при первом входе на дашборд показывается welcome banner с pulsing border + анимированной пчелой 🐝. Кнопка «Посмотреть тур» запускает пошаговый wizard (Driver.js) с подсветкой ключевых элементов sidebar. Кнопка «Больше не показывать» — навсегда убирает баннер (localStorage). Кнопка × — скрывает на текущую сессию (вернётся при reload).
+- **6 шагов тура** (для обычного юзера): приветствие → Киновечер → Колесо → Ачивки (bell) → Профиль (через аватарку в sidebar) → финал. Для админов добавляется шаг «Каналы», для Матки — «Юзеры».
+- **Pulsing arrow hint** — если юзер скроллит вниз и баннер уходит из viewport, сверху появляется анимированная стрелка ⬆ указывающая где он.
+- **Skip в любой момент** — ESC или клик по overlay завершает тур. Progress indicator показывает сколько шагов осталось.
+- **Mobile gate** — на мобиле (< 768px) баннер не показывается (через CSS media query).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- **Driver.js 1.3.1** (20KB JS + 4KB CSS) — скачан локально в `static/vendor/driver.min.js` + `driver.min.css`. Без CDN зависимости (важно для BotHost). IIFE формат.
+- **`templates/_tour_banner.html`** — новый partial include'ится в `panel.html` (только dashboard). Содержит:
+  - `<div id="tour-banner">` с pulsing border animation (`@keyframes tour-banner-pulse`).
+  - Анимированная пчела 🐝 (`@keyframes tour-bee-bounce` — translateY + rotate).
+  - Кнопки «Посмотреть тур» (primary), «Больше не показывать» (secondary), × (close).
+  - `<div id="tour-arrow-hint">` — fixed positioned arrow, показывается когда баннер вне viewport.
+  - `<link>` + `<script>` для Driver.js + tour.js.
+  - SSR блок: `const IS_SUPERUSER = {{ 'true' if user.is_superuser else 'false' }};` — передаёт роль юзера в JS.
+  - CSS media query `@media (max-width: 768px) { .tour-banner { display: none !important; } }` — mobile gate.
+- **`static/js/tour.js`** — конфигурация тура + логика показа баннера:
+  - localStorage ключ `deebeelkin_tour_dismissed_v1` — true только при «Больше не показывать».
+  - sessionStorage ключ `deebeelkin_tour_hidden_v1` — true при close (×), сбрасывается при reload.
+  - `shouldShowBanner()` — проверяет mobile + dismissed + hidden.
+  - `showBanner()` / `hideBanner()` + `checkArrowHint()` (scroll listener).
+  - `window.hideTourBannerSession` / `window.dismissTourBannerForever` / `window.startDeebeelkinTour` — exposed для inline onclick.
+  - `buildTourSteps()` — собирает шаги динамически: `.sb-item[href="/movienight"]`, `.sb-item[href="/wheel"]`, `.sb-bell`, `.sb-user-avatar`, для админов `.sb-item[href="/channels"]`, для Матки `.sb-item[href="/users"]`. Пропускает шаг если элемента нет на странице.
+  - Driver.js config: `showProgress: true`, `animate: true`, `allowClose: true` (ESC + overlay click → destroy), `smoothScroll: true`, кастомные `nextBtnText: 'Далее →'`, `prevBtnText: '← Назад'`, `doneBtnText: 'Завершить ✓'`.
+  - После завершения тура (любым способом) — баннер НЕ показывается снова в этой сессии (по требованию: только «Больше не показывать» убирает навсегда). sessionStorage не ставится — баннер вернётся при reload.
+- **Шаги тура** (role-aware):
+  1. Приветствие — `#tour-banner` — «Короткий тур, 6 шагов, ~1 минута».
+  2. Киновечер — `.sb-item[href="/movienight"]` — «Тут собирают фильмы для колеса».
+  3. Колесо — `.sb-item[href="/wheel"]` — «Случайный выбор фильма. В центре можно поставить гифку».
+  4. Ачивки — `.sb-bell` — «За активность. Колокольчик показывает сколько новых».
+  5. Профиль — `.sb-user-avatar` — «Настройки через клик на аватарку в нижнем углу sidebar. Не самое очевидное решение, зато лаконичное».
+  6. (Админ) Каналы — `.sb-item[href="/channels"]` — «ID каналов куда бот постит».
+  7. (Матка) Юзеры — `.sb-item[href="/users"]` — «Управление ролями: Пчела↔Трутень».
+- **Триггер** — баннер показывается при загрузке dashboard `/` если: не mobile, не dismissed (localStorage), не hidden (sessionStorage). После обновления до v3.9.0 — все юзеры увидят баннер (localStorage пустой). После «Больше не показывать» — не беспокоим даже после следующих обновлений (ключ `v1` — если обновим тур, сменим на `v2`).
+- tests/test_tour_banner.py (новый, 8 тестов):
+  - Dashboard рендерит tour-banner с кнопками.
+  - SSR IS_SUPERUSER/IS_ADMIN = true для conftest superuser.
+  - SSR IS_SUPERUSER/IS_ADMIN = false для обычного юзера (с восстановлением cookies).
+  - CSS media query mobile gate.
+  - dismissTourBannerForever / hideTourBannerSession функции подключены.
+  - tour-arrow-hint элемент в DOM.
+  - Driver.js vendor файлы существуют (driver.min.js > 5KB, driver.min.css > 1KB).
+  - tour.js подключается ТОЛЬКО на dashboard / — не на /wheel.
+- Все тесты: 81 passed + 1 xfailed.
+
 ## v3.8.3 (0000000) — Разделение прав: загрузка только Матка, выбор из библиотеки — все
 
 #НОВЫЕ_ФИЧИ#
