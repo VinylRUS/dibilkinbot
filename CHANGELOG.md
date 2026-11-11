@@ -34,6 +34,7 @@
 - **Multi-guild**: filename = `guild_{gid}_item_{item_id}_{md5(content)[:12]}.gif` — изоляция между гильдиями, dedupe через content hash.
 - tests/test_wheel_gif.py (новый, 12 тестов): миграция колонок; upload via file (валидный GIF → 200, файлы .gif + .png создаются, DB обновлена); rejects non-GIF magic bytes (PNG); rejects too large (3MB); replace existing (старые файлы purged, новые созданы); nonexistent item → 404; DELETE success (файлы purged, DB NULL); DELETE idempotent; purge при g_remove_wheel_item; purge при g_clear_wheel; anonymize_items прокидывает gif-поля; legacy items без gif-полей не ломают anonymize_items.
 - Все тесты: 33 passed + 1 xfailed (test_wheel_integration + test_achievement_notify + test_set_user_role + test_wheel_gif).
+- **Bonus-фикс changelog_parser**: добавлен тег `#ИСПРАВЛЕНО#` → секция «Исправлено» в `TAG_TO_KEY`. Раньше этот тег молча игнорировался и записи о багфиксах (v3.4.1, v3.4.2, v3.4.3, v3.6.1) не попадали в публичный анонс в Discord (bot.py:530 уже имел эмодзи ✅ для секций со словом «испр», но секция не создавалась). Теперь пост об обновлении будет включать раздел «✅ Исправлено» с пунктами.
 
 ## v3.6.1 (0000000) — Фикс бага смены роли: Пчела↔Трутень
 
