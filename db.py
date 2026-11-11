@@ -528,6 +528,59 @@ async def g_set_hub_gif(guild_id: int, url: str | None) -> None:
     await g_set_setting(guild_id, HUB_GIF_SETTING_KEY, stripped or None)
 
 
+# === v3.8.1: Библиотека сохранённых гифок (пресеты Матки) ===
+# Хранится в guild_settings как JSON array строк (URL'ов).
+# Ключ 'hub_gif_library'. Матка может сохранить гифку при установке (галочка),
+# потом быстро выбрать из библиотеки одним кликом.
+
+HUB_GIF_LIBRARY_KEY = "hub_gif_library"
+
+
+async def g_get_hub_gif_library(guild_id: int) -> list[str]:
+    """Список сохранённых URL'ов гифок (пресеты Матки). Пустой list если нет."""
+    import json
+    raw = await g_get_setting(guild_id, HUB_GIF_LIBRARY_KEY)
+    if not raw:
+        return []
+    try:
+        arr = json.loads(raw)
+        if isinstance(arr, list):
+            return [str(u) for u in arr if isinstance(u, str) and u.strip()]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return []
+
+
+async def g_add_hub_gif_to_library(guild_id: int, url: str) -> list[str]:
+    """Добавить URL в библиотеку (если уже есть — no-op). Возвращает обновлённый список."""
+    import json
+    url = (url or "").strip()
+    if not url:
+        return await g_get_hub_gif_library(guild_id)
+    library = await g_get_hub_gif_library(guild_id)
+    if url not in library:
+        library.append(url)
+        await g_set_setting(guild_id, HUB_GIF_LIBRARY_KEY, json.dumps(library, ensure_ascii=False))
+    return library
+
+
+async def g_remove_hub_gif_from_library(guild_id: int, url: str) -> list[str]:
+    """Удалить URL из библиотеки. No-op если нет. Возвращает обновлённый список."""
+    import json
+    url = (url or "").strip()
+    if not url:
+        return await g_get_hub_gif_library(guild_id)
+    library = await g_get_hub_gif_library(guild_id)
+    if url in library:
+        library = [u for u in library if u != url]
+        if library:
+            await g_set_setting(guild_id, HUB_GIF_LIBRARY_KEY, json.dumps(library, ensure_ascii=False))
+        else:
+            # Если библиотека пустая — удаляем ключ целиком
+            await g_set_setting(guild_id, HUB_GIF_LIBRARY_KEY, None)
+    return library
+
+
 async def g_list_settings(guild_id: int) -> list[tuple]:
     """List all per-guild settings (key, value, is_secret)."""
     if not _guild:

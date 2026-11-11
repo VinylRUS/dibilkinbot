@@ -382,6 +382,7 @@ async def api_get_hub_gif(_user: dict = Depends(require_user)):
 async def api_set_hub_gif(
     _user: dict = Depends(require_superuser),
     url: str = Form(""),
+    save_to_library: bool = Form(False),
 ):
     """v3.8.0: Установить URL центральной GIF колеса (только Матка).
 
@@ -390,6 +391,9 @@ async def api_set_hub_gif(
     После UPDATE — broadcast всем WS-клиентам гильдии (hub_gif_changed event),
     они обновляют <img> поверх canvas. Синхронизация мгновенная — даже те кто
     сейчас в SPINNING получат обновление, потому что <img> не зависит от canvas redraw.
+
+    v3.8.1: save_to_library=True → дополнительно сохранить URL в библиотеку пресетов.
+    Библиотека доступна всем юзерам для просмотра, но управлять может только Матка.
     """
     guild_id = get_current_guild_id(_user)
     url = (url or "").strip()
@@ -412,12 +416,76 @@ async def api_set_hub_gif(
     # Сохраняем (пустой URL → g_set_hub_gif делегирует в g_set_setting с None → DELETE)
     await db.g_set_hub_gif(guild_id, url or None)
 
+    # v3.8.1: опционально сохранить в библиотеку
+    library = None
+    if url and save_to_library:
+        library = await db.g_add_hub_gif_to_library(guild_id, url)
+
     # Broadcast всем WS-клиентам гильдии
     await ws_manager.broadcast_hub_gif_changed(int(guild_id), url or None)
 
-    _log.info("v3.8.0: hub_gif set in guild %s by user %s → %r",
-              guild_id, _user.get("discord_id"), url or None)
-    return JSONResponse({"ok": True, "url": url or None})
+    _log.info("v3.8.0: hub_gif set in guild %s by user %s → %r (save_to_library=%s)",
+              guild_id, _user.get("discord_id"), url or None, save_to_library)
+    response = {"ok": True, "url": url or None}
+    if library is not None:
+        response["library"] = library
+    return JSONResponse(response)
+
+
+@router.get("/api/wheel/hub_gif/library")
+async def api_get_hub_gif_library(_user: dict = Depends(require_user)):
+    """v3.8.1: Список сохранённых гифок (библиотека пресетов). Видят все залогиненные.
+
+    Возвращает {"urls": ["url1", "url2", ...]}. Пустой список если библиотека пуста.
+    """
+    guild_id = get_current_guild_id(_user)
+    urls = await db.g_get_hub_gif_library(guild_id)
+    return JSONResponse({"urls": urls})
+
+
+@router.post("/api/wheel/hub_gif/library")
+async def api_add_to_hub_gif_library(
+    _user: dict = Depends(require_superuser),
+    url: str = Form(...),
+):
+    """v3.8.1: Добавить URL в библиотеку (только Матка). Дедуплицирует."""
+    guild_id = get_current_guild_id(_user)
+    url = (url or "").strip()
+    if not url:
+        return JSONResponse({"error": "url required"}, status_code=400)
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return JSONResponse(
+            {"error": f"URL scheme must be http or https (got {parsed.scheme!r})"},
+            status_code=400,
+        )
+    if not parsed.netloc:
+        return JSONResponse({"error": "URL missing host"}, status_code=400)
+    if len(url) > 2048:
+        return JSONResponse({"error": "URL too long (max 2048 chars)"}, status_code=400)
+    library = await db.g_add_hub_gif_to_library(guild_id, url)
+    _log.info("v3.8.1: added %r to hub_gif_library in guild %s", url, guild_id)
+    return JSONResponse({"ok": True, "urls": library})
+
+
+@router.delete("/api/wheel/hub_gif/library")
+async def api_remove_from_hub_gif_library(
+    _user: dict = Depends(require_superuser),
+    url: str = "",
+):
+    """v3.8.1: Удалить URL из библиотеки (только Матка). No-op если нет.
+
+    URL передаётся как query-параметр (HTTP DELETE не имеет body в стандарте):
+    DELETE /api/wheel/hub_gif/library?url=https://...
+    """
+    guild_id = get_current_guild_id(_user)
+    url = (url or "").strip()
+    if not url:
+        return JSONResponse({"error": "url query param required"}, status_code=400)
+    library = await db.g_remove_hub_gif_from_library(guild_id, url)
+    _log.info("v3.8.1: removed %r from hub_gif_library in guild %s", url, guild_id)
+    return JSONResponse({"ok": True, "urls": library})
 
 
 @router.post("/api/wheel/clear")
