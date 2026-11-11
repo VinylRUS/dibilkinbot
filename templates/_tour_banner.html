@@ -16,6 +16,7 @@
     margin: 0 0 12px;
     display: flex;
     align-items: center;
+    justify-content: center;  /* v3.9.0: кнопки по центру по горизонтали */
     gap: 10px;
     flex-wrap: nowrap;
     box-shadow: 0 0 16px rgba(255,183,3,0.18);
@@ -43,7 +44,7 @@
     50% { transform: translateY(-2px) rotate(3deg); }
   }
   .tour-banner-content {
-    flex: 1;
+    flex: 0 1 auto;  /* v3.9.0: не растягивается — кнопки центрируются */
     min-width: 0;
     display: flex;
     align-items: baseline;
