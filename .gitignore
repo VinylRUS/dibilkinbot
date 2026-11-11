@@ -9,3 +9,6 @@ __pycache__/
 
 # === Только для разработки
 *.log
+
+# v3.5.1: runtime symlink custom-иконок (создаётся web.py при импорте)
+static/icons/custom

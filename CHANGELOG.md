@@ -1,5 +1,109 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.7.0 (0000000) — Кастомные GIF на секторах колеса (только Матка)
+
+#НОВЫЕ_ФИЧИ#
+- **Кастомные GIF на секторах колеса** — Матка может загрузить GIF на любой сектор колеса (через sidebar: кнопка 📎 у каждого лота). На самом секторе в canvas рисуется PNG-постер (первый кадр GIF, извлечённый через Pillow на сервере) с cover-логикой и clip по сектору. Анимированный GIF виден в sidebar-превью рядом с цветным кружком (там он анимируется штатно через `<img>`). Это гибридное решение — анимированный GIF в canvas через `drawImage()` не проигрывается (только первый кадр), поэтому на секторе статичный PNG, в sidebar — анимация.
+- Загрузка через multipart `UploadFile` (кнопка 📎 в sidebar) или через URL (`gif_url` form-поле, httpx скачивание).
+- DELETE GIF (кнопка 🎬ⓧ в sidebar, только если GIF есть) — удаляет файлы и очищает колонки в БД.
+- Автоматический purge GIF-файлов при soft-delete лота (`g_remove_wheel_item`) и при очистке всего колеса (`g_clear_wheel`).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- **Препятствие**: анимированный GIF в `<canvas>` через `drawImage()` проигрывает только первый кадр. Чтобы GIF реально анимировался нужен клиентский декодер (libgif.js, gifuct-js). Решение — гибрид: PNG-постер на секторе (серверный через Pillow), анимированный GIF в sidebar-превью.
+- **Schema** (guild.py): `wheel_items` добавлены колонки `gif_path TEXT` и `gif_poster_path TEXT`. Для новых гильдий — в CREATE TABLE. Для существующих (до v3.7.0) — миграция `ALTER TABLE ADD COLUMN` через новый helper `_migrate_wheel_items_add_gif_columns()`, вызывается из `init_guild_tables()` идемпотентно (PRAGMA table_info + проверка).
+- **Mount** (web.py): персистентный путь `/app/data/wheel_gifs` (рядом с `bot.db`), раздаётся через fallback-роут `GET /static/wheel_gifs/{filename}` (как `static/icons/custom`). `Cache-Control: public, max-age=86400, immutable` — файлы immutable (имя содержит hash URL'а). Защита от path traversal.
+- **Endpoints** (wheel_routes.py):
+  - `POST /api/wheel/items/{item_id}/gif` — `require_superuser`. Принимает `file` (UploadFile) или `gif_url` (http(s)). Валидация: magic bytes `GIF8` (GIF87a/GIF89a), размер ≤ 2MB (для UploadFile) и ≤ 5MB при скачивании по URL. URL схема только http/https (анти-SSRF). Pillow извлекает первый кадр → PNG-постер. UPDATE в БД через новый `db.g_set_wheel_item_gif()`. Broadcast всем WS-клиентам.
+  - `DELETE /api/wheel/items/{item_id}/gif` — `require_superuser`. Purge файлов + NULL в БД. Idempotent (200 ok даже если GIF не было).
+- **db.py**:
+  - `g_list_wheel_items` — SELECT добавлены `gif_path, gif_poster_path` (8 колонок вместо 6, dict не сломан — все callers используют dict access).
+  - `g_get_wheel_item(guild_id, item_id)` — новый helper для проверки item перед upload.
+  - `g_set_wheel_item_gif(guild_id, item_id, gif_path, gif_poster_path)` — UPDATE колонок.
+  - `g_remove_wheel_item` — собирает `gif_path/gif_poster_path` ДО soft-delete, после UPDATE — purge файлов через `_purge_wheel_gif_files()` (вне БД-транзакции).
+  - `g_clear_wheel` — то же: собирает все активные items с GIF, purge после UPDATE.
+  - `_purge_wheel_gif_files(gif_path, poster_path)` — модульный helper. Извлекает filename из публичного URL `/static/wheel_gifs/...`, защита от path traversal (только basename, без `/` и `..`). Best-effort: ошибки логируются, не падают.
+- **deps.py**: `anonymize_items` прокидывает `gif_path/gif_poster_path` (опциональные поля, могут отсутствовать у старых items до миграции).
+- **Frontend (wheel.js)**:
+  - `_sectorImageCache: Map<url, HTMLImageElement>` — кеш Image объектов для постеров.
+  - `_getSectorImage(url)` — lazy preload, onload → `_sectorImageCache.set`, перерисовка когда все Image загрузились (если phase === IDLE).
+  - `setItems(newItems)` — новый helper, заменяет 4 дублирующих места в коде. Prewarm cache + renderSidebar + drawWheel.
+  - `drawWheel()`: если у item есть `gif_poster_path` и Image загружен — `ctx.clip()` по сектору + `ctx.drawImage()` с cover-логикой (scale = max(2R/img.w, 2R/img.h), centered в 0,0). Цвет сектора всегда рисуется ВНАЧАЛЕ — для прозрачности GIF-постера и fallback если Image ещё грузится. Текст лота рисуется с subtle dark shadow (`shadowBlur=4`) если есть постер — для читаемости поверх картинки.
+  - `renderSidebar()`: для каждого item рядом с цветным кружком `<img class="item-gif-preview" src=gif_path>` (анимация через `<img>`). Для Матки (IS_SUPERUSER) — `<label class="gif-upload-btn">📎<input type=file accept=image/gif>` (стилизованный file input) и кнопка `🎬ⓧ` для удаления (только если GIF есть).
+  - `uploadGif(itemId, file)` / `removeGif(itemId)` — fetch POST/DELETE на `/api/wheel/items/{id}/gif`. После ответа — `setItems(data.items)` для re-render.
+- **wheel.html**: CSS для `.item-gif-preview` (32x32 cover), `.item-gif-controls`, `.gif-upload-btn` (label-wrapped file input), `.gif-remove-btn`. JS-функции `uploadGif/removeGif` объявлены в wheel.js (не требуют inline onclick — addEventListener).
+- **Multi-guild**: filename = `guild_{gid}_item_{item_id}_{md5(content)[:12]}.gif` — изоляция между гильдиями, dedupe через content hash.
+- tests/test_wheel_gif.py (новый, 12 тестов): миграция колонок; upload via file (валидный GIF → 200, файлы .gif + .png создаются, DB обновлена); rejects non-GIF magic bytes (PNG); rejects too large (3MB); replace existing (старые файлы purged, новые созданы); nonexistent item → 404; DELETE success (файлы purged, DB NULL); DELETE idempotent; purge при g_remove_wheel_item; purge при g_clear_wheel; anonymize_items прокидывает gif-поля; legacy items без gif-полей не ломают anonymize_items.
+- Все тесты: 33 passed + 1 xfailed (test_wheel_integration + test_achievement_notify + test_set_user_role + test_wheel_gif).
+- **Bonus-фикс changelog_parser**: добавлен тег `#ИСПРАВЛЕНО#` → секция «Исправлено» в `TAG_TO_KEY`. Раньше этот тег молча игнорировался и записи о багфиксах (v3.4.1, v3.4.2, v3.4.3, v3.6.1) не попадали в публичный анонс в Discord (bot.py:530 уже имел эмодзи ✅ для секций со словом «испр», но секция не создавалась). Теперь пост об обновлении будет включать раздел «✅ Исправлено» с пунктами.
+
+## v3.6.1 (0000000) — Фикс бага смены роли: Пчела↔Трутень
+
+#ИСПРАВЛЕНО#
+- **Корневой баг**: «Смена роли работает Пчела→Трутень, но обратно Трутень→Пчела — нет».
+  Причина оказалась не в SQL и не в unpacking (10-tuple db.list_users ↔ users.html:96
+  идеально совпадают), а в **silent-fail**: `db.set_user_role()` возвращал `False`
+  при попытке изменить env-admin'а (если `ADMIN_DISCORD_ID` или числовой `ADMIN_LOGIN`
+  в проде = ID этого Трутня), но endpoints `/users/{id}/admin` и `/api/admin/set_role`
+  игнорировали возвращаемое значение и писали «Изменения сохранены». Юзер видел
+  «сохранено», но в БД ничего не менялось → dropdown возвращался на «Трутень» при
+  следующей отрисовке.
+- `db.set_user_role` (db.py:775): при отказе теперь логирует конкретную причину
+  (env-admin via ADMIN_DISCORD_ID, env-admin via numeric ADMIN_LOGIN, invalid role,
+  user not in DB) с WARNING уровнем. Раньше было молча — баг был невидим в логах.
+- `web.toggle_admin` (POST /users/{id}/admin): использует возвращаемое значение
+  `set_user_role`. При `False` — RedirectResponse на `/users?error=role_change_failed`
+  вместо ложного `?saved=1`.
+- `web.api_admin_set_role` (POST /api/admin/set_role): при `False` возвращает
+  JSONResponse `{"error": "..."}` со статусом 400 (раньше всегда `{"ok": True}`).
+  Сообщение об ошибке env-admin расширено: «Нельзя понизить env-админа (управляется
+  через ADMIN_DISCORD_ID в env)».
+- `templates/users.html`: показывается красный alert на `?error=role_change_failed`
+  с конкретными возможными причинами (env-admin, юзер не в БД) и подсказкой смотреть
+  логи db (`set_user_role(...): rejected`).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- Воспроизведение на бэкапе БД (bot_2026-11-08.db, 17 юзеров: 1 superuser + 2
+  junior-admin + 14 user): SQL `UPDATE users SET role='user', is_admin=0` для
+  junior-admin срабатывает rowcount=1 в обе стороны. Значит баг не в SQL.
+- Проверены и ОПРОВЕРГНУТЫ другие гипотезы:
+  * list_users() unpacking ≠ users.html — совпадает 10↔10 колонок (db.py:808 ↔ users.html:96)
+  * Cache-Control HTML missing — уже стоит no-store middleware (web.py:84-95)
+  * upsert_user / `_auto_create_member_profiles` перезаписывают role — НЕ трогают role
+  * on_member_update / on_user_update — не трогают role
+- tests/test_set_user_role.py (новый, 7 тестов): invalid role → False;
+  env_admin via ADMIN_DISCORD_ID blocks; env_admin via numeric ADMIN_LOGIN blocks;
+  promotion user→junior-admin works; **demotion junior-admin→user works** (регрессия
+  бага); nonexistent user → False; env-admin rejection логируется с упоминанием
+  ID и 'env-admin' в логгере db (caplog проверка).
+- Все тесты: 21 passed + 1 xfailed (test_wheel_integration.py + test_achievement_notify.py
+  не тронуты).
+
+## v3.6.0 (0000000) — Ачивки → отдельный Discord-канал
+
+#НОВЫЕ_ФИЧИ#
+- Ачивки теперь постятся в отдельный Discord-канал: при выдаче (авто через `g_check_and_grant_auto` или вручную через `POST /api/achievements/{id}/grant`) бот шлёт embed с названием, описанием, юзером и временем. Иконка ачивки (если custom `icon_url`) ставится как thumbnail.
+- Новый settings-ключ `channel_achievements_id` — ID канала для анонсов. Конфигурируется на `/channels` (только Матка). Если пусто — бот молчит, ачивки видны только в bell-бейдже веб-панели (как раньше).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- `bot.py`: новый helper `notify_achievement_granted(guild_id, user_discord_id, ach) -> bool` рядом с `assign_role_to_member`/`remove_role_from_member`. Паттерн 1:1 с существующими — `_bot_running` check, `_get_bot()`, `db.get_setting("channel_achievements_id")`. Канал берётся из кеша (`bot.get_channel`), при промахе — `fetch_channel`. Embed: цвет `0xFFB703` (медовый янтарь), поля «Кому» (display_name или `<@id>`) + «Когда» (UTC). Все ошибки (`NotFound`, `Forbidden`, `HTTPException`) глушатся и логируются — ачивка остаётся выданной в БД.
+- `db.py:g_check_and_grant_auto` (~строка 2889): после `granted.append({...})` и блока выдачи Discord-роли добавлен вызов `bot_module.notify_achievement_granted(...)`. Дедупликация НЕ нужна — выше (стр.~2861) уже проверено `SELECT 1 FROM user_achievements WHERE is_active=1`, значит `g_grant_achievement` реально делает INSERT (а не INSERT OR IGNORE-пропуск).
+- `achievements_routes.py:api_grant_achievement`: перед `g_grant_achievement` добавлена проверка `db.g_has_achievement(...)` — флаг `already_active`. Notify срабатывает только если `not already_active`, то есть ручная выдача существующей ачивки не дублирует анонс в канал. В ответ добавлено поле `ach_notified: bool` (как `role_assigned`).
+- `web.py:KNOWN_CHANNELS`: добавлена запись `("channel_achievements_id", "ID канала для анонсов ачивок (куда постить выдачи достижений)")`. В `channels_save` добавлен Form-параметр и запись в `updates` dict — паттерн 1:1 с другими каналами.
+- `templates/channels.html`: `channel_achievements_id` добавлен в список Discord-каналов секции (рядом с `channel_winners_id`), добавлен field-hint.
+- tests/test_achievement_notify.py (новый, 5 тестов): no-op когда канал не сконфигурен / ID невалиден / бот не запущен; отправка embed когда канал в кеше; graceful False при `discord.HTTPException` от `channel.send`. Все через monkeypatch без старта discord client.
+- Все тесты: 14 passed + 1 xfailed (тests/test_wheel_integration.py не тронут).
+
+## v3.5.1 (0000000) — Phase 0: тесты колеса
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- tests/ — интеграционные тесты колеса (pytest + FastAPI TestClient), Фаза 0 плана `HANDOFF_wheel_audit.md`. Синтетическая БД через `db.init_db()` (снапшот прода не нужен), env выставляется до импорта config/web в `tests/conftest.py`, Fernet-ключ генерируется на каждый прогон.
+- Ключевое: ОДИН TestClient на всю сессию (один event loop). При function-scope фикстуре loop умирает вместе с контекстом, недождавшиеся `_delayed_complete_spin` рвутся на середине, а занятые `_wheel_spin_locks`/`_active_spins` наследуются следующим тестом → ложные 409 при прогоне всего файла (при зелёных одиночных прогонах). Причина падений ранней версии тестов из HANDOFF, п.4.
+- `wait_spin_done` — polling `GET /api/wheel/state` вместо `time.sleep`: ждём `active_spin is None` И снятия guild-lock. Только `active_spin is None` недостаточно: `status="COMPLETED"` ставится в начале `_delayed_complete_spin` (wheel_routes.py:508), а `pop`+`release()` — в конце (590-598); между ними окно в сотни мс (записи в БД + `sleep(0.3)`), в которое следующий спин ловит ложный 409.
+- 10 тестов: CRUD лотов + цвета + анонимизация; классический спин (победитель == `items[physics.winner_idx]`, удаление из колеса, запись в winners `confirmed`); elimination → elimination_final (побеждает ДРУГОЙ элемент, колесо пустеет); 409 already_spinning + снятие lock; WS: spin_started/spin_completed двум клиентам, recovery опоздавшего клиента, close 4001 на не-approved guild; /api/wheel/state; инвариант физики `winner_idx == get_sector_under_pointer(final_rotation)`.
+- Баг 2.1 (lock остаётся при исключении) покрыт `test_lock_recovery_on_exception` с `xfail(strict=False)`: сейчас ожидаемо падает, после фикса в Фазе 2 станет XPASS — сигнал перепроверить.
+- CI (.github/workflows/ci.yml): добавлен шаг pytest `tests/test_wheel_integration.py`.
+- Результат: 9 passed, 1 xfailed — стабильно в повторных прогонах (гонок нет). Код бота НЕ менялся.
+
 ## v3.5.0 (0000000)
 
 #НОВЫЕ_ФИЧИ#

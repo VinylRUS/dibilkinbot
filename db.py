@@ -774,16 +774,36 @@ async def is_admin_or_above(discord_id: int) -> bool:
 
 async def set_user_role(discord_id: int, role: str) -> bool:
     """Установить роль юзера. Только superuser может вызывать.
-    Нельзя понизить env-admin (superuser через env).
+
+    Нельзя менять роль env-admin (если discord_id == settings.admin_discord_id,
+    или если settings.admin_login — число и равно discord_id).
     Возвращает True если обновлено, False если отклонено.
+
+    v3.6.1: при отказе логирует конкретную причину (раньше было молча, из-за чего
+    UI писал «Изменения сохранены» хотя в БД ничего не поменялось — это и было
+    корнём бага «Трутень→Пчела не работает»).
     """
+    import logging as _logging
+    _log = _logging.getLogger("db")
+
     if role not in ('superuser', 'junior-admin', 'user'):
+        _log.warning("set_user_role(discord_id=%s): rejected — invalid role %r", discord_id, role)
         return False
-    # Env admin нельзя понижать
+    # Env admin нельзя понижать/менять — он управляется только через env
     if settings.admin_discord_id is not None and settings.admin_discord_id == discord_id:
+        _log.warning(
+            "set_user_role(discord_id=%s): rejected — user is env-admin "
+            "(ADMIN_DISCORD_ID=%s); change ADMIN_DISCORD_ID in env to reassign",
+            discord_id, settings.admin_discord_id,
+        )
         return False
     env_admin = settings.admin_login
-    if env_admin.isdigit() and int(env_admin) == discord_id:
+    if env_admin and env_admin.isdigit() and int(env_admin) == discord_id:
+        _log.warning(
+            "set_user_role(discord_id=%s): rejected — user is env-admin "
+            "(ADMIN_LOGIN=%r is numeric and matches); change ADMIN_LOGIN in env",
+            discord_id, env_admin,
+        )
         return False
     async with _connect() as db:
         cur = await db.execute(
@@ -791,7 +811,12 @@ async def set_user_role(discord_id: int, role: str) -> bool:
             (role, 1 if role in ('superuser', 'junior-admin') else 0, discord_id),
         )
         await db.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+        if not ok:
+            _log.warning("set_user_role(discord_id=%s, role=%r): UPDATE affected 0 rows — user not in DB", discord_id, role)
+        else:
+            _log.info("set_user_role(discord_id=%s): role=%r applied", discord_id, role)
+        return ok
 
 
 async def set_admin(discord_id: int, is_admin_flag: bool) -> None:
@@ -2886,6 +2911,18 @@ async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_ty
                     await bot_module.assign_role_to_member(guild_id, user_discord_id, role_id)
                 except Exception as e:
                     log.warning("Failed to assign role %s to user %s: %s", role_id, user_discord_id, e)
+            # v3.6.0: Постим embed в канал анонсов ачивок, если он сконфигурен.
+            # Дедупликация не нужна — выше (строка ~2861) уже проверено, что активной
+            # выдачи нет, значит g_grant_achievement реально сделал INSERT.
+            try:
+                import bot as bot_module
+                await bot_module.notify_achievement_granted(guild_id, user_discord_id, {
+                    "name": name,
+                    "description": desc,
+                    "icon_config": json.loads(icon_cfg) if icon_cfg else {},
+                })
+            except Exception as e:
+                log.warning("Ach Discord notify failed (ach=%s, user=%s): %s", ach_id, user_discord_id, e)
     return granted
 
 
@@ -3755,31 +3792,129 @@ async def g_list_wheel_items(guild_id: int, active_only: bool = True) -> list[di
     table = _guild.guild_table(guild_id, "wheel_items")
     async with _connect() as db:
         if active_only:
-            sql = f"SELECT id, name, tmdb_id, color, added_by, added_at FROM {table} WHERE is_active = 1 ORDER BY id"
+            sql = f"SELECT id, name, tmdb_id, color, added_by, added_at, gif_path, gif_poster_path FROM {table} WHERE is_active = 1 ORDER BY id"
         else:
-            sql = f"SELECT id, name, tmdb_id, color, added_by, added_at FROM {table} ORDER BY id DESC"
+            sql = f"SELECT id, name, tmdb_id, color, added_by, added_at, gif_path, gif_poster_path FROM {table} ORDER BY id DESC"
         async with db.execute(sql) as cur:
             rows = await cur.fetchall()
         return [{"id": r[0], "name": r[1], "tmdb_id": r[2], "color": r[3],
-                 "added_by": r[4], "added_at": r[5]} for r in rows]
+                 "added_by": r[4], "added_at": r[5],
+                 "gif_path": r[6], "gif_poster_path": r[7]} for r in rows]
 
 
-async def g_remove_wheel_item(guild_id: int, item_id: int) -> bool:
+async def g_get_wheel_item(guild_id: int, item_id: int) -> dict | None:
+    """Получить один wheel_item (для проверки перед upload GIF)."""
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, name, tmdb_id, color, added_by, added_at, gif_path, gif_poster_path "
+            f"FROM {table} WHERE id = ?",
+            (item_id,)
+        ) as cur:
+            r = await cur.fetchone()
+        if not r:
+            return None
+        return {"id": r[0], "name": r[1], "tmdb_id": r[2], "color": r[3],
+                "added_by": r[4], "added_at": r[5],
+                "gif_path": r[6], "gif_poster_path": r[7]}
+
+
+async def g_set_wheel_item_gif(guild_id: int, item_id: int,
+                                gif_path: str | None, gif_poster_path: str | None) -> bool:
+    """v3.7.0: Установить/обновить/очистить GIF для сектора колеса.
+
+    gif_path — публичный URL вида /static/wheel_gifs/{filename}.gif
+    gif_poster_path — публичный URL вида /static/wheel_gifs/{filename}.png (первый кадр)
+
+    Передавайте None чтобы очистить (DELETE).
+    Возвращает True если обновлено.
+    """
     table = _guild.guild_table(guild_id, "wheel_items")
     async with _connect() as db:
         cur = await db.execute(
-            f"UPDATE {table} SET is_active = 0 WHERE id = ? AND is_active = 1", (item_id,)
+            f"UPDATE {table} SET gif_path = ?, gif_poster_path = ? WHERE id = ?",
+            (gif_path, gif_poster_path, item_id),
         )
         await db.commit()
         return cur.rowcount > 0
 
 
-async def g_clear_wheel(guild_id: int) -> int:
+async def g_remove_wheel_item(guild_id: int, item_id: int) -> bool:
+    """Soft-delete лота. v3.7.0: также удаляет GIF-файлы с диска если были."""
     table = _guild.guild_table(guild_id, "wheel_items")
     async with _connect() as db:
-        cur = await db.execute(f"UPDATE {table} SET is_active = 0 WHERE is_active = 1")
+        # v3.7.0: получить пути к GIF ДО soft-delete (потом SELECT ничего не вернёт
+        # если caller захочет читать через active_only=True)
+        async with db.execute(
+            f"SELECT gif_path, gif_poster_path FROM {table} WHERE id = ? AND is_active = 1",
+            (item_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        cur = await db.execute(
+            f"UPDATE {table} SET is_active = 0, gif_path = NULL, gif_poster_path = NULL WHERE id = ? AND is_active = 1",
+            (item_id,)
+        )
         await db.commit()
-        return cur.rowcount
+        ok = cur.rowcount > 0
+    # Purge файлов вне БД-транзакции (IO не должен держать sqlite lock)
+    if ok and row and (row[0] or row[1]):
+        _purge_wheel_gif_files(row[0], row[1])
+    return ok
+
+
+async def g_clear_wheel(guild_id: int) -> int:
+    """Очистить всё колесо. v3.7.0: purge GIF-файлов для всех затронутых items."""
+    table = _guild.guild_table(guild_id, "wheel_items")
+    async with _connect() as db:
+        # Собираем пути для purge ДО UPDATE
+        async with db.execute(
+            f"SELECT gif_path, gif_poster_path FROM {table} WHERE is_active = 1 "
+            f"AND (gif_path IS NOT NULL OR gif_poster_path IS NOT NULL)"
+        ) as cur:
+            rows_to_purge = await cur.fetchall()
+        cur = await db.execute(
+            f"UPDATE {table} SET is_active = 0, gif_path = NULL, gif_poster_path = NULL WHERE is_active = 1"
+        )
+        await db.commit()
+        count = cur.rowcount
+    # Purge вне транзакции
+    for gif_path, poster_path in rows_to_purge:
+        _purge_wheel_gif_files(gif_path, poster_path)
+    return count
+
+
+def _purge_wheel_gif_files(gif_path: str | None, poster_path: str | None) -> None:
+    """v3.7.0: Удалить GIF и PNG-постер с диска по их публичным URL.
+
+    Публичный URL вида /static/wheel_gifs/{filename}.gif → файл в
+    {DATABASE_PATH parent}/wheel_gifs/{filename}.gif.
+    Все ошибки глушим и логируем — БД уже обновлена, файлы — best-effort.
+    """
+    import os
+    import logging
+    _log = logging.getLogger("db")
+    data_dir = os.environ.get("DATABASE_PATH", "/app/data/bot.db")
+    base_dir = os.path.dirname(os.path.abspath(data_dir)) if data_dir else "/app/data"
+    gifs_dir = os.path.join(base_dir, "wheel_gifs")
+
+    for url in (gif_path, poster_path):
+        if not url:
+            continue
+        # Извлекаем filename из URL вида /static/wheel_gifs/foo.gif
+        # Защита от path traversal: только basename, без подкаталогов
+        if "/static/wheel_gifs/" not in url:
+            continue
+        filename = url.rsplit("/static/wheel_gifs/", 1)[-1]
+        if not filename or "/" in filename or ".." in filename:
+            _log.warning("purge_wheel_gif: invalid filename %r from URL %r", filename, url)
+            continue
+        full_path = os.path.join(gifs_dir, filename)
+        try:
+            if os.path.exists(full_path):
+                os.remove(full_path)
+                _log.info("purge_wheel_gif: removed %s", full_path)
+        except OSError as e:
+            _log.warning("purge_wheel_gif: failed to remove %s: %s", full_path, e)
 
 
 async def g_reassign_colors(guild_id: int) -> None:

@@ -84,6 +84,15 @@
     {% if request.query_params.get('saved') %}
       <div class="saved"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Изменения сохранены.</div>
     {% endif %}
+    {% if request.query_params.get('error') == 'role_change_failed' %}
+      <div class="saved" style="background: var(--red); color: #fff; border-color: var(--red);">
+        <img src="/static/icons/error.png" alt="" width="14" height="14" class="ui-icon">
+        Не удалось изменить роль. Возможные причины:
+        <strong>1)</strong> юзер — env-админ (его ID указан в <code>ADMIN_DISCORD_ID</code> или <code>ADMIN_LOGIN</code> в .env — такого юзера нельзя понизить через панель);
+        <strong>2)</strong> юзера нет в БД.
+        Подробности в логах <code>db</code> (поищи <code>set_user_role(...): rejected</code>).
+      </div>
+    {% endif %}
     <article class="card">
       <table>
         <tr>

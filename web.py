@@ -184,6 +184,40 @@ async def _serve_custom_icon(filename: str):
     return FileResponse(file_path)
 
 
+# v3.7.0: кастомные GIF для секторов колеса — храним в /app/data/wheel_gifs
+# (персистентный путь, переживает redeploy Docker-образа). Раздаём через
+# fallback-роут (как /static/icons/custom), symlink не используем чтобы
+# не плодить ссылки — git-ignored anyway.
+_data_wheel_gifs_dir = _os.environ.get("DATABASE_PATH", "/app/data/bot.db")
+_data_wheel_gifs_dir = _os.path.dirname(_os.path.abspath(_data_wheel_gifs_dir)) if _data_wheel_gifs_dir else "/app/data"
+_data_wheel_gifs_dir = _os.path.join(_data_wheel_gifs_dir, "wheel_gifs")
+try:
+    _os.makedirs(_data_wheel_gifs_dir, exist_ok=True)
+except (OSError, PermissionError) as _e:
+    _logging.getLogger("web").warning("Failed to create wheel_gifs dir %s: %s", _data_wheel_gifs_dir, _e)
+
+
+@app.get("/static/wheel_gifs/{filename:path}")
+async def _serve_wheel_gif(filename: str):
+    """v3.7.0: Раздача GIF и PNG-постеров секторов колеса из /app/data/wheel_gifs.
+
+    Fallback-роут (без symlink) — работает на любой ОС. Cache-Control: immutable
+    + 1 день max-age — файлы immutable (имя содержит hash URL'а), браузер кеширует.
+    """
+    if ".." in filename or "/" in filename:
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    file_path = _os.path.join(_data_wheel_gifs_dir, filename)
+    if not _os.path.exists(file_path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    # GIF — image/gif, PNG — image/png
+    media_type = "image/gif" if filename.lower().endswith(".gif") else "image/png"
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
+
+
 # === Session ===
 # create_session и read_session импортированы из deps.py
 
@@ -885,6 +919,7 @@ KNOWN_CHANNELS = [
     ("channel_quotes_id", "ID канала #цитатник"),
     ("channel_announce_id", "ID канала анонсов киновечера"),
     ("channel_winners_id", "ID канала #winners (куда постить победителей колеса)"),
+    ("channel_achievements_id", "ID канала для анонсов ачивок (куда постить выдачи достижений)"),
     ("channel_updates_id", "ID канала обновлений бота (куда постить changelog)"),
     ("channel_admin_updates_id", "ID канала для админских анонсов (опционально; если пусто — шлём в DM админу)"),
     ("role_movie_ping_id", "ID роли для пинга анонсов"),
@@ -913,6 +948,7 @@ async def channels_save(
     channel_quotes_id: str = Form(""),
     channel_announce_id: str = Form(""),
     channel_winners_id: str = Form(""),
+    channel_achievements_id: str = Form(""),
     channel_updates_id: str = Form(""),
     channel_admin_updates_id: str = Form(""),
     role_movie_ping_id: str = Form(""),
@@ -926,6 +962,7 @@ async def channels_save(
         "channel_quotes_id": channel_quotes_id.strip(),
         "channel_announce_id": channel_announce_id.strip(),
         "channel_winners_id": channel_winners_id.strip(),
+        "channel_achievements_id": channel_achievements_id.strip(),
         "channel_updates_id": channel_updates_id.strip(),
         "channel_admin_updates_id": channel_admin_updates_id.strip(),
         "role_movie_ping_id": role_movie_ping_id.strip(),
@@ -1208,8 +1245,15 @@ async def api_admin_set_role(
         return JSONResponse({"error": "Неверная роль"}, status_code=400)
     # Нельзя понизить env-админа
     if settings.admin_discord_id and discord_id == int(settings.admin_discord_id) and role != "superuser":
-        return JSONResponse({"error": "Нельзя понизить env-админа"}, status_code=400)
-    await db.set_user_role(discord_id, role)
+        return JSONResponse({"error": "Нельзя понизить env-админа (управляется через ADMIN_DISCORD_ID в env)"}, status_code=400)
+    ok = await db.set_user_role(discord_id, role)
+    if not ok:
+        # v3.6.1: раньше тут всегда было {"ok": True} — UI показывал «Сохранено»,
+        # но в БД ничего не менялось (set_user_role молча возвращал False для env-admin).
+        return JSONResponse(
+            {"error": "Не удалось изменить роль — возможно это env-админ или юзера нет в БД. Подробности в логах db."},
+            status_code=400,
+        )
     return JSONResponse({"ok": True})
 
 
@@ -1629,11 +1673,18 @@ async def toggle_admin(
     """Изменить роль юзера. Только superuser (Матка).
     Принимает role='user' (Пчела) или role='junior-admin' (Трутень).
     Superuser нельзя установить или изменить через эту форму — только через env.
+
+    v3.6.1: при отказе set_user_role (env-admin / user не в БД) редиректит на
+    /users?error=role_change_failed вместо ?saved=1 — раньше всегда писал «Сохранено»,
+    из-за чего баг «Трутень→Пчела не получается» был невидим.
     """
     # Валидация: принимаем только user и junior-admin
     if role not in ('user', 'junior-admin'):
         role = 'user'
-    await db.set_user_role(discord_id, role)
+    ok = await db.set_user_role(discord_id, role)
+    if not ok:
+        # Подробности уже в логе db.set_user_role — здесь только UI feedback
+        return RedirectResponse(url="/users?error=role_change_failed", status_code=303)
     return RedirectResponse(url="/users?saved=1", status_code=303)
 
 

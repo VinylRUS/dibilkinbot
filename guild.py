@@ -97,7 +97,9 @@ GUILD_SCHEMA_TEMPLATES = {
             added_by INTEGER NOT NULL,
             added_at TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
-            is_test INTEGER DEFAULT 0
+            is_test INTEGER DEFAULT 0,
+            gif_path TEXT,
+            gif_poster_path TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_active ON {table}(is_active);
         CREATE INDEX IF NOT EXISTS idx_{table}_test ON {table}(is_test);
@@ -436,6 +438,9 @@ GUILD_SCHEMA_TEMPLATES = {
 async def init_guild_tables(guild_id: int | str) -> None:
     """Создать все guild-специфичные таблицы для данного сервера.
     Безопасно вызывать многократно (CREATE TABLE IF NOT EXISTS).
+
+    v3.7.0: также применяет миграции ALTER TABLE ADD COLUMN для wheel_items
+    (gif_path, gif_poster_path) — для гильдий созданных до v3.7.0.
     """
     gid = validate_guild_id(guild_id)
     async with _connect() as db:
@@ -443,8 +448,31 @@ async def init_guild_tables(guild_id: int | str) -> None:
             table = guild_table(gid, base)
             schema = GUILD_SCHEMA_TEMPLATES[base].format(table=table)
             await db.executescript(schema)
+        # v3.7.0: миграция wheel_items для существующих гильдий
+        await _migrate_wheel_items_add_gif_columns(db, gid)
         await db.commit()
     log.info("Initialized guild tables for guild_id=%s", gid)
+
+
+async def _migrate_wheel_items_add_gif_columns(db_conn, gid: int) -> None:
+    """v3.7.0: ALTER TABLE ADD COLUMN gif_path / gif_poster_path для guild_wheel_items.
+
+    CREATE TABLE IF NOT EXISTS не добавит новые колонки в существующую таблицу —
+    поэтому для гильдий, созданных до v3.7.0, нужно явно ALTER-нуть.
+    Идемпотентно: если колонки уже есть — пропускает.
+    """
+    table = guild_table(gid, "wheel_items")
+    async with db_conn.execute(f"PRAGMA table_info({table})") as cur:
+        rows = await cur.fetchall()
+    existing_cols = {r[1] for r in rows}  # row[1] = column name
+    new_cols = {
+        "gif_path": "TEXT",
+        "gif_poster_path": "TEXT",
+    }
+    for col_name, col_type in new_cols.items():
+        if col_name not in existing_cols:
+            log.info("v3.7.0 migration: adding column %s to %s", col_name, table)
+            await db_conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
 
 
 async def drop_guild_tables(guild_id: int | str) -> None:

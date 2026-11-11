@@ -154,6 +154,86 @@ async def remove_role_from_member(guild_id: int, user_discord_id: int, role_id: 
         return False
 
 
+async def notify_achievement_granted(guild_id: int, user_discord_id: int, ach: dict) -> bool:
+    """v3.6.0: Постить embed о выдаче ачивки в отдельный Discord-канал.
+
+    Канал берётся из settings.channel_achievements_id. Если пусто/невалидно — no-op.
+    ach: dict с ключами name (str), description (str|None), icon_config (dict|None).
+
+    Idempotent на стороне caller'а: вызывать только когда ачивка реально новая
+    (после INSERT-вставки, а не после INSERT OR IGNORE-пропуска).
+
+    Возвращает True если сообщение отправлено, False при no-op/ошибке.
+    """
+    if not _bot_running:
+        return False
+    bot = _get_bot()
+    if bot is None:
+        return False
+    channel_id_str = await db.get_setting("channel_achievements_id")
+    if not channel_id_str or not str(channel_id_str).strip().isdigit():
+        return False  # канал не сконфигурен — тихо молчим
+    channel_id = int(str(channel_id_str).strip())
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        # В кеше нет — пробуем fetch (бывает для каналов, к которым бот давно не обращался)
+        try:
+            channel = await bot.fetch_channel(channel_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
+            log.warning("notify_achievement: channel %s not found: %s", channel_id, e)
+            return False
+    if channel is None or not hasattr(channel, "send"):
+        log.warning("notify_achievement: channel %s is not sendable", channel_id)
+        return False
+
+    name = (ach.get("name") or "").strip() or "Ачивка"
+    desc = (ach.get("description") or "").strip()
+    icon_cfg = ach.get("icon_config") or {}
+
+    # Имя юзера: prefer display_name из member cache, fallback на mention
+    user_display = f"<@{user_discord_id}>"
+    guild = bot.get_guild(int(guild_id))
+    if guild is not None:
+        member = guild.get_member(user_discord_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_discord_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                member = None
+        if member is not None:
+            user_display = member.display_name or member.name
+
+    embed = discord.Embed(
+        title=f"🏅 {name}",
+        description=desc or None,
+        color=0xFFB703,  # медовый янтарь
+    )
+    embed.add_field(name="Кому", value=user_display, inline=True)
+    embed.add_field(
+        name="Когда",
+        value=datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC"),
+        inline=True,
+    )
+    # Иконка: для custom (icon_url) ставим thumbnail; для встроенных icon_key —
+    # нужен публичный URL панели (panel_base_url), без него пропускаем.
+    icon_url = icon_cfg.get("icon_url")
+    if icon_url:
+        embed.set_thumbnail(url=icon_url)
+    try:
+        await channel.send(embed=embed)
+        log.info(
+            "notify_achievement: posted ach %r for user %s in channel %s",
+            name, user_discord_id, channel_id,
+        )
+        return True
+    except (discord.Forbidden, discord.HTTPException) as e:
+        log.warning(
+            "notify_achievement: send failed in channel %s: %s (check bot Send Messages + Embed Links perms)",
+            channel_id, e,
+        )
+        return False
+
+
 async def fetch_guild_roles(guild_id: int) -> list[dict]:
     """Получить список ролей Discord-сервера для конструктора ачивок.
 
