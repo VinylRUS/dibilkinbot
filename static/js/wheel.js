@@ -428,17 +428,14 @@ function drawWheel(rotation = 0) {
   const drawItems = getCanvasItems();
 
   if (drawItems.length === 0) {
-    // Empty placeholder
+    // v3.8.1: пустое колесо — только subtle dashed circle (без 🎬 и 'Нет лотов',
+    // они конфликтовали с центральным hub-circle). Hub-circle с пчелой 🐝
+    // остаётся виден в центре как индикатор пустого колеса.
     ctx.beginPath(); ctx.arc(center, center, radius, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
     ctx.setLineDash([10, 8]); ctx.strokeStyle = 'rgba(255,183,3,0.45)';
     ctx.lineWidth = 3; ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#FFB703'; ctx.font = '56px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🎬', center, center - 24);
-    ctx.fillStyle = 'rgba(200,200,210,0.9)'; ctx.font = '600 20px sans-serif';
-    ctx.fillText('Нет лотов', center, center + 38);
     return;
   }
 
