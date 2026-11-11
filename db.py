@@ -2886,6 +2886,18 @@ async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_ty
                     await bot_module.assign_role_to_member(guild_id, user_discord_id, role_id)
                 except Exception as e:
                     log.warning("Failed to assign role %s to user %s: %s", role_id, user_discord_id, e)
+            # v3.6.0: Постим embed в канал анонсов ачивок, если он сконфигурен.
+            # Дедупликация не нужна — выше (строка ~2861) уже проверено, что активной
+            # выдачи нет, значит g_grant_achievement реально сделал INSERT.
+            try:
+                import bot as bot_module
+                await bot_module.notify_achievement_granted(guild_id, user_discord_id, {
+                    "name": name,
+                    "description": desc,
+                    "icon_config": json.loads(icon_cfg) if icon_cfg else {},
+                })
+            except Exception as e:
+                log.warning("Ach Discord notify failed (ach=%s, user=%s): %s", ach_id, user_discord_id, e)
     return granted
 
 

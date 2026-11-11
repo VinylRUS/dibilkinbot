@@ -70,13 +70,14 @@
         <div class="section-divider"></div>
         <div class="section-title"><img src="/static/icons/microphone.png" alt="" width="16" height="16" class="ui-icon"> Discord каналы и роли</div>
         {% for key, label in channels %}
-          {% if key in ['channel_quotes_id', 'channel_announce_id', 'channel_winners_id', 'channel_updates_id', 'channel_admin_updates_id', 'role_movie_ping_id'] %}
+          {% if key in ['channel_quotes_id', 'channel_announce_id', 'channel_winners_id', 'channel_achievements_id', 'channel_updates_id', 'channel_admin_updates_id', 'role_movie_ping_id'] %}
             <label>{{ label }}</label>
             <input type="text" name="{{ key }}" value="{{ values.get(key, '') }}" placeholder="ID (число)">
             <p class="field-hint">
               {% if key == 'channel_quotes_id' %}ПКМ по каналу в Discord (режим разработчика) → Копировать ID. Сюда бот постит embed'ы цитат.{% endif %}
               {% if key == 'channel_announce_id' %}Канал, куда бот постит embed'ы анонсов киновечера и начала сбора фильмов.{% endif %}
               {% if key == 'channel_winners_id' %}Куда бот постит победителей колеса с постером.{% endif %}
+              {% if key == 'channel_achievements_id' %}Куда бот постит embed'ы выдач ачивок (авто и ручных). Оставь пустым — ачивки будут видны только в веб-панели и bell-бейдже.{% endif %}
               {% if key == 'channel_updates_id' %}Канал куда бот постит анонсы обновлений при новой версии. Создай закрытый канал для этого.{% endif %}
               {% if key == 'channel_admin_updates_id' %}Куда бот постит админские фичи (новые триггеры, багфиксы только для админов). Оставь пустым — бот пришлёт в личку админу.{% endif %}
               {% if key == 'role_movie_ping_id' %}ПКМ по роли → Копировать ID. Используется для пинга в анонсах.{% endif %}

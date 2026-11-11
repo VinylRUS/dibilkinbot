@@ -1,5 +1,20 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.6.0 (0000000) — Ачивки → отдельный Discord-канал
+
+#НОВЫЕ_ФИЧИ#
+- Ачивки теперь постятся в отдельный Discord-канал: при выдаче (авто через `g_check_and_grant_auto` или вручную через `POST /api/achievements/{id}/grant`) бот шлёт embed с названием, описанием, юзером и временем. Иконка ачивки (если custom `icon_url`) ставится как thumbnail.
+- Новый settings-ключ `channel_achievements_id` — ID канала для анонсов. Конфигурируется на `/channels` (только Матка). Если пусто — бот молчит, ачивки видны только в bell-бейдже веб-панели (как раньше).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- `bot.py`: новый helper `notify_achievement_granted(guild_id, user_discord_id, ach) -> bool` рядом с `assign_role_to_member`/`remove_role_from_member`. Паттерн 1:1 с существующими — `_bot_running` check, `_get_bot()`, `db.get_setting("channel_achievements_id")`. Канал берётся из кеша (`bot.get_channel`), при промахе — `fetch_channel`. Embed: цвет `0xFFB703` (медовый янтарь), поля «Кому» (display_name или `<@id>`) + «Когда» (UTC). Все ошибки (`NotFound`, `Forbidden`, `HTTPException`) глушатся и логируются — ачивка остаётся выданной в БД.
+- `db.py:g_check_and_grant_auto` (~строка 2889): после `granted.append({...})` и блока выдачи Discord-роли добавлен вызов `bot_module.notify_achievement_granted(...)`. Дедупликация НЕ нужна — выше (стр.~2861) уже проверено `SELECT 1 FROM user_achievements WHERE is_active=1`, значит `g_grant_achievement` реально делает INSERT (а не INSERT OR IGNORE-пропуск).
+- `achievements_routes.py:api_grant_achievement`: перед `g_grant_achievement` добавлена проверка `db.g_has_achievement(...)` — флаг `already_active`. Notify срабатывает только если `not already_active`, то есть ручная выдача существующей ачивки не дублирует анонс в канал. В ответ добавлено поле `ach_notified: bool` (как `role_assigned`).
+- `web.py:KNOWN_CHANNELS`: добавлена запись `("channel_achievements_id", "ID канала для анонсов ачивок (куда постить выдачи достижений)")`. В `channels_save` добавлен Form-параметр и запись в `updates` dict — паттерн 1:1 с другими каналами.
+- `templates/channels.html`: `channel_achievements_id` добавлен в список Discord-каналов секции (рядом с `channel_winners_id`), добавлен field-hint.
+- tests/test_achievement_notify.py (новый, 5 тестов): no-op когда канал не сконфигурен / ID невалиден / бот не запущен; отправка embed когда канал в кеше; graceful False при `discord.HTTPException` от `channel.send`. Все через monkeypatch без старта discord client.
+- Все тесты: 14 passed + 1 xfailed (тests/test_wheel_integration.py не тронут).
+
 ## v3.5.1 (0000000) — Phase 0: тесты колеса
 
 #ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#

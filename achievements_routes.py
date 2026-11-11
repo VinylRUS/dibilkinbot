@@ -302,6 +302,10 @@ async def api_grant_achievement(
     ach = await db.g_get_achievement(guild_id, ach_id)
     if not ach:
         return JSONResponse({"error": "achievement not found"}, status_code=404)
+    # v3.6.0: проверяем, не выдана ли уже ачивка активно — чтобы не постить
+    # дубль в канал анонсов. g_grant_achievement всё равно idempotent (INSERT OR IGNORE),
+    # но notify должен срабатывать только на новую выдачу.
+    already_active = await db.g_has_achievement(guild_id, ach_id, user_discord_id)
     ok = await db.g_grant_achievement(guild_id, ach_id, user_discord_id, granted_by=admin_id)
     if not ok:
         return JSONResponse({"error": "failed to grant"}, status_code=500)
@@ -313,7 +317,23 @@ async def api_grant_achievement(
             role_assigned = await bot_module.assign_role_to_member(int(guild_id), user_discord_id, int(ach["discord_role_id"]))
         except Exception as e:
             logging.getLogger("achievements").warning("Role assign failed: %s", e)
-    return JSONResponse({"ok": True, "role_assigned": role_assigned})
+    # v3.6.0: анонс в канал ачивок, только если это новая выдача
+    ach_notified = False
+    if not already_active:
+        try:
+            import bot as bot_module
+            ach_notified = await bot_module.notify_achievement_granted(
+                int(guild_id),
+                user_discord_id,
+                {
+                    "name": ach["name"],
+                    "description": ach.get("description") or "",
+                    "icon_config": ach.get("icon_config") or {},
+                },
+            )
+        except Exception as e:
+            logging.getLogger("achievements").warning("Ach Discord notify failed: %s", e)
+    return JSONResponse({"ok": True, "role_assigned": role_assigned, "ach_notified": ach_notified})
 
 
 @router.post("/api/achievements/{ach_id}/revoke")
