@@ -75,8 +75,20 @@
   };
 
   window.startDeebeelkinTour = function() {
-    if (typeof window.driver === 'undefined' || !window.driver.driver) {
-      console.error('Driver.js not loaded');
+    // v3.9.0: Driver.js 1.3.1 IIFE сборка — функция driver() живёт на
+    // window.driver.js.driver (НЕ window.driver.driver).
+    // IIFE оборачивает модуль: this.driver.js = function(D){...}({})
+    // → результат вызова (объект {driver: ke, [Symbol.toStringTag]: "Module"})
+    // присваивается this.driver.js.
+    const driverModule = (window.driver && window.driver.js) || window.driver;
+    if (!driverModule || typeof driverModule.driver !== 'function') {
+      console.error('Driver.js not loaded or API mismatch', {
+        hasDriver: !!window.driver,
+        hasDriverJs: !!(window.driver && window.driver.js),
+        driverType: typeof (window.driver && window.driver.driver),
+        driverJsDriverType: typeof (window.driver && window.driver.js && window.driver.js.driver),
+      });
+      alert('Тур не загрузился (Driver.js). Обнови страницу и попробуй снова.');
       return;
     }
     // Скрываем баннер на время тура
@@ -88,10 +100,27 @@
       return;
     }
 
-    const driverObj = window.driver.driver({
+    // Мапим в формат Driver.js 1.3.x — шаг без element = центрированный popover
+    // без highlight (используется для приветствия).
+    const mappedSteps = steps.map(s => {
+      const step = {
+        popover: {
+          title: s.title,
+          description: s.description,
+          side: s.side || 'bottom',
+          align: s.align || 'start',
+        },
+      };
+      if (s.element) {
+        step.element = s.element;
+      }
+      return step;
+    });
+
+    const driverObj = driverModule.driver({
       showProgress: true,
       animate: true,
-      allowClose: true,  // ESC + клик overlay → завершить
+      allowClose: true,
       overlayOpacity: 0.75,
       smoothScroll: true,
       stagePadding: 8,
@@ -99,32 +128,14 @@
       nextBtnText: 'Далее →',
       prevBtnText: '← Назад',
       doneBtnText: 'Завершить ✓',
-      onDestroyStarted: () => {
-        // Если юзер жмёт "Завершить" на последнем шаге или ESC — закрываем
-        if (driverObj.hasNextStep()) {
-          driverObj.destroy();
-        } else {
-          driverObj.destroy();
-        }
-      },
       onDestroy: () => {
         // После закрытия тура (любым способом) — баннер НЕ показываем снова
         // (по требованию: только "Больше не показывать" убирает навсегда).
-        // Но! sessionStorage HIDDEN_KEY не ставим — баннер вернётся при reload.
-        // Просто не показываем сейчас чтобы не мешать.
+        // sessionStorage HIDDEN_KEY не ставим — баннер вернётся при reload.
       },
     });
 
-    driverObj.setSteps(steps.map(s => ({
-      element: s.element,
-      popover: {
-        title: s.title,
-        description: s.description,
-        side: s.side || 'bottom',
-        align: s.align || 'start',
-      },
-    })));
-
+    driverObj.setSteps(mappedSteps);
     driverObj.drive();
   };
 
@@ -135,9 +146,11 @@
     const isSuperuser = (typeof IS_SUPERUSER !== 'undefined') && IS_SUPERUSER;
     const isAdmin = (typeof IS_ADMIN !== 'undefined') && IS_ADMIN;
 
-    // Шаг 1: приветствие — без element (центр экрана)
+    // Шаг 1: приветствие — БЕЗ element (центрированный popover без highlight).
+    // Раньше было `element: '#tour-banner'` но мы скрываем баннер перед туром,
+    // и Driver.js не может подсветить скрытый элемент.
     steps.push({
-      element: '#tour-banner',
+      element: null,
       title: '🐝 Привет!',
       description: 'Короткий тур по панели — 6 шагов, ~1 минута. Жми «Далее» чтобы продолжить, или «Завершить» чтобы прервать.',
       side: 'bottom',
