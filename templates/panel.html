@@ -11,6 +11,8 @@
   {% include "sidebar.html" %}
 
   <main class="container">
+    {% include "_tour_banner.html" %}
+
     {% if user.is_admin %}
     {# ===== Админ: компактный статус системы ===== #}
     <div class="status-bar">
@@ -334,7 +336,6 @@
     checkConnections();
     setInterval(checkConnections, 60000);
   </script>
-{% include "_tour_banner.html" %}
 {% include "_footer.html" %}
 </body>
 </html>
