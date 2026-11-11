@@ -365,6 +365,61 @@ async def api_remove_wheel_item_gif(
     return JSONResponse({"ok": True, "items": anonymize_items(items)})
 
 
+# === v3.8.0: Центральная GIF колеса (хаб) ===
+
+@router.get("/api/wheel/hub_gif")
+async def api_get_hub_gif(_user: dict = Depends(require_user)):
+    """Получить текущий URL центральной GIF колеса (видят все залогиненные).
+
+    Возвращает {"url": str | None}. None = default хаб (пчела 🐝 в canvas).
+    """
+    guild_id = get_current_guild_id(_user)
+    url = await db.g_get_hub_gif(guild_id)
+    return JSONResponse({"url": url})
+
+
+@router.post("/api/wheel/hub_gif")
+async def api_set_hub_gif(
+    _user: dict = Depends(require_superuser),
+    url: str = Form(""),
+):
+    """v3.8.0: Установить URL центральной GIF колеса (только Матка).
+
+    Принимает URL на GIF (http/https только — анти-SSRF, как в achievements_routes.py).
+    Пустой URL → очищает (возвращаемся к пчеле 🐝).
+    После UPDATE — broadcast всем WS-клиентам гильдии (hub_gif_changed event),
+    они обновляют <img> поверх canvas. Синхронизация мгновенная — даже те кто
+    сейчас в SPINNING получат обновление, потому что <img> не зависит от canvas redraw.
+    """
+    guild_id = get_current_guild_id(_user)
+    url = (url or "").strip()
+
+    if url:
+        # Валидация URL (http/https only — анти-SSRF / анти-javascript:/data:)
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return JSONResponse(
+                {"error": f"URL scheme must be http or https (got {parsed.scheme!r})"},
+                status_code=400,
+            )
+        if not parsed.netloc:
+            return JSONResponse({"error": "URL missing host"}, status_code=400)
+        # Длина URL — защитимся от безумных значений
+        if len(url) > 2048:
+            return JSONResponse({"error": "URL too long (max 2048 chars)"}, status_code=400)
+
+    # Сохраняем (пустой URL → g_set_hub_gif делегирует в g_set_setting с None → DELETE)
+    await db.g_set_hub_gif(guild_id, url or None)
+
+    # Broadcast всем WS-клиентам гильдии
+    await ws_manager.broadcast_hub_gif_changed(int(guild_id), url or None)
+
+    _log.info("v3.8.0: hub_gif set in guild %s by user %s → %r",
+              guild_id, _user.get("discord_id"), url or None)
+    return JSONResponse({"ok": True, "url": url or None})
+
+
 @router.post("/api/wheel/clear")
 async def api_clear_wheel(_user: dict = Depends(require_admin)):
     """Очистить всё колесо (только админ)."""

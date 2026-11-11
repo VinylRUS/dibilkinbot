@@ -1,5 +1,34 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.8.0 (0000000) — Центральная GIF колеса с real-time синхронизацией
+
+#НОВЫЕ_ФИЧИ#
+- **Центральная GIF в колесе** — Матка может поставить любую смешную гифку в центр колеса (вместо пчелы 🐝). GIF берётся по URL (Giphy/Tenor/любой хостинг), хранится в `guild_settings` per-guild. Меняется в любой момент — даже во время крутки.
+- **Real-time синхронизация**: когда Матка меняет GIF, все кто смотрит колесо получают обновление мгновенно через WebSocket (`hub_gif_changed` event). GIF поверх canvas как `<img>` — анимация не зависит от canvas redraw, работает даже во время SPINNING.
+- Кнопка «🎭 GIF» в controls bar (только для Матки) — открывает prompt для ввода URL. Пустой URL → возвращаемся к пчеле 🐝.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- **Хранение**: `guild_{id}_settings` с ключом `hub_gif_url` (TEXT). Новые wrappers `db.g_get_hub_gif(guild_id)` / `g_set_hub_gif(guild_id, url)`. Пустая/whitespace-only строка приравнивается к None (DELETE ключа).
+- **API** (wheel_routes.py):
+  - `GET /api/wheel/hub_gif` — `require_user` (видят все залогиненные). Возвращает `{"url": str | None}`.
+  - `POST /api/wheel/hub_gif` — `require_superuser` (только Матка). Form `url: str`. Валидация: scheme http/https only (анти-SSRF / анти-javascript: /data:), netloc обязателен, длина ≤ 2048. Пустой URL → очищает. После UPDATE — `ws_manager.broadcast_hub_gif_changed(guild_id, url)` всем WS-клиентам.
+- **WebSocket** (ws_manager.py): новая функция `broadcast_hub_gif_changed(guild_id, url)` — делегирует в `broadcast_guild(guild_id, "hub_gif_changed", {"url": url})`. Payload `{"url": None}` → клиенты возвращаются к пчеле 🐝.
+- **Frontend** (wheel.js + wheel.html):
+  - `<img id="hub-gif" class="hub-gif-overlay">` поверх canvas в `.wheel-canvas-wrap`. CSS: absolute positioning в центр, 80x80 circular, border 3px var(--accent), box-shadow, `pointer-events: none`, z-index 5. `object-fit: cover` — неквадратные GIF'ы обрезаются по кругу.
+  - `setHubGif(url)` — устанавливает src на `<img>`, скрывает если URL пустой. **Dedupe**: если WS придёт дважды с тем же URL, не перезагружает (через `_hubGifUrl` state). `onerror` — скрывает img если GIF не загрузился (fallback на пчелу 🐝 в canvas).
+  - `fetchHubGif()` — на init + на `visibilitychange` (возврат на вкладку): перетягивает текущий URL с сервера вдруг другой Матка сменил.
+  - WS handler: новый case `hub_gif_changed` → `setHubGif(payload.url)`. Обрабатывается в том же switch что и `wheel_updated`/`spin_started`/`spin_completed`.
+  - `promptHubGif()` — `window.prompt()` с подсказкой про Giphy/Tenor URL format. Клиентская валидация `^https?://`. POST на `/api/wheel/hub_gif` с FormData. После ответа — `setHubGif(data.url)` для мгновенного локального апдейта (не ждём WS round-trip).
+  - `window.promptHubGif = promptHubGif` — expose для inline `onclick` в wheel.html.
+- **Default если URL пустой**: пчела 🐝 в canvas (текущий хаб, нарисованный в `drawWheel()`). `<img>` скрыт (`display:none`), не мешает canvas.
+- tests/test_wheel_hub_gif.py (новый, 18 тестов):
+  - db layer: default None, set+get roundtrip, clear with None, clear with empty/whitespace, strips whitespace.
+  - GET endpoint: returns URL, returns null by default.
+  - POST endpoint: success https, http scheme works, empty clears, rejects javascript:/data: schemes, rejects missing host, rejects URL > 2048 chars.
+  - ws_manager: broadcast_hub_gif_changed делегирует в broadcast_guild с правильным event_type + payload; payload `{"url": None}` когда URL пустой.
+  - Integration: POST endpoint вызывает broadcast_hub_gif_changed с тем же URL что записал в БД; POST с пустым URL → broadcast с None.
+- Все тесты: 51 passed + 1 xfailed (test_wheel_integration + test_achievement_notify + test_set_user_role + test_wheel_gif + test_wheel_hub_gif).
+
 ## v3.7.0 (0000000) — Кастомные GIF на секторах колеса (только Матка)
 
 #НОВЫЕ_ФИЧИ#

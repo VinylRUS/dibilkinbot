@@ -201,6 +201,25 @@
       filter: drop-shadow(0 4px 8px rgba(255, 183, 3, 0.6));
       z-index: 10;
     }
+    /* v3.8.0: Центральная GIF колеса — <img> поверх canvas, абсолютно позиционирован
+       в центре. GIF анимируется через <img> штатно, НЕ через canvas drawImage.
+       Независим от canvas redraw — обновляется мгновенно через WS event
+       даже во время SPINNING. pointer-events: none чтобы не мешать кликам. */
+    .hub-gif-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid var(--accent);
+      box-shadow: 0 0 12px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(0,0,0,0.4);
+      background: #1A1A1A;
+      pointer-events: none;
+      z-index: 5;
+    }
     .spin-btn {
       background: var(--accent);
       color: var(--accent-text, #1A1A1A);
@@ -749,6 +768,7 @@
       <div class="wheel-canvas-wrap" id="wheel-canvas-wrap">
         <div class="pointer" id="pointer"></div>
         <canvas id="wheel-canvas" width="500" height="500"></canvas>
+        <img id="hub-gif" class="hub-gif-overlay" alt="" style="display:none;">
       </div>
       <div class="controls-bar">
         <div class="mode-switcher">
@@ -764,6 +784,9 @@
           <button id="sound-btn" onclick="toggleSound()" title="Звук тиков">🔊</button>
           <input type="range" id="volume-slider" min="0" max="100" value="40" oninput="setVolume(this.value)" title="Громкость">
         </div>
+        {% if user.is_superuser %}
+        <button id="hub-gif-btn" class="btn-ghost" onclick="promptHubGif()" title="Центральная GIF (только Матка)" style="font-size:0.85rem;padding:6px 10px;">🎭 GIF</button>
+        {% endif %}
       </div>
       <!-- v3.0: Прогресс-бар анимации спина -->
       <div id="spin-progress" class="spin-progress">

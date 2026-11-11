@@ -128,6 +128,69 @@ function setItems(newItems) {
   if (phase === Phase.IDLE) drawWheel(currentRotation);
 }
 
+// v3.8.0: Центральная GIF колеса — <img> поверх canvas, не зависит от canvas redraw.
+// Анимация работает через <img> штатно, обновляется мгновенно через WS event.
+// state: текущий URL (для dedupe — если WS придёт дважды с тем же URL, не перезагружаем)
+let _hubGifUrl = null;
+
+function setHubGif(url) {
+  const img = document.getElementById('hub-gif');
+  if (!img) return;
+  // Normalize: empty/null/undefined → null
+  const newUrl = (url && String(url).trim()) || null;
+  if (newUrl === _hubGifUrl) return;  // dedupe
+  _hubGifUrl = newUrl;
+  if (!newUrl) {
+    img.style.display = 'none';
+    img.removeAttribute('src');
+    img.onerror = null;
+    return;
+  }
+  // Показываем <img>, ставим src, при ошибке загрузки — скрываем (fallback на пчелу 🐝)
+  img.onerror = () => {
+    // Скрываем только если это всё ещё та же гифка (не перезалвили другой URL)
+    if (_hubGifUrl === newUrl) {
+      img.style.display = 'none';
+    }
+  };
+  img.src = newUrl;
+  img.style.display = 'block';
+}
+
+async function fetchHubGif() {
+  try {
+    const r = await fetch('/api/wheel/hub_gif', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    setHubGif(data.url || null);
+  } catch (e) { /* swallow network errors */ }
+}
+
+async function promptHubGif() {
+  const current = _hubGifUrl || '';
+  const input = prompt('URL GIF для центра колеса (https://...).\nПусто — вернуть пчелу 🐝.\nGiphy: media.giphy.com/media/.../giphy.gif\nTenor: media.tenor.com/.../*.gif', current);
+  if (input === null) return;  // Cancel
+  const url = input.trim();
+  // Простая клиентская валидация — сервер всё равно проверит scheme
+  if (url && !/^https?:\/\//i.test(url)) {
+    alert('URL должен начинаться с http:// или https://');
+    return;
+  }
+  try {
+    const formData = new FormData();
+    formData.append('url', url);
+    const r = await fetch('/api/wheel/hub_gif', { method: 'POST', body: formData });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      setHubGif(data.url || null);  // мгновенный локальный апдейт (не ждём WS round-trip)
+    } else {
+      alert('Ошибка: ' + (data.error || `HTTP ${r.status}`));
+    }
+  } catch (e) {
+    alert('Сетевая ошибка: ' + (e?.message || e));
+  }
+}
+
 // =================================================================
 // === UI bindings (exposed globally for inline onclick handlers) ===
 // =================================================================
@@ -139,6 +202,9 @@ window.setMode = function (mode) {
   if (normalBtn) normalBtn.classList.toggle('active', mode === 'normal');
   if (elimBtn) elimBtn.classList.toggle('active', mode === 'elimination');
 };
+
+// v3.8.0: expose promptHubGif для inline onclick в wheel.html
+window.promptHubGif = promptHubGif;
 
 window.updateDuration = function (val) {
   spinDuration = Math.max(3, Math.min(30, parseInt(val, 10) || 6)) * 1000;
@@ -1022,6 +1088,7 @@ function connectWS() {
         case 'wheel_updated':  handleWheelUpdated(msg.payload); break;
         case 'spin_started':   handleSpinStarted(msg.payload, false); break;
         case 'spin_completed': handleSpinCompleted(msg.payload); break;
+        case 'hub_gif_changed': setHubGif(msg.payload && msg.payload.url || null); break;  // v3.8.0
         case 'error':          handleWSError(msg.payload); break;
         default: break;
       }
@@ -1264,11 +1331,15 @@ async function addTestItem() {
 // =================================================================
 (function init() {
   setItems((typeof INITIAL_ITEMS !== 'undefined' && Array.isArray(INITIAL_ITEMS)) ? INITIAL_ITEMS : []);
+  fetchHubGif();  // v3.8.0: загрузить текущую центральную GIF с сервера
   connectWS();
   startPolling();
   // Page lifecycle: if user comes back to the tab after being away,
   // sync state immediately.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) fetchWheelState();
+    if (!document.hidden) {
+      fetchWheelState();
+      fetchHubGif();  // v3.8.0: перетянем hub_gif вдруг другой Матка сменил
+    }
   });
 })();

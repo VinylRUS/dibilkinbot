@@ -98,6 +98,18 @@ async def broadcast_wheel_updated(guild_id: int, items: list[dict]) -> None:
     })
 
 
+async def broadcast_hub_gif_changed(guild_id: int, url: str | None) -> None:
+    """v3.8.0: Центральная GIF колеса изменилась — все клиенты должны обновить <img>.
+
+    url=None → вернуться к пчеле 🐝 (default хаб).
+    Broadcast идёт всем WS-клиентам гильдии, включая тех кто сейчас в SPINNING —
+    GIF поверх canvas, анимация не зависит от canvas redraw.
+    """
+    await broadcast_guild(guild_id, "hub_gif_changed", {
+        "url": url,
+    })
+
+
 async def broadcast_spin_started(guild_id: int, spin_id: str,
                                   physics: dict, mode: str = "classic",
                                   items: list[dict] | None = None,
