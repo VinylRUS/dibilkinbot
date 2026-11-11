@@ -1,5 +1,50 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.8.1 (0000000) — Hub-circle контейнер + библиотека гифок + перенос настроек в sidebar
+
+#ИСПРАВЛЕНО#
+- **Кружок хаба пропадал когда гифка не установлена** — `<img style="display:none">` убирал и border, и background. Теперь hub-circle это `<div>` контейнер — всегда виден (border + background + box-shadow). Внутри: `<img>` (если URL установлен) или `<span>🐝</span>` (default). GIF обрезается по кругу через `overflow:hidden + border-radius:50%` на контейнере, `object-fit:cover` на `<img>`.
+- **Пчела 🐝 вынесена из canvas** в `<div>` поверх canvas. Раньше `drawWheel()` рисовал хаб в canvas (чёрный круг + 🐝) — теперь это делает CSS. Canvas не трогает центр вообще, что чище и не конфликтует с `<img>` overlay.
+
+#НОВЫЕ_ФИЧИ#
+- **Библиотека гифок (пресеты Матки)** — при установке URL можно поставить галочку «Сохранить в библиотеку». Сохранённые гифки показываются thumbnail'ами в sidebar — одно нажатие и гифка ставится. Удаление через «×» на thumbnail. Хранение: `guild_settings` с ключом `hub_gif_library` (JSON array URL'ов), per-guild.
+- **Перенос настроек в sidebar слева** — громкость тиков, длительность крутилки, и секция «Центральная GIF» (с URL input + галочкой «сохранить» + кнопками «Установить»/«Убрать» + библиотекой) теперь в `.wheel-sidebar` под списком лотов. `controls-bar` под колесом теперь содержит только mode-switcher + кнопку «КРУТИТЬ». Чище и не перегружено.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- **HTML** (wheel.html):
+  - `<div id="hub-circle" class="hub-circle">` контейнер в `.wheel-canvas-wrap`, внутри `<img id="hub-gif">` + `<span id="hub-default" class="hub-default">🐝</span>`.
+  - `<div class="sidebar-settings">` в `.wheel-sidebar` с настройками.
+  - controls-bar очищен от duration/volume/gif (оставлен только mode-switcher + spin-btn).
+- **CSS** (wheel.html `<style>`):
+  - `.hub-circle` — `width:80px; height:80px; border-radius:50%; border:3px var(--accent); overflow:hidden; display:flex;` (центрирует содержимое).
+  - `.hub-circle #hub-gif` — `width:100%; height:100%; object-fit:cover;` покрывает круг, обрезается.
+  - `.hub-default` — `font-size:36px` пчела 🐝 в центре когда нет гифки.
+  - `.sidebar-settings`, `.setting-row`, `.setting-slider`, `.volume-row`, `.hub-gif-section`, `.hub-gif-input`, `.checkbox-row`, `.hub-gif-buttons`, `.hub-gif-library`, `.hub-gif-thumb`, `.hub-gif-thumb-remove` — стили для новой секции.
+- **JS** (wheel.js):
+  - `setHubGif(url)` переписан: показывает `<img>` ИЛИ `<span>🐝</span>` (раньше только `<img>`, при пустом URL всё пропадало). `onerror` → fallback на пчелу.
+  - `fetchHubGifLibrary()` — на init + только для Матки (`IS_SUPERUSER` check).
+  - `renderHubGifLibrary()` — рендерит thumbnail'ы (`<div class="hub-gif-thumb"><img></div>` + кнопка удаления «×»).
+  - `setHubGifViaApi(url, saveToLibrary)` — POST с FormData, если `saveToLibrary=true` → добавляет `save_to_library: 'true'` form-поле.
+  - `setHubGifFromInput()` — читает input + checkbox, вызывает `setHubGifViaApi`. Валидация `^https?://` клиентская.
+  - `clearHubGif()` — очищает input + checkbox + вызывает `setHubGifViaApi('', false)`.
+  - `removeFromLibrary(url)` — DELETE `/api/wheel/hub_gif/library?url=...` (query параметр, HTTP DELETE без body).
+  - Убрано: `promptHubGif()` (использовал `window.prompt`), `window.promptHubGif` export. Заменено на input + кнопки в sidebar.
+  - `drawWheel()` — убрана отрисовка 🐝 в canvas (строки `// Hub ctx.beginPath()... ctx.fillText('🐝',0,0)`). Оставлен только `ctx.restore()`.
+  - Exposed для inline onclick: `window.setHubGifFromInput`, `window.clearHubGif`.
+- **Backend**:
+  - `db.py`: новые wrappers `g_get_hub_gif_library(guild_id) → list[str]`, `g_add_hub_gif_to_library(guild_id, url) → list[str]`, `g_remove_hub_gif_from_library(guild_id, url) → list[str]`. Хранение через `guild_settings` с ключом `hub_gif_library` (JSON array). При удалении последнего URL → ключ удаляется (None). Повреждённый JSON → пустой list (не падает). URL'ы strip'ятся.
+  - `wheel_routes.py`:
+    - `POST /api/wheel/hub_gif` расширен form-полем `save_to_library: bool = Form(False)`. Если `true` → дополнительно к установке, URL добавляется в библиотеку. В ответе появляется поле `library: list[str]` (обновлённый список).
+    - `GET /api/wheel/hub_gif/library` — `require_user` (видят все). Возвращает `{"urls": ["url1", ...]}`.
+    - `POST /api/wheel/hub_gif/library` — `require_superuser`. Form `url: str = Form(...)`. Валидация scheme http/https, netloc, ≤ 2048 chars. Дедуплицирует.
+    - `DELETE /api/wheel/hub_gif/library?url=...` — `require_superuser`. URL как query-параметр (HTTP DELETE без body). No-op если URL нет.
+- tests/test_wheel_hub_gif.py — добавлено 13 новых тестов (всего 31):
+  - Library: default empty, add via POST, dedup, remove via DELETE, remove nonexistent no-op, clear when last removed (key deleted), reject invalid scheme, reject missing url (422), JSON corruption returns empty list, strips whitespace.
+  - POST hub_gif with save_to_library=true → устанавливает + сохраняет + возвращает library в ответе.
+  - POST hub_gif без save_to_library → library не трогается.
+  - POST hub_gif с пустым URL (clear) → hub_gif очищается, library НЕ трогается.
+- Все тесты: 64 passed + 1 xfailed (test_wheel_integration + test_achievement_notify + test_set_user_role + test_wheel_gif + test_wheel_hub_gif).
+
 ## v3.8.0 (0000000) — Центральная GIF колеса с real-time синхронизацией
 
 #НОВЫЕ_ФИЧИ#

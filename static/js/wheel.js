@@ -128,29 +128,35 @@ function setItems(newItems) {
   if (phase === Phase.IDLE) drawWheel(currentRotation);
 }
 
-// v3.8.0: Центральная GIF колеса — <img> поверх canvas, не зависит от canvas redraw.
-// Анимация работает через <img> штатно, обновляется мгновенно через WS event.
-// state: текущий URL (для dedupe — если WS придёт дважды с тем же URL, не перезагружаем)
+// v3.8.0/v3.8.1: Центральная GIF колеса — кружок-контейнер всегда виден.
+// Внутри: <img id="hub-gif"> (если URL) или <span id="hub-default">🐝</span>.
+// GIF обрезается по кругу через overflow:hidden + border-radius:50% на контейнере.
+// <img> независим от canvas redraw — обновляется мгновенно через WS event.
 let _hubGifUrl = null;
+let _hubGifLibrary = [];  // v3.8.1: список сохранённых URL'ов
 
 function setHubGif(url) {
   const img = document.getElementById('hub-gif');
-  if (!img) return;
-  // Normalize: empty/null/undefined → null
+  const def = document.getElementById('hub-default');
+  if (!img || !def) return;
   const newUrl = (url && String(url).trim()) || null;
   if (newUrl === _hubGifUrl) return;  // dedupe
   _hubGifUrl = newUrl;
   if (!newUrl) {
+    // Нет гифки → показываем пчелу 🐝 (кружок остаётся виден всегда)
     img.style.display = 'none';
     img.removeAttribute('src');
     img.onerror = null;
+    def.style.display = 'block';
     return;
   }
-  // Показываем <img>, ставим src, при ошибке загрузки — скрываем (fallback на пчелу 🐝)
+  // Есть гифка → показываем <img>, скрываем пчелу
+  def.style.display = 'none';
   img.onerror = () => {
-    // Скрываем только если это всё ещё та же гифка (не перезалвили другой URL)
+    // Если гифка не загрузилась — fallback на пчелу 🐝 (только если это всё ещё тот же URL)
     if (_hubGifUrl === newUrl) {
       img.style.display = 'none';
+      def.style.display = 'block';
     }
   };
   img.src = newUrl;
@@ -166,23 +172,114 @@ async function fetchHubGif() {
   } catch (e) { /* swallow network errors */ }
 }
 
-async function promptHubGif() {
-  const current = _hubGifUrl || '';
-  const input = prompt('URL GIF для центра колеса (https://...).\nПусто — вернуть пчелу 🐝.\nGiphy: media.giphy.com/media/.../giphy.gif\nTenor: media.tenor.com/.../*.gif', current);
-  if (input === null) return;  // Cancel
-  const url = input.trim();
-  // Простая клиентская валидация — сервер всё равно проверит scheme
+// v3.8.1: Библиотека гифок
+async function fetchHubGifLibrary() {
+  if (typeof IS_SUPERUSER === 'undefined' || !IS_SUPERUSER) return;  // не Матка — не трогаем
+  try {
+    const r = await fetch('/api/wheel/hub_gif/library', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    _hubGifLibrary = Array.isArray(data.urls) ? data.urls : [];
+    renderHubGifLibrary();
+  } catch (e) { /* swallow */ }
+}
+
+function renderHubGifLibrary() {
+  const container = document.getElementById('hub-gif-library');
+  if (!container) return;
+  if (_hubGifLibrary.length === 0) {
+    container.innerHTML = '<div class="hub-gif-library-empty">Пусто. Сохраните гифку выше с галочкой «Сохранить».</div>';
+    return;
+  }
+  container.innerHTML = '';
+  _hubGifLibrary.forEach((url) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'hub-gif-thumb';
+    thumb.title = 'Установить эту гифку';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onerror = () => { thumb.style.display = 'none'; };  // скрыть если не грузится
+    thumb.appendChild(img);
+    // Клик по thumbnail → установить как активную
+    thumb.addEventListener('click', (e) => {
+      if (e.target.classList.contains('hub-gif-thumb-remove')) return;  // клик был по кнопке удаления
+      setHubGifViaApi(url, false);  // не сохраняем повторно в библиотеку
+    });
+    // Кнопка удаления из библиотеки
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'hub-gif-thumb-remove';
+    removeBtn.textContent = '×';
+    removeBtn.title = 'Удалить из библиотеки';
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFromLibrary(url);
+    });
+    thumb.appendChild(removeBtn);
+    container.appendChild(thumb);
+  });
+}
+
+async function setHubGifViaApi(url, saveToLibrary) {
+  const formData = new FormData();
+  formData.append('url', url || '');
+  if (saveToLibrary) formData.append('save_to_library', 'true');
+  try {
+    const r = await fetch('/api/wheel/hub_gif', { method: 'POST', body: formData });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      setHubGif(data.url || null);
+      // Если сервер вернул обновлённую библиотеку (save_to_library=true) — перерендерим
+      if (data.library) {
+        _hubGifLibrary = data.library;
+        renderHubGifLibrary();
+      }
+      return true;
+    }
+    alert('Ошибка: ' + (data.error || `HTTP ${r.status}`));
+    return false;
+  } catch (e) {
+    alert('Сетевая ошибка: ' + (e?.message || e));
+    return false;
+  }
+}
+
+async function setHubGifFromInput() {
+  const input = document.getElementById('hub-gif-url-input');
+  const chk = document.getElementById('hub-gif-save-chk');
+  if (!input) return;
+  const url = (input.value || '').trim();
+  const save = chk ? chk.checked : false;
   if (url && !/^https?:\/\//i.test(url)) {
     alert('URL должен начинаться с http:// или https://');
     return;
   }
+  const ok = await setHubGifViaApi(url, save);
+  if (ok && !url) {
+    // Очистили — снимаем галочку
+    if (chk) chk.checked = false;
+    if (input) input.value = '';
+  }
+}
+
+async function clearHubGif() {
+  const input = document.getElementById('hub-gif-url-input');
+  const chk = document.getElementById('hub-gif-save-chk');
+  if (input) input.value = '';
+  if (chk) chk.checked = false;
+  await setHubGifViaApi('', false);
+}
+
+async function removeFromLibrary(url) {
+  if (!confirm('Удалить гифку из библиотеки?')) return;
   try {
-    const formData = new FormData();
-    formData.append('url', url);
-    const r = await fetch('/api/wheel/hub_gif', { method: 'POST', body: formData });
+    // DELETE с query-параметром (HTTP DELETE не имеет body)
+    const r = await fetch(`/api/wheel/hub_gif/library?url=${encodeURIComponent(url)}`, { method: 'DELETE' });
     const data = await r.json();
     if (r.ok && data.ok) {
-      setHubGif(data.url || null);  // мгновенный локальный апдейт (не ждём WS round-trip)
+      _hubGifLibrary = Array.isArray(data.urls) ? data.urls : [];
+      renderHubGifLibrary();
     } else {
       alert('Ошибка: ' + (data.error || `HTTP ${r.status}`));
     }
@@ -203,8 +300,9 @@ window.setMode = function (mode) {
   if (elimBtn) elimBtn.classList.toggle('active', mode === 'elimination');
 };
 
-// v3.8.0: expose promptHubGif для inline onclick в wheel.html
-window.promptHubGif = promptHubGif;
+// v3.8.1: expose для inline onclick в wheel.html
+window.setHubGifFromInput = setHubGifFromInput;
+window.clearHubGif = clearHubGif;
 
 window.updateDuration = function (val) {
   spinDuration = Math.max(3, Math.min(30, parseInt(val, 10) || 6)) * 1000;
@@ -423,14 +521,11 @@ function drawWheel(rotation = 0) {
     ctx.restore();
   }
 
-  // Hub
-  ctx.beginPath();
-  ctx.arc(0, 0, 40, 0, Math.PI * 2);
-  ctx.fillStyle = '#1A1A1A'; ctx.fill();
-  ctx.strokeStyle = '#FFB703'; ctx.lineWidth = 4; ctx.stroke();
-  ctx.fillStyle = '#FFB703'; ctx.font = 'bold 18px sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('🐝', 0, 0);
+  // Hub — отрисовка убрана в v3.8.1. Центральный хаб теперь живёт как
+  // <div id="hub-circle"> поверх canvas (CSS .hub-circle), внутри <img> (если
+  // есть URL) или <span>🐝</span> (default). Это даёт всегда видимый кружок-
+  // контейнер, GIF обрезается по кругу через overflow:hidden, и анимация
+  // работает независимо от canvas redraw (можно менять GIF во время крутки).
   ctx.restore();
 }
 
@@ -1331,7 +1426,8 @@ async function addTestItem() {
 // =================================================================
 (function init() {
   setItems((typeof INITIAL_ITEMS !== 'undefined' && Array.isArray(INITIAL_ITEMS)) ? INITIAL_ITEMS : []);
-  fetchHubGif();  // v3.8.0: загрузить текущую центральную GIF с сервера
+  fetchHubGif();         // v3.8.0: загрузить текущую центральную GIF с сервера
+  fetchHubGifLibrary();  // v3.8.1: загрузить библиотеку гифок (только для Матки)
   connectWS();
   startPolling();
   // Page lifecycle: if user comes back to the tab after being away,

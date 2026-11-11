@@ -201,11 +201,12 @@
       filter: drop-shadow(0 4px 8px rgba(255, 183, 3, 0.6));
       z-index: 10;
     }
-    /* v3.8.0: Центральная GIF колеса — <img> поверх canvas, абсолютно позиционирован
-       в центре. GIF анимируется через <img> штатно, НЕ через canvas drawImage.
-       Независим от canvas redraw — обновляется мгновенно через WS event
-       даже во время SPINNING. pointer-events: none чтобы не мешать кликам. */
-    .hub-gif-overlay {
+    /* v3.8.0/v3.8.1: Центральная GIF колеса — КРУЖОК-КОНТЕЙНЕР всегда виден.
+       Внутри: <img> (если URL установлен) или <span>🐝</span> (default).
+       overflow:hidden + border-radius:50% обрезают GIF по кругу.
+       GIF анимируется через <img> штатно, не зависит от canvas redraw.
+       pointer-events:none чтобы не мешать кликам. z-index:5 — поверх canvas. */
+    .hub-circle {
       position: absolute;
       top: 50%;
       left: 50%;
@@ -213,12 +214,168 @@
       width: 80px;
       height: 80px;
       border-radius: 50%;
-      object-fit: cover;
       border: 3px solid var(--accent);
       box-shadow: 0 0 12px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(0,0,0,0.4);
       background: #1A1A1A;
+      overflow: hidden;  /* обрезает содержимое (img) по кругу */
       pointer-events: none;
       z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hub-circle #hub-gif {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;  /* покрывает весь круг, обрезается по кругу */
+      display: block;
+    }
+    .hub-default {
+      font-size: 36px;
+      line-height: 1;
+      user-select: none;
+    }
+    /* v3.8.1: Секция настроек в sidebar */
+    .sidebar-settings {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px dashed var(--border);
+    }
+    .settings-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 0 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .setting-row {
+      margin-bottom: 14px;
+    }
+    .setting-row label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .setting-slider {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    .volume-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .volume-row .sound-btn-inline {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+    }
+    .volume-row .setting-slider {
+      flex: 1;
+    }
+    .hub-gif-section {
+      padding: 12px;
+      background: var(--card-alt);
+      border-radius: 6px;
+      margin-top: 16px;
+    }
+    .hub-gif-input {
+      width: 100%;
+      padding: 6px 10px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.8rem;
+      box-sizing: border-box;
+    }
+    .checkbox-row {
+      display: flex !important;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem !important;
+      color: var(--text) !important;
+      margin: 8px 0 !important;
+      cursor: pointer;
+    }
+    .checkbox-row input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+    .hub-gif-buttons {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .hub-gif-buttons button {
+      flex: 1;
+    }
+    .hub-gif-library-section {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+    .hub-gif-library {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .hub-gif-library-empty {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 8px;
+      text-align: center;
+      width: 100%;
+    }
+    .hub-gif-thumb {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .hub-gif-thumb:hover {
+      border-color: var(--accent);
+      transform: scale(1.05);
+    }
+    .hub-gif-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .hub-gif-thumb-remove {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--red);
+      color: #fff;
+      border: none;
+      font-size: 10px;
+      line-height: 16px;
+      text-align: center;
+      cursor: pointer;
+      padding: 0;
+    }
+    .hub-gif-thumb-remove:hover {
+      background: #c00;
     }
     .spin-btn {
       background: var(--accent);
@@ -768,7 +925,10 @@
       <div class="wheel-canvas-wrap" id="wheel-canvas-wrap">
         <div class="pointer" id="pointer"></div>
         <canvas id="wheel-canvas" width="500" height="500"></canvas>
-        <img id="hub-gif" class="hub-gif-overlay" alt="" style="display:none;">
+        <div id="hub-circle" class="hub-circle">
+          <img id="hub-gif" alt="" style="display:none;">
+          <span id="hub-default" class="hub-default">🐝</span>
+        </div>
       </div>
       <div class="controls-bar">
         <div class="mode-switcher">
@@ -776,17 +936,6 @@
           <button id="mode-elimination" class="mode-btn" onclick="setMode('elimination')">На выбывание</button>
         </div>
         <button id="spin-btn" class="spin-btn" disabled>КРУТИТЬ</button>
-        <div class="spin-duration">
-          <label for="duration-slider">⏱ <span id="duration-label">6</span>с</label>
-          <input type="range" id="duration-slider" min="3" max="30" value="6" step="1" oninput="updateDuration(this.value)">
-        </div>
-        <div class="sound-toggle">
-          <button id="sound-btn" onclick="toggleSound()" title="Звук тиков">🔊</button>
-          <input type="range" id="volume-slider" min="0" max="100" value="40" oninput="setVolume(this.value)" title="Громкость">
-        </div>
-        {% if user.is_superuser %}
-        <button id="hub-gif-btn" class="btn-ghost" onclick="promptHubGif()" title="Центральная GIF (только Матка)" style="font-size:0.85rem;padding:6px 10px;">🎭 GIF</button>
-        {% endif %}
       </div>
       <!-- v3.0: Прогресс-бар анимации спина -->
       <div id="spin-progress" class="spin-progress">
@@ -813,6 +962,45 @@
       <ul id="items-list" class="items-list"></ul>
       <div id="empty-state" class="empty-state">Колесо пустое. Начните сбор фильмов на <a href="/movienight" style="color: var(--accent);">/movienight</a> <img src="/static/icons/clapperboard.png" alt="" width="16" height="16" class="ui-icon"></div>
       <button id="clear-btn" class="clear-btn" style="display:none">Очистить колесо</button>
+
+      <!-- v3.8.1: Настройки колеса (громкость, длительность, GIF хаб) -->
+      <div class="sidebar-settings">
+        <h3 class="settings-title"><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Настройки</h3>
+
+        <div class="setting-row">
+          <label for="duration-slider"><img src="/static/icons/clock.png" alt="" width="14" height="14" class="ui-icon"> Длительность: <span id="duration-label">6</span>с</label>
+          <input type="range" id="duration-slider" min="3" max="30" value="6" step="1" oninput="updateDuration(this.value)" class="setting-slider">
+        </div>
+
+        <div class="setting-row">
+          <label for="volume-slider"><img src="/static/icons/sound.png" alt="" width="14" height="14" class="ui-icon" onerror="this.src='/static/icons/microphone.png'"> Громкость тиков</label>
+          <div class="volume-row">
+            <button id="sound-btn" onclick="toggleSound()" title="Включить/выключить звук" class="sound-btn-inline">🔊</button>
+            <input type="range" id="volume-slider" min="0" max="100" value="40" oninput="setVolume(this.value)" title="Громкость" class="setting-slider">
+          </div>
+        </div>
+
+        {% if user.is_superuser %}
+        <div class="setting-row hub-gif-section">
+          <label><img src="/static/icons/film.png" alt="" width="14" height="14" class="ui-icon"> Центральная GIF</label>
+          <input type="text" id="hub-gif-url-input" placeholder="https://media.giphy.com/..." class="hub-gif-input">
+          <label class="checkbox-row">
+            <input type="checkbox" id="hub-gif-save-chk"> Сохранить в библиотеку
+          </label>
+          <div class="hub-gif-buttons">
+            <button onclick="setHubGifFromInput()" class="btn-primary" style="font-size:0.78rem;padding:6px 10px;">Установить</button>
+            <button onclick="clearHubGif()" class="btn-ghost" style="font-size:0.78rem;padding:6px 10px;">Убрать</button>
+          </div>
+
+          <div class="hub-gif-library-section">
+            <label><img src="/static/icons/star.png" alt="" width="14" height="14" class="ui-icon"> Библиотека гифок</label>
+            <div id="hub-gif-library" class="hub-gif-library">
+              <div class="hub-gif-library-empty">Пусто. Сохраните гифку выше с галочкой «Сохранить».</div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
     </aside>
   </main>
 
