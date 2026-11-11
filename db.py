@@ -506,6 +506,28 @@ async def g_delete_setting(guild_id: int, key: str) -> None:
         await db.commit()
 
 
+# === v3.8.0: Hub GIF (центральная гифка колеса) ===
+# Хранится в guild_settings с ключом 'hub_gif_url'. URL на GIF (Giphy/Tenor/любой хостинг).
+# Меняется только Маткой через POST /api/wheel/hub_gif. Broadcast через WS всем клиентам.
+# Default (None) — пчела 🐝 в canvas (как до v3.8.0).
+
+HUB_GIF_SETTING_KEY = "hub_gif_url"
+
+
+async def g_get_hub_gif(guild_id: int) -> str | None:
+    """Текущий URL центральной GIF колеса. None если не установлен (→ пчела 🐝)."""
+    return await g_get_setting(guild_id, HUB_GIF_SETTING_KEY)
+
+
+async def g_set_hub_gif(guild_id: int, url: str | None) -> None:
+    """Установить URL центральной GIF. None или пустая/whitespace-only → очистить (вернуться к пчеле 🐝).
+
+    URL валидируется caller'ом (http/https only) — здесь храним как есть.
+    """
+    stripped = url.strip() if url else ""
+    await g_set_setting(guild_id, HUB_GIF_SETTING_KEY, stripped or None)
+
+
 async def g_list_settings(guild_id: int) -> list[tuple]:
     """List all per-guild settings (key, value, is_secret)."""
     if not _guild:
