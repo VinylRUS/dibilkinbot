@@ -434,3 +434,141 @@ def test_db_library_strips_whitespace_in_urls(client):
     urls = asyncio.run(db.g_get_hub_gif_library(TEST_GID))
     assert "https://example.com/spaced.gif" in urls
     assert "  https://example.com/spaced.gif  " not in urls
+
+
+# ============ v3.8.3: Разделение прав — обычный юзер ============
+
+def _make_user_session(is_superuser: bool):
+    """Создать session token для юзера с заданной ролью."""
+    import deps
+    return deps.create_session({
+        "discord_id": 9999 if not is_superuser else 1001,
+        "username": "regular" if not is_superuser else "matka",
+        "display_name": "Regular" if not is_superuser else "Matka",
+        "is_admin": is_superuser,
+        "is_superuser": is_superuser,
+        "role": "superuser" if is_superuser else "user",
+        "current_guild_id": 1515661305011376209,
+    })
+
+
+def test_regular_user_can_set_hub_gif_without_save(client):
+    """v3.8.3: обычный юзер (не Матка) может установить гифку через POST без save_to_library."""
+    # Подменяем cookie на сессию обычного юзера
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    import asyncio
+    import db
+    TEST_GID = 1515661305011376209
+    asyncio.run(db.g_set_hub_gif(TEST_GID, None))
+
+    url = "https://media.giphy.com/media/regular_user_test/giphy.gif"
+    r = client.post("/api/wheel/hub_gif", data={"url": url})
+    assert r.status_code == 200, f"regular user should be able to set hub_gif: {r.text}"
+    assert r.json()["url"] == url
+    # DB обновлена
+    assert asyncio.run(db.g_get_hub_gif(TEST_GID)) == url
+
+
+def test_regular_user_cannot_save_to_library(client):
+    """v3.8.3: обычный юзер с save_to_library=True → 403 (только Матка может сохранять)."""
+    import asyncio
+    import db
+    TEST_GID = 1515661305011376209
+    # Очистим БД от возможных артефактов предыдущих тестов
+    asyncio.run(db.g_set_hub_gif(TEST_GID, None))
+
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    url = "https://media.giphy.com/media/save_attempt/giphy.gif"
+    r = client.post("/api/wheel/hub_gif", data={"url": url, "save_to_library": "true"})
+    assert r.status_code == 403, f"expected 403, got {r.status_code}: {r.text}"
+    assert "superuser" in r.json()["error"].lower() or "Матка" in r.json()["error"]
+    # Гифка НЕ установлена (запрос отклонён до записи в БД)
+    assert asyncio.run(db.g_get_hub_gif(TEST_GID)) is None
+    # Библиотека НЕ touched
+    assert "https://media.giphy.com/media/save_attempt/giphy.gif" not in asyncio.run(db.g_get_hub_gif_library(TEST_GID))
+
+
+def test_regular_user_cannot_clear_hub_gif_via_save(client):
+    """v3.8.3: обычный юзер с save_to_library=True + пустой URL → 403 (хоть и пустой url,
+    save_to_library всё равно требует superuser — guard срабатывает до проверки url)."""
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    r = client.post("/api/wheel/hub_gif", data={"url": "", "save_to_library": "true"})
+    assert r.status_code == 403
+
+
+def test_regular_user_can_clear_hub_gif_without_save(client):
+    """v3.8.3: обычный юзер может убрать гифку (POST с пустым URL, без save_to_library)."""
+    import asyncio
+    import db
+    TEST_GID = 1515661305011376209
+    # Сначала установим (от лица Матки — через db напрямую)
+    asyncio.run(db.g_set_hub_gif(TEST_GID, "https://example.com/existing.gif"))
+
+    # Теперь обычный юзер убирает
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    r = client.post("/api/wheel/hub_gif", data={"url": ""})
+    assert r.status_code == 200
+    assert r.json()["url"] is None
+    assert asyncio.run(db.g_get_hub_gif(TEST_GID)) is None
+
+
+def test_regular_user_cannot_add_to_library(client):
+    """v3.8.3: обычный юзер не может POST /api/wheel/hub_gif/library (require_superuser)."""
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    r = client.post("/api/wheel/hub_gif/library", data={"url": "https://example.com/x.gif"})
+    assert r.status_code == 403
+
+
+def test_regular_user_cannot_remove_from_library(client):
+    """v3.8.3: обычный юзер не может DELETE /api/wheel/hub_gif/library (require_superuser)."""
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    r = client.delete("/api/wheel/hub_gif/library", params={"url": "https://example.com/x.gif"})
+    assert r.status_code == 403
+
+
+def test_regular_user_can_get_library(client):
+    """v3.8.3: обычный юзер может GET /api/wheel/hub_gif/library (require_user — видят все)."""
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    r = client.get("/api/wheel/hub_gif/library")
+    assert r.status_code == 200
+    assert "urls" in r.json()
+
+
+def test_regular_user_can_get_hub_gif(client):
+    """v3.8.3: обычный юзер может GET /api/wheel/hub_gif (require_user — видят все)."""
+    token = _make_user_session(is_superuser=False)
+    client.cookies.set("session", token)
+
+    r = client.get("/api/wheel/hub_gif")
+    assert r.status_code == 200
+    assert "url" in r.json()
+
+
+def test_matka_can_still_save_to_library(client):
+    """v3.8.3: Матка по-прежнему может save_to_library=True (регрессия — guard не сломал Матку)."""
+    # Явно установим matka-сессию (могли остаться cookies от предыдущих тестов)
+    token_matka = _make_user_session(is_superuser=True)
+    client.cookies.set("session", token_matka)
+    import asyncio
+    import db
+    TEST_GID = 1515661305011376209
+    asyncio.run(db.g_set_setting(TEST_GID, "hub_gif_library", None))
+
+    url = "https://media.giphy.com/media/matka_still_works/giphy.gif"
+    r = client.post("/api/wheel/hub_gif", data={"url": url, "save_to_library": "true"})
+    assert r.status_code == 200
+    assert url in r.json().get("library", [])

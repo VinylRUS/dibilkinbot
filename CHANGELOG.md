@@ -1,5 +1,40 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.8.3 (0000000) — Разделение прав: загрузка только Матка, выбор из библиотеки — все
+
+#НОВЫЕ_ФИЧИ#
+- **Разделение прав на центральную GIF**: загружать новые гифки (через URL input) может только Матка. Обычные юзеры (Пчела, Трутень) могут **выбирать гифку из библиотеки** — клик по thumbnail в sidebar ставит её как активную. Это позволяет всем участвовать в выборе центральной гифки, но только Матка решает что добавить в библиотеку.
+
+#ИСПРАВЛЕНО#
+- **Библиотека гифок теперь видна всем юзерам** — раньше секция «Библиотека гифок» была внутри `{% if user.is_superuser %}` и обычные юзеры её не видели. Теперь она в отдельной секции, доступной всем. Кнопка удаления «×» на thumbnail — только для Матки.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- **Backend** (wheel_routes.py):
+  - `POST /api/wheel/hub_gif` — изменён с `require_superuser` на `require_user`. Любой залогиненный юзер может установить гифку (выбрать из библиотеки) или очистить (вернуть пчелу 🐝).
+  - Новый guard: если `save_to_library=True` И юзер не superuser → 403 `{"error": "save_to_library requires superuser (Матка)"}`. Срабатывает до валидации URL и записи в БД.
+  - `POST /api/wheel/hub_gif/library` — остался `require_superuser` (только Матка добавляет в библиотеку).
+  - `DELETE /api/wheel/hub_gif/library` — остался `require_superuser` (только Матка удаляет).
+  - `GET /api/wheel/hub_gif` и `GET /api/wheel/hub_gif/library` — `require_user` (видят все).
+- **Frontend HTML** (wheel.html): разделена секция GIF в sidebar:
+  - `{% if user.is_superuser %}...{% endif %}` — «Загрузить новую GIF» (URL input + галочка + кнопки «Установить»/«Убрать»). Только для Матки.
+  - Отдельная секция «Библиотека гифок» — для всех юзеров. Empty-state текст зависит от роли: «Сохраните гифку выше...» для Матки, «Матка ещё не сохранила ни одной гифки» для остальных.
+- **Frontend JS** (wheel.js):
+  - `fetchHubGifLibrary()` — убрана проверка `IS_SUPERUSER` (была в v3.8.1). Библиотека грузится всем.
+  - `renderHubGifLibrary()` — кнопка удаления «×» на thumbnail рендерится только если `IS_SUPERUSER === true`. Клик по thumbnail → `setHubGifViaApi(url, false)` — любой юзер может выбрать.
+  - Empty-state текст в JS перерисовке зависит от `IS_SUPERUSER`.
+- tests/test_wheel_hub_gif.py — добавлено 9 новых тестов (всего 40):
+  - `_make_user_session(is_superuser)` helper — создаёт session token для любого роли.
+  - `test_regular_user_can_set_hub_gif_without_save` — обычный юзер POST url (без save) → 200, DB updated.
+  - `test_regular_user_cannot_save_to_library` — обычный юзер POST url+save_to_library=true → 403, DB НЕ touched.
+  - `test_regular_user_cannot_clear_hub_gif_via_save` — обычный юзер POST пустой url+save_to_library=true → 403.
+  - `test_regular_user_can_clear_hub_gif_without_save` — обычный юзер POST пустой url (без save) → 200, hub_gif очищен.
+  - `test_regular_user_cannot_add_to_library` — обычный юзер POST /library → 403.
+  - `test_regular_user_cannot_remove_from_library` — обычный юзер DELETE /library → 403.
+  - `test_regular_user_can_get_library` — обычный юзер GET /library → 200.
+  - `test_regular_user_can_get_hub_gif` — обычный юзер GET /hub_gif → 200.
+  - `test_matka_can_still_save_to_library` — Матка с save_to_library=true → 200 (регрессия guard не сломал Матку).
+- Все тесты: 73 passed + 1 xfailed.
+
 ## v3.8.2 (0000000) — Убран 🎬 и «Нет лотов» из пустого canvas
 
 #ИСПРАВЛЕНО#

@@ -380,23 +380,30 @@ async def api_get_hub_gif(_user: dict = Depends(require_user)):
 
 @router.post("/api/wheel/hub_gif")
 async def api_set_hub_gif(
-    _user: dict = Depends(require_superuser),
+    _user: dict = Depends(require_user),
     url: str = Form(""),
     save_to_library: bool = Form(False),
 ):
-    """v3.8.0: Установить URL центральной GIF колеса (только Матка).
+    """v3.8.0/v3.8.3: Установить URL центральной GIF колеса.
 
-    Принимает URL на GIF (http/https только — анти-SSRF, как в achievements_routes.py).
+    v3.8.3: любой залогиненный юзер может установить гифку (выбрать из библиотеки).
+    Но **сохранить в библиотеку** (save_to_library=True) может только Матка —
+    остальные получают 403. Это разделяет «выбрать из пресетов» и «добавить новое».
+
+    Принимает URL на GIF (http/https только — анти-SSRF).
     Пустой URL → очищает (возвращаемся к пчеле 🐝).
-    После UPDATE — broadcast всем WS-клиентам гильдии (hub_gif_changed event),
-    они обновляют <img> поверх canvas. Синхронизация мгновенная — даже те кто
-    сейчас в SPINNING получат обновление, потому что <img> не зависит от canvas redraw.
-
-    v3.8.1: save_to_library=True → дополнительно сохранить URL в библиотеку пресетов.
-    Библиотека доступна всем юзерам для просмотра, но управлять может только Матка.
+    После UPDATE — broadcast всем WS-клиентам гильдии (hub_gif_changed event).
+    Синхронизация мгновенная — даже во время SPINNING (<img> независим от canvas).
     """
     guild_id = get_current_guild_id(_user)
     url = (url or "").strip()
+
+    # v3.8.3: save_to_library требует superuser
+    if save_to_library and not _user.get("is_superuser"):
+        return JSONResponse(
+            {"error": "save_to_library requires superuser (Матка)"},
+            status_code=403,
+        )
 
     if url:
         # Валидация URL (http/https only — анти-SSRF / анти-javascript:/data:)
@@ -416,7 +423,7 @@ async def api_set_hub_gif(
     # Сохраняем (пустой URL → g_set_hub_gif делегирует в g_set_setting с None → DELETE)
     await db.g_set_hub_gif(guild_id, url or None)
 
-    # v3.8.1: опционально сохранить в библиотеку
+    # v3.8.1: опционально сохранить в библиотеку (только для Матки — проверено выше)
     library = None
     if url and save_to_library:
         library = await db.g_add_hub_gif_to_library(guild_id, url)
@@ -424,8 +431,8 @@ async def api_set_hub_gif(
     # Broadcast всем WS-клиентам гильдии
     await ws_manager.broadcast_hub_gif_changed(int(guild_id), url or None)
 
-    _log.info("v3.8.0: hub_gif set in guild %s by user %s → %r (save_to_library=%s)",
-              guild_id, _user.get("discord_id"), url or None, save_to_library)
+    _log.info("v3.8.3: hub_gif set in guild %s by user %s (is_superuser=%s) → %r (save_to_library=%s)",
+              guild_id, _user.get("discord_id"), _user.get("is_superuser"), url or None, save_to_library)
     response = {"ok": True, "url": url or None}
     if library is not None:
         response["library"] = library
