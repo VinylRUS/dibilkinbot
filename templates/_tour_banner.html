@@ -1,0 +1,158 @@
+{# v3.9.0: Welcome banner для тура по вебпанели.
+   Показывается на дашборде при первом входе после обновления.
+   localStorage 'deebeelkin_tour_dismissed_v1' = true только при "Больше не показывать".
+   Close (×) — sessionStorage (вернётся при reload).
+   Mobile (< 768px) — не показывается.
+   Include только в panel.html (dashboard). #}
+
+<style>
+  /* v3.9.0: Welcome banner для тура */
+  .tour-banner {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255,183,3,0.08), rgba(251,133,0,0.04));
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 16px 0 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    box-shadow: 0 0 24px rgba(255,183,3,0.15), 0 4px 12px rgba(0,0,0,0.2);
+    animation: tour-banner-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes tour-banner-pulse {
+    0%, 100% {
+      box-shadow: 0 0 24px rgba(255,183,3,0.15), 0 4px 12px rgba(0,0,0,0.2);
+      border-color: var(--accent);
+    }
+    50% {
+      box-shadow: 0 0 36px rgba(255,183,3,0.35), 0 4px 16px rgba(0,0,0,0.3);
+      border-color: #FFD700;
+    }
+  }
+  .tour-banner-icon {
+    font-size: 2.2rem;
+    flex-shrink: 0;
+    line-height: 1;
+    animation: tour-bee-bounce 1.6s ease-in-out infinite;
+  }
+  @keyframes tour-bee-bounce {
+    0%, 100% { transform: translateY(0) rotate(-3deg); }
+    50% { transform: translateY(-4px) rotate(3deg); }
+  }
+  .tour-banner-content {
+    flex: 1;
+    min-width: 200px;
+  }
+  .tour-banner-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 4px;
+  }
+  .tour-banner-text {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.4;
+  }
+  .tour-banner-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .tour-btn-primary {
+    background: var(--accent);
+    color: #1A1A1A;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .tour-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  }
+  .tour-btn-secondary {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tour-btn-secondary:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+  }
+  .tour-banner-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .tour-banner-close:hover {
+    background: var(--card-alt);
+    color: var(--text);
+  }
+  /* Mobile: не показываем баннер (по требованию — тур не на мобиле) */
+  @media (max-width: 768px) {
+    .tour-banner { display: none !important; }
+  }
+  /* v3.9.0: Pulsing arrow indicator — указывает на баннер если юзер скроллит вниз */
+  .tour-arrow-hint {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 1.8rem;
+    color: var(--accent);
+    z-index: 999;
+    pointer-events: none;
+    animation: tour-arrow-bounce 1.2s ease-in-out infinite;
+    display: none;
+  }
+  @keyframes tour-arrow-bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.85; }
+    50% { transform: translateX(-50%) translateY(8px); opacity: 1; }
+  }
+</style>
+
+<div id="tour-banner" class="tour-banner" style="display:none;">
+  <button class="tour-banner-close" onclick="hideTourBannerSession()" title="Скрыть (вернётся при следующем входе)">×</button>
+  <div class="tour-banner-icon">🐝</div>
+  <div class="tour-banner-content">
+    <div class="tour-banner-title">Привет! Хочешь короткий тур по панели?</div>
+    <p class="tour-banner-text">6 шагов, ~1 минута. Покажу где колесо фильмов, киновечер, ачивки и как зайти в настройки профиля.</p>
+  </div>
+  <div class="tour-banner-actions">
+    <button class="tour-btn-primary" onclick="startDeebeelkinTour()">Посмотреть тур</button>
+    <button class="tour-btn-secondary" onclick="dismissTourBannerForever()">Больше не показывать</button>
+  </div>
+</div>
+<div id="tour-arrow-hint" class="tour-arrow-hint">⬆</div>
+
+<link rel="stylesheet" href="/static/vendor/driver.min.css?v={{ commit_id }}">
+<script>
+  // v3.9.0: SSR переменные для tour.js — роль юзера определяет какие шаги показать.
+  // user.is_admin/is_superuser берутся из session payload (deps.py:get_current_user).
+  const IS_SUPERUSER = {{ 'true' if user.is_superuser else 'false' }};
+  const IS_ADMIN = {{ 'true' if user.is_admin else 'false' }};
+</script>
+<script src="/static/vendor/driver.min.js?v={{ commit_id }}"></script>
+<script src="/static/js/tour.js?v={{ commit_id }}"></script>
