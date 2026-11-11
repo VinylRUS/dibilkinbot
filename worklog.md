@@ -429,3 +429,33 @@ Stage Summary:
 - Все Jinja шаблоны компилируются
 - Новые миграции БД: rtime_last_played в user_steam_games, show_wishlist в users
 - Ветка feature/v2.3.2 готова к PR
+
+---
+
+## Phase 0 (v3.5.1) — интеграционные тесты колеса
+
+Дата: 2026-11-11. Ветка: feature/v3.6-wheel-tests, коммиты 9f14f76 + 7528b51.
+Код бота НЕ менялся. Заменяет раннюю версию тестов (d6c1411: 1 passed / 4 failed / 1 skipped).
+
+Что сделано:
+- tests/conftest.py: env до импорта config/web (APP_SECRET через Fernet.generate_key()
+  на каждый прогон), синтетическая БД через db.init_db(), session TestClient (ОДИН
+  event loop на всю сессию), сессия через deps.create_session с superuser-payload
+- Фикс причины падений d6c1411: function-scope TestClient убивал event loop вместе
+  с недождавшимися _delayed_complete_spin → занятые _wheel_spin_locks/_active_spins
+  наследовались следующим тестом → ложные 409. Session-scope решает.
+- Фикс гонки wait: active_spin=None недостаточно (status="COMPLETED" ставится в начале
+  _delayed_complete_spin, release — в конце, между ними сотни мс). Ждём ещё и снятия
+  guild-lock через wheel_routes._wheel_spin_locks.
+- tests/test_wheel_integration.py: 10 тестов — CRUD+цвета+анонимизация, classic
+  (winner == items[physics.winner_idx] → winners confirmed), elimination→final
+  (побеждает ДРУГОЙ элемент), 409 already_spinning + снятие lock, WS двум клиентам
+  + recovery опоздавшего + close 4001 на не-approved guild, /api/wheel/state,
+  инвариант физики winner_idx == get_sector_under_pointer(final_rotation).
+- Баг 2.1 (lock при исключении) — xfail(strict=False): test_lock_recovery_on_exception.
+  После фикса Фазы 2 станет XPASS — сигнал перепроверить.
+- CI: pytest шаг. .gitignore: static/icons/custom (runtime symlink).
+- Результат: 9 passed + 1 xfailed, стабильно в повторных прогонах.
+
+Stage Summary:
+- Готово к PR; следующая фаза — 1.1 (v3.6.0: ачивки → отдельный Discord-канал)
