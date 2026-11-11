@@ -28,7 +28,7 @@ import logging
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, Form, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Form, Request, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, JSONResponse
 
 import db
@@ -163,6 +163,206 @@ async def api_remove_wheel_item(
     items = await db.g_list_wheel_items(guild_id, active_only=True)
     await ws_manager.broadcast_wheel_updated(int(guild_id), anonymize_items(items))
     return JSONResponse({"removed": True, "items": anonymize_items(items), "count": len(items)})
+
+
+# === v3.7.0: Кастомные GIF для секторов колеса (только для Матки) ===
+
+_WHEEL_GIF_MAX_BYTES = 2 * 1024 * 1024  # 2MB — лимит на GIF
+_WHEEL_GIF_MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024  # 5MB лимит при скачивании по URL
+_WHEEL_GIF_ALLOWED_MAGIC = (b"GIF8",)  # GIF87a/GIF89a — оба начинаются с GIF8
+
+
+def _wheel_gifs_dir() -> str:
+    """Абсолютный путь к /app/data/wheel_gifs (персистентный)."""
+    import os
+    data_dir = os.environ.get("DATABASE_PATH", "/app/data/bot.db")
+    base_dir = os.path.dirname(os.path.abspath(data_dir)) if data_dir else "/app/data"
+    return os.path.join(base_dir, "wheel_gifs")
+
+
+def _wheel_gif_public_url(filename: str) -> str:
+    """Публичный URL для раздачи (через fallback-роут web.py)."""
+    return f"/static/wheel_gifs/{filename}"
+
+
+async def _save_gif_and_make_poster(content: bytes, dest_filename_base: str) -> tuple[str, str] | None:
+    """Сохранить GIF на диск и сгенерировать PNG-постер (первый кадр) через Pillow.
+
+    Возвращает (gif_path_abs, poster_path_abs) или None при ошибке.
+    filename_base — без расширения, напр. 'guild_123_item_45_abc123'.
+    Файлы будут {base}.gif и {base}.png.
+    """
+    import os
+    gifs_dir = _wheel_gifs_dir()
+    os.makedirs(gifs_dir, exist_ok=True)
+    gif_path = os.path.join(gifs_dir, f"{dest_filename_base}.gif")
+    poster_path = os.path.join(gifs_dir, f"{dest_filename_base}.png")
+
+    # Сохраняем GIF
+    with open(gif_path, "wb") as f:
+        f.write(content)
+
+    # Генерируем PNG-постер: первый кадр GIF через Pillow
+    try:
+        from PIL import Image
+        with Image.open(gif_path) as img:
+            # Pillow для GIF: seek(0) даёт первый кадр. convert("RGB") убирает
+            # прозрачность/палитру — нужно для JPEG-подобного вывода в PNG.
+            # Если кадр меньше 256x256 — не увеличиваем (рисуем как есть, cover в canvas).
+            first_frame = img.convert("RGB")
+            first_frame.save(poster_path, "PNG", optimize=True)
+    except Exception as e:
+        _log.warning("v3.7.0: Pillow poster extraction failed for %s: %s", gif_path, e)
+        # Удаляем GIF — без постера сектор рисовать нельзя (drawImage сломается)
+        try:
+            os.remove(gif_path)
+        except OSError:
+            pass
+        return None
+    return gif_path, poster_path
+
+
+@router.post("/api/wheel/items/{item_id}/gif")
+async def api_upload_wheel_item_gif(
+    item_id: int,
+    _user: dict = Depends(require_superuser),
+    gif_url: str = Form(""),
+    file: UploadFile | None = None,
+):
+    """v3.7.0: Загрузить кастомный GIF для сектора колеса (только Матка).
+
+    Принимает либо:
+    - file: multipart UploadFile (прямая загрузка)
+    - gif_url: http(s) URL GIF (скачиваем через httpx)
+
+    Валидация:
+    - magic bytes GIF8 (GIF87a/GIF89a)
+    - размер ≤ 2MB
+    - URL схема только http/https (анти-SSRF, как в achievements_routes.py)
+
+    Сохраняет GIF + PNG-постер (первый кадр через Pillow) в /app/data/wheel_gifs.
+    UPDATE wheel_items SET gif_path, gif_poster_path. Broadcast всем WS-клиентам.
+    """
+    guild_id = get_current_guild_id(_user)
+    # Проверяем что item существует и активный
+    item = await db.g_get_wheel_item(guild_id, item_id)
+    if not item:
+        return JSONResponse({"error": "item not found"}, status_code=404)
+
+    import os
+    import hashlib
+
+    # Получаем bytes GIF из файла или URL
+    if file is not None and file.filename:
+        content = await file.read()
+        source_label = f"file:{file.filename}"
+    elif gif_url and gif_url.strip():
+        gif_url = gif_url.strip()
+        from urllib.parse import urlparse
+        parsed = urlparse(gif_url)
+        if parsed.scheme not in ("http", "https"):
+            return JSONResponse({"error": "URL scheme must be http or https"}, status_code=400)
+        if not parsed.netloc:
+            return JSONResponse({"error": "URL missing host"}, status_code=400)
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                resp = await client.get(gif_url, headers={"User-Agent": "DeeBeelkin-WheelGifFetcher/3.7"})
+            if resp.status_code != 200:
+                return JSONResponse({"error": f"URL fetch failed: HTTP {resp.status_code}"}, status_code=400)
+            if len(resp.content) > _WHEEL_GIF_MAX_DOWNLOAD_BYTES:
+                return JSONResponse(
+                    {"error": f"GIF too large: {len(resp.content)} bytes (max {_WHEEL_GIF_MAX_DOWNLOAD_BYTES})"},
+                    status_code=400,
+                )
+            content = resp.content
+            source_label = f"url:{gif_url[:60]}"
+        except httpx.RequestError as e:
+            return JSONResponse({"error": f"URL fetch network error: {e}"}, status_code=400)
+    else:
+        return JSONResponse({"error": "either 'file' (multipart) or 'gif_url' must be provided"}, status_code=400)
+
+    if not content:
+        return JSONResponse({"error": "empty content"}, status_code=400)
+
+    if len(content) > _WHEEL_GIF_MAX_BYTES:
+        return JSONResponse(
+            {"error": f"GIF too large: {len(content)} bytes (max {_WHEEL_GIF_MAX_BYTES})"},
+            status_code=400,
+        )
+
+    # Magic bytes — GIF
+    if content[:4] not in _WHEEL_GIF_ALLOWED_MAGIC:
+        return JSONResponse(
+            {"error": "not a GIF (magic bytes mismatch). Expected GIF87a or GIF89a."},
+            status_code=400,
+        )
+
+    # Purge старые файлы если были (повторная загрузка на тот же сектор)
+    if item.get("gif_path") or item.get("gif_poster_path"):
+        db._purge_wheel_gif_files(item.get("gif_path"), item.get("gif_poster_path"))
+
+    # Имя файла: guild_{gid}_item_{item_id}_{hash}.gif — hash от контента,
+    # для dedupe и cache-busting при перезаливке другого GIF на тот же сектор.
+    content_hash = hashlib.md5(content).hexdigest()[:12]
+    filename_base = f"guild_{int(guild_id)}_item_{item_id}_{content_hash}"
+    saved = await _save_gif_and_make_poster(content, filename_base)
+    if saved is None:
+        return JSONResponse({"error": "failed to save GIF or extract poster (Pillow error)"}, status_code=500)
+    gif_abs, poster_abs = saved
+
+    gif_url_pub = _wheel_gif_public_url(f"{filename_base}.gif")
+    poster_url_pub = _wheel_gif_public_url(f"{filename_base}.png")
+
+    ok = await db.g_set_wheel_item_gif(guild_id, item_id, gif_url_pub, poster_url_pub)
+    if not ok:
+        # UPDATE не сработал (нет такого item?) — purge файлы чтобы не было мусора
+        db._purge_wheel_gif_files(gif_url_pub, poster_url_pub)
+        return JSONResponse({"error": "failed to update DB"}, status_code=500)
+
+    _log.info("v3.7.0: uploaded GIF for item %s in guild %s via %s → %s (%d bytes)",
+              item_id, guild_id, source_label, gif_url_pub, len(content))
+
+    # Broadcast обновлённый список (фронтенд подхватит новые URL)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
+    await ws_manager.broadcast_wheel_updated(int(guild_id), anonymize_items(items))
+
+    return JSONResponse({
+        "ok": True,
+        "gif_path": gif_url_pub,
+        "gif_poster_path": poster_url_pub,
+        "items": anonymize_items(items),
+        "size": len(content),
+    })
+
+
+@router.delete("/api/wheel/items/{item_id}/gif")
+async def api_remove_wheel_item_gif(
+    item_id: int,
+    _user: dict = Depends(require_superuser),
+):
+    """v3.7.0: Удалить GIF для сектора колеса (только Матка).
+
+    Удаляет файлы с диска и очищает колонки gif_path/gif_poster_path в БД.
+    """
+    guild_id = get_current_guild_id(_user)
+    item = await db.g_get_wheel_item(guild_id, item_id)
+    if not item:
+        return JSONResponse({"error": "item not found"}, status_code=404)
+    if not item.get("gif_path") and not item.get("gif_poster_path"):
+        return JSONResponse({"ok": True, "msg": "no GIF to remove"})  # idempotent
+
+    # Purge файлы
+    db._purge_wheel_gif_files(item.get("gif_path"), item.get("gif_poster_path"))
+    # Очистить колонки
+    ok = await db.g_set_wheel_item_gif(guild_id, item_id, None, None)
+    if not ok:
+        return JSONResponse({"error": "failed to clear DB columns"}, status_code=500)
+
+    _log.info("v3.7.0: removed GIF for item %s in guild %s", item_id, guild_id)
+    items = await db.g_list_wheel_items(guild_id, active_only=True)
+    await ws_manager.broadcast_wheel_updated(int(guild_id), anonymize_items(items))
+    return JSONResponse({"ok": True, "items": anonymize_items(items)})
 
 
 @router.post("/api/wheel/clear")

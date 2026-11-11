@@ -76,6 +76,58 @@ const WS_MAX_RECONNECT_DELAY = 15000;
 // same movie lookup every spin.
 const _posterCache = new Map();
 
+// v3.7.0: Cache for GIF-poster Image objects (для drawImage на секторе).
+// Key: poster URL. Value: HTMLImageElement (или null если ещё грузится/ошибка).
+// Анимированный GIF НЕ анимируется в canvas через drawImage — рисуем первый
+// кадр (PNG-постер, подготовленный сервером через Pillow). Сам GIF виден
+// в sidebar через <img>, где он анимируется штатно.
+const _sectorImageCache = new Map();
+let _sectorImagesPending = 0;  // сколько Image ещё грузятся — для триггера redraw
+
+function _getSectorImage(url) {
+  if (!url) return null;
+  if (_sectorImageCache.has(url)) {
+    return _sectorImageCache.get(url);
+  }
+  // Новый — создаём и начинаем загрузку
+  const img = new Image();
+  img.crossOrigin = "anonymous";  // на случай если CDN
+  _sectorImageCache.set(url, null);  // временно null — грузится
+  _sectorImagesPending++;
+  img.onload = () => {
+    _sectorImageCache.set(url, img);
+    _sectorImagesPending--;
+    // Перерисуем когда все загрузились — иначе можно получить дёрганье
+    // при каждом onload. Если в данный момент IDLE — redraw безопасен.
+    if (_sectorImagesPending === 0 && phase === Phase.IDLE) {
+      drawWheel(currentRotation);
+    }
+  };
+  img.onerror = () => {
+    _sectorImageCache.set(url, null);
+    _sectorImagesPending--;
+    // null в кеше → fallback на цвет
+  };
+  img.src = url;
+  return null;
+}
+
+// v3.7.0: prewarm кеша для всех текущих items (вызывается при получении items).
+function _prewarmSectorImages(itemsArr) {
+  if (!itemsArr || itemsArr.length === 0) return;
+  itemsArr.forEach((it) => {
+    if (it.gif_poster_path) _getSectorImage(it.gif_poster_path);
+  });
+}
+
+// v3.7.0: единый helper для обновления items — prewarm cache + render + redraw.
+function setItems(newItems) {
+  items = Array.isArray(newItems) ? newItems : [];
+  _prewarmSectorImages(items);
+  renderSidebar();
+  if (phase === Phase.IDLE) drawWheel(currentRotation);
+}
+
 // =================================================================
 // === UI bindings (exposed globally for inline onclick handlers) ===
 // =================================================================
@@ -235,14 +287,38 @@ function drawWheel(rotation = 0) {
     const startAngle = i * anglePer, endAngle = startAngle + anglePer;
     const isHighlighted = (i === highlightIdx);
     const secColor = drawItems[i].color || '#FFB703';
+    const posterUrl = drawItems[i].gif_poster_path || null;
 
-    // Sector fill
+    // Sector fill (база — всегда цвет, для прозрачности GIF-постера и fallback)
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.arc(0, 0, radius, startAngle, endAngle);
     ctx.closePath();
     ctx.fillStyle = secColor; ctx.fill();
     ctx.strokeStyle = '#1A1A1A'; ctx.lineWidth = 2; ctx.stroke();
+
+    // v3.7.0: GIF-poster overlay — drawImage с cover-логикой, clip по сектору.
+    // Анимированный GIF не анимируется в canvas — рисуем PNG-постер (первый кадр).
+    if (posterUrl) {
+      const img = _getSectorImage(posterUrl);
+      if (img && img.width > 0 && img.height > 0) {
+        ctx.save();
+        // clip по сектору (чтобы изображение не вышло за границы)
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, radius, startAngle, endAngle);
+        ctx.closePath();
+        ctx.clip();
+        // cover-логика: центрируем в (0,0) — центр колеса — масштабируем
+        // так, чтобы изображение покрыло весь круг (radius от центра).
+        const scale = Math.max(radius * 2 / img.width, radius * 2 / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+        ctx.restore();
+      }
+      // если img === null — грузится или ошибка, fallback на цвет уже отрисован выше
+    }
 
     // Highlight overlay
     if (isHighlighted) {
@@ -270,7 +346,14 @@ function drawWheel(rotation = 0) {
     ctx.font = `bold ${fontSize}px sans-serif`;
     const maxTextWidth = radius - 18 - 52;
     const name = fitText(drawItems[i].name, maxTextWidth);
+    // v3.7.0: если есть GIF-постер, текст может быть нечитаем поверх картинки —
+    // добавляем subtle dark shadow для контраста
+    if (posterUrl) {
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+    }
     ctx.fillText(name, radius - 18, 0);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
@@ -313,20 +396,104 @@ function renderSidebar() {
     items.forEach((item) => {
       const li = document.createElement('li');
       li.className = 'item-row';
+      // v3.7.0: если есть GIF — показываем анимированный <img> (GIF анимируется
+      // штатно через <img>, в отличие от canvas drawImage который берёт 1 кадр).
+      // Цветной кружок оставляем как fallback если GIF не загрузился.
+      const itemId = String(item.id);
+      const gifPath = item.gif_path || '';
+      const colorDot = `<span class="item-color" style="background:${item.color || '#FFB703'}"></span>`;
+      const gifImg = gifPath
+        ? `<img class="item-gif-preview" src="${escapeHtml(gifPath)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        : '';
+      li.innerHTML =
+        colorDot +
+        gifImg +
+        `<span class="item-name">${escapeHtml(item.name)}</span>`;
+      // v3.7.0: для Матки — кнопки управления GIF
+      if (typeof IS_SUPERUSER !== 'undefined' && IS_SUPERUSER) {
+        const gifControls = document.createElement('span');
+        gifControls.className = 'item-gif-controls';
+        // Upload (file input)
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/gif';
+        fileInput.className = 'gif-file-input';
+        fileInput.dataset.id = itemId;
+        fileInput.addEventListener('change', (e) => {
+          const f = e.target.files && e.target.files[0];
+          if (f) uploadGif(itemId, f);
+          e.target.value = '';  // сбросить чтобы можно было выбрать тот же файл снова
+        });
+        const uploadLabel = document.createElement('label');
+        uploadLabel.className = 'gif-upload-btn';
+        uploadLabel.title = gifPath ? 'Заменить GIF' : 'Загрузить GIF (только Матка)';
+        uploadLabel.textContent = '📎';
+        uploadLabel.appendChild(fileInput);
+        gifControls.appendChild(uploadLabel);
+        // Remove GIF (если есть)
+        if (gifPath) {
+          const removeGifBtn = document.createElement('button');
+          removeGifBtn.className = 'gif-remove-btn';
+          removeGifBtn.title = 'Удалить GIF';
+          removeGifBtn.textContent = '🎬ⓧ';
+          removeGifBtn.dataset.id = itemId;
+          removeGifBtn.addEventListener('click', () => removeGif(itemId));
+          gifControls.appendChild(removeGifBtn);
+        }
+        li.appendChild(gifControls);
+      }
       const removeBtn = document.createElement('button');
       removeBtn.className = 'item-remove';
-      removeBtn.dataset.id = String(item.id);
+      removeBtn.dataset.id = itemId;
       removeBtn.textContent = '×';
       removeBtn.title = 'Удалить';
       removeBtn.addEventListener('click', () => removeItem(item.id));
-      li.innerHTML =
-        `<span class="item-color" style="background:${item.color || '#FFB703'}"></span>` +
-        `<span class="item-name">${escapeHtml(item.name)}</span>`;
       li.appendChild(removeBtn);
       list.appendChild(li);
     });
   }
   updateButtonState();
+}
+
+// v3.7.0: upload GIF для сектора (только Матка)
+async function uploadGif(itemId, file) {
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    alert('GIF слишком большой (макс 2MB). Размер: ' + (file.size / 1024 / 1024).toFixed(2) + ' MB');
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const r = await fetch(`/api/wheel/items/${encodeURIComponent(itemId)}/gif`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      setItems(data.items);
+    } else {
+      alert('Ошибка загрузки GIF: ' + (data.error || `HTTP ${r.status}`));
+    }
+  } catch (e) {
+    alert('Сетевая ошибка: ' + (e?.message || e));
+  }
+}
+
+// v3.7.0: удалить GIF сектора (только Матка)
+async function removeGif(itemId) {
+  if (!confirm('Удалить GIF с этого сектора?')) return;
+  try {
+    const r = await fetch(`/api/wheel/items/${encodeURIComponent(itemId)}/gif`, { method: 'DELETE' });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      setItems(data.items);
+    } else {
+      alert('Ошибка удаления GIF: ' + (data.error || `HTTP ${r.status}`));
+    }
+  } catch (e) {
+    alert('Сетевая ошибка: ' + (e?.message || e));
+  }
 }
 
 function updateButtonState() {
@@ -460,9 +627,7 @@ async function fetchItems() {
     const r = await fetch('/api/wheel/items', { cache: 'no-store' });
     if (!r.ok) return;
     const data = await r.json();
-    items = Array.isArray(data.items) ? data.items : [];
-    renderSidebar();
-    if (phase === Phase.IDLE) drawWheel(currentRotation);
+    setItems(data.items);
   } catch (e) { /* swallow network errors */ }
 }
 
@@ -494,9 +659,7 @@ async function removeItem(id) {
     const r = await fetch(`/api/wheel/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
     const data = await r.json();
     if (r.ok) {
-      items = Array.isArray(data.items) ? data.items : [];
-      renderSidebar();
-      if (phase === Phase.IDLE) drawWheel(currentRotation);
+      setItems(data.items);
     }
   } catch (e) { /* swallow */ }
 }
@@ -507,9 +670,7 @@ async function clearWheel() {
     const r = await fetch('/api/wheel/clear', { method: 'POST' });
     const data = await r.json();
     if (r.ok) {
-      items = Array.isArray(data.items) ? data.items : [];
-      renderSidebar();
-      if (phase === Phase.IDLE) drawWheel(currentRotation);
+      setItems(data.items);
     }
   } catch (e) { /* swallow */ }
 }
@@ -896,12 +1057,7 @@ function connectWS() {
 // --- WS event handlers ---
 function handleWheelUpdated(payload) {
   if (!payload) return;
-  const newItems = Array.isArray(payload.items) ? payload.items : [];
-  items = newItems;
-  renderSidebar();
-  // Only redraw the canvas from live items if we are idle.
-  // During spin/reveal the canvas is locked to spinSnapshot.
-  if (phase === Phase.IDLE) drawWheel(currentRotation);
+  setItems(payload.items);  // v3.7.0: prewarm cache + render + redraw
 }
 
 function handleSpinStarted(payload, fromPolling) {
@@ -1026,9 +1182,7 @@ document.getElementById('add-form')?.addEventListener('submit', async (e) => {
     const r = await fetch('/api/wheel/items', { method: 'POST', body: formData });
     const data = await r.json();
     if (r.ok) {
-      items = Array.isArray(data.items) ? data.items : [];
-      renderSidebar();
-      if (phase === Phase.IDLE) drawWheel(currentRotation);
+      setItems(data.items);
       input.value = '';
     } else {
       alert(data.error || 'Ошибка');
@@ -1109,9 +1263,7 @@ async function addTestItem() {
 // === Bootstrap ===
 // =================================================================
 (function init() {
-  items = (typeof INITIAL_ITEMS !== 'undefined' && Array.isArray(INITIAL_ITEMS)) ? INITIAL_ITEMS : [];
-  renderSidebar();
-  drawWheel(currentRotation);
+  setItems((typeof INITIAL_ITEMS !== 'undefined' && Array.isArray(INITIAL_ITEMS)) ? INITIAL_ITEMS : []);
   connectWS();
   startPolling();
   // Page lifecycle: if user comes back to the tab after being away,

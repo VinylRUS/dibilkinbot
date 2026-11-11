@@ -160,8 +160,21 @@ def get_current_guild_id(user_payload: dict) -> int:
 
 
 def anonymize_items(items: list[dict]) -> list[dict]:
-    """Убрать added_by и added_at из списка лотов — анонимность."""
-    return [
-        {"id": item["id"], "name": item["name"], "tmdb_id": item["tmdb_id"], "color": item["color"]}
-        for item in items
-    ]
+    """Убрать added_by и added_at из списка лотов — анонимность.
+
+    v3.7.0: также прокидывает gif_path и gif_poster_path — они нужны фронтенду
+    для рендера GIF-превью на секторе и в sidebar. Это публичные URL (/static/...),
+    не содержат приватной информации о юзере.
+    """
+    out = []
+    for item in items:
+        entry = {"id": item["id"], "name": item["name"], "tmdb_id": item["tmdb_id"], "color": item["color"]}
+        # v3.7.0: опциональные поля — могут отсутствовать у старых items до миграции
+        gif_path = item.get("gif_path")
+        gif_poster_path = item.get("gif_poster_path")
+        if gif_path:
+            entry["gif_path"] = gif_path
+        if gif_poster_path:
+            entry["gif_poster_path"] = gif_poster_path
+        out.append(entry)
+    return out

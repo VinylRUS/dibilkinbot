@@ -184,6 +184,40 @@ async def _serve_custom_icon(filename: str):
     return FileResponse(file_path)
 
 
+# v3.7.0: кастомные GIF для секторов колеса — храним в /app/data/wheel_gifs
+# (персистентный путь, переживает redeploy Docker-образа). Раздаём через
+# fallback-роут (как /static/icons/custom), symlink не используем чтобы
+# не плодить ссылки — git-ignored anyway.
+_data_wheel_gifs_dir = _os.environ.get("DATABASE_PATH", "/app/data/bot.db")
+_data_wheel_gifs_dir = _os.path.dirname(_os.path.abspath(_data_wheel_gifs_dir)) if _data_wheel_gifs_dir else "/app/data"
+_data_wheel_gifs_dir = _os.path.join(_data_wheel_gifs_dir, "wheel_gifs")
+try:
+    _os.makedirs(_data_wheel_gifs_dir, exist_ok=True)
+except (OSError, PermissionError) as _e:
+    _logging.getLogger("web").warning("Failed to create wheel_gifs dir %s: %s", _data_wheel_gifs_dir, _e)
+
+
+@app.get("/static/wheel_gifs/{filename:path}")
+async def _serve_wheel_gif(filename: str):
+    """v3.7.0: Раздача GIF и PNG-постеров секторов колеса из /app/data/wheel_gifs.
+
+    Fallback-роут (без symlink) — работает на любой ОС. Cache-Control: immutable
+    + 1 день max-age — файлы immutable (имя содержит hash URL'а), браузер кеширует.
+    """
+    if ".." in filename or "/" in filename:
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+    file_path = _os.path.join(_data_wheel_gifs_dir, filename)
+    if not _os.path.exists(file_path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    # GIF — image/gif, PNG — image/png
+    media_type = "image/gif" if filename.lower().endswith(".gif") else "image/png"
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
+
+
 # === Session ===
 # create_session и read_session импортированы из deps.py
 
