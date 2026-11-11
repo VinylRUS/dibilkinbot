@@ -1211,8 +1211,15 @@ async def api_admin_set_role(
         return JSONResponse({"error": "Неверная роль"}, status_code=400)
     # Нельзя понизить env-админа
     if settings.admin_discord_id and discord_id == int(settings.admin_discord_id) and role != "superuser":
-        return JSONResponse({"error": "Нельзя понизить env-админа"}, status_code=400)
-    await db.set_user_role(discord_id, role)
+        return JSONResponse({"error": "Нельзя понизить env-админа (управляется через ADMIN_DISCORD_ID в env)"}, status_code=400)
+    ok = await db.set_user_role(discord_id, role)
+    if not ok:
+        # v3.6.1: раньше тут всегда было {"ok": True} — UI показывал «Сохранено»,
+        # но в БД ничего не менялось (set_user_role молча возвращал False для env-admin).
+        return JSONResponse(
+            {"error": "Не удалось изменить роль — возможно это env-админ или юзера нет в БД. Подробности в логах db."},
+            status_code=400,
+        )
     return JSONResponse({"ok": True})
 
 
@@ -1632,11 +1639,18 @@ async def toggle_admin(
     """Изменить роль юзера. Только superuser (Матка).
     Принимает role='user' (Пчела) или role='junior-admin' (Трутень).
     Superuser нельзя установить или изменить через эту форму — только через env.
+
+    v3.6.1: при отказе set_user_role (env-admin / user не в БД) редиректит на
+    /users?error=role_change_failed вместо ?saved=1 — раньше всегда писал «Сохранено»,
+    из-за чего баг «Трутень→Пчела не получается» был невидим.
     """
     # Валидация: принимаем только user и junior-admin
     if role not in ('user', 'junior-admin'):
         role = 'user'
-    await db.set_user_role(discord_id, role)
+    ok = await db.set_user_role(discord_id, role)
+    if not ok:
+        # Подробности уже в логе db.set_user_role — здесь только UI feedback
+        return RedirectResponse(url="/users?error=role_change_failed", status_code=303)
     return RedirectResponse(url="/users?saved=1", status_code=303)
 
 

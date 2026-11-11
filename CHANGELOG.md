@@ -1,5 +1,47 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.6.1 (0000000) — Фикс бага смены роли: Пчела↔Трутень
+
+#ИСПРАВЛЕНО#
+- **Корневой баг**: «Смена роли работает Пчела→Трутень, но обратно Трутень→Пчела — нет».
+  Причина оказалась не в SQL и не в unpacking (10-tuple db.list_users ↔ users.html:96
+  идеально совпадают), а в **silent-fail**: `db.set_user_role()` возвращал `False`
+  при попытке изменить env-admin'а (если `ADMIN_DISCORD_ID` или числовой `ADMIN_LOGIN`
+  в проде = ID этого Трутня), но endpoints `/users/{id}/admin` и `/api/admin/set_role`
+  игнорировали возвращаемое значение и писали «Изменения сохранены». Юзер видел
+  «сохранено», но в БД ничего не менялось → dropdown возвращался на «Трутень» при
+  следующей отрисовке.
+- `db.set_user_role` (db.py:775): при отказе теперь логирует конкретную причину
+  (env-admin via ADMIN_DISCORD_ID, env-admin via numeric ADMIN_LOGIN, invalid role,
+  user not in DB) с WARNING уровнем. Раньше было молча — баг был невидим в логах.
+- `web.toggle_admin` (POST /users/{id}/admin): использует возвращаемое значение
+  `set_user_role`. При `False` — RedirectResponse на `/users?error=role_change_failed`
+  вместо ложного `?saved=1`.
+- `web.api_admin_set_role` (POST /api/admin/set_role): при `False` возвращает
+  JSONResponse `{"error": "..."}` со статусом 400 (раньше всегда `{"ok": True}`).
+  Сообщение об ошибке env-admin расширено: «Нельзя понизить env-админа (управляется
+  через ADMIN_DISCORD_ID в env)».
+- `templates/users.html`: показывается красный alert на `?error=role_change_failed`
+  с конкретными возможными причинами (env-admin, юзер не в БД) и подсказкой смотреть
+  логи db (`set_user_role(...): rejected`).
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- Воспроизведение на бэкапе БД (bot_2026-11-08.db, 17 юзеров: 1 superuser + 2
+  junior-admin + 14 user): SQL `UPDATE users SET role='user', is_admin=0` для
+  junior-admin срабатывает rowcount=1 в обе стороны. Значит баг не в SQL.
+- Проверены и ОПРОВЕРГНУТЫ другие гипотезы:
+  * list_users() unpacking ≠ users.html — совпадает 10↔10 колонок (db.py:808 ↔ users.html:96)
+  * Cache-Control HTML missing — уже стоит no-store middleware (web.py:84-95)
+  * upsert_user / `_auto_create_member_profiles` перезаписывают role — НЕ трогают role
+  * on_member_update / on_user_update — не трогают role
+- tests/test_set_user_role.py (новый, 7 тестов): invalid role → False;
+  env_admin via ADMIN_DISCORD_ID blocks; env_admin via numeric ADMIN_LOGIN blocks;
+  promotion user→junior-admin works; **demotion junior-admin→user works** (регрессия
+  бага); nonexistent user → False; env-admin rejection логируется с упоминанием
+  ID и 'env-admin' в логгере db (caplog проверка).
+- Все тесты: 21 passed + 1 xfailed (test_wheel_integration.py + test_achievement_notify.py
+  не тронуты).
+
 ## v3.6.0 (0000000) — Ачивки → отдельный Discord-канал
 
 #НОВЫЕ_ФИЧИ#

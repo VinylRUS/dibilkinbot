@@ -774,16 +774,36 @@ async def is_admin_or_above(discord_id: int) -> bool:
 
 async def set_user_role(discord_id: int, role: str) -> bool:
     """Установить роль юзера. Только superuser может вызывать.
-    Нельзя понизить env-admin (superuser через env).
+
+    Нельзя менять роль env-admin (если discord_id == settings.admin_discord_id,
+    или если settings.admin_login — число и равно discord_id).
     Возвращает True если обновлено, False если отклонено.
+
+    v3.6.1: при отказе логирует конкретную причину (раньше было молча, из-за чего
+    UI писал «Изменения сохранены» хотя в БД ничего не поменялось — это и было
+    корнём бага «Трутень→Пчела не работает»).
     """
+    import logging as _logging
+    _log = _logging.getLogger("db")
+
     if role not in ('superuser', 'junior-admin', 'user'):
+        _log.warning("set_user_role(discord_id=%s): rejected — invalid role %r", discord_id, role)
         return False
-    # Env admin нельзя понижать
+    # Env admin нельзя понижать/менять — он управляется только через env
     if settings.admin_discord_id is not None and settings.admin_discord_id == discord_id:
+        _log.warning(
+            "set_user_role(discord_id=%s): rejected — user is env-admin "
+            "(ADMIN_DISCORD_ID=%s); change ADMIN_DISCORD_ID in env to reassign",
+            discord_id, settings.admin_discord_id,
+        )
         return False
     env_admin = settings.admin_login
-    if env_admin.isdigit() and int(env_admin) == discord_id:
+    if env_admin and env_admin.isdigit() and int(env_admin) == discord_id:
+        _log.warning(
+            "set_user_role(discord_id=%s): rejected — user is env-admin "
+            "(ADMIN_LOGIN=%r is numeric and matches); change ADMIN_LOGIN in env",
+            discord_id, env_admin,
+        )
         return False
     async with _connect() as db:
         cur = await db.execute(
@@ -791,7 +811,12 @@ async def set_user_role(discord_id: int, role: str) -> bool:
             (role, 1 if role in ('superuser', 'junior-admin') else 0, discord_id),
         )
         await db.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+        if not ok:
+            _log.warning("set_user_role(discord_id=%s, role=%r): UPDATE affected 0 rows — user not in DB", discord_id, role)
+        else:
+            _log.info("set_user_role(discord_id=%s): role=%r applied", discord_id, role)
+        return ok
 
 
 async def set_admin(discord_id: int, is_admin_flag: bool) -> None:
