@@ -1,5 +1,14 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.8.2 (0000000) — Убран 🎬 и «Нет лотов» из пустого canvas
+
+#ИСПРАВЛЕНО#
+- **Убраны 🎬 (хлопушка) и текст «Нет лотов» из canvas** когда колесо пустое. Они конфликтовали с центральным hub-circle (с пчелой 🐝 или гифкой) — два «центра» в одном колесе. Теперь при пустом колесе рисуется только subtle dashed circle (визуальный индикатор границы), а hub-circle остаётся в центре как индикатор состояния. Подсказки «Колесо пустое» в banner над колесом и в sidebar остались — там есть ссылка на /movienight.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- `wheel.js:drawWheel()` — из блока `if (drawItems.length === 0) { ... }` убраны строки `ctx.fillText('🎬', center, center - 24)` и `ctx.fillText('Нет лотов', center, center + 38)` вместе с setup'ом font/textAlign/fillStyle для них. Оставлен только dashed circle (`ctx.arc + fillStyle rgba + setLineDash + strokeStyle + lineWidth + stroke`).
+- Все тесты: 64 passed + 1 xfailed — не затронуты (правка только frontend rendering).
+
 ## v3.8.1 (0000000) — Hub-circle контейнер + библиотека гифок + перенос настроек в sidebar
 
 #ИСПРАВЛЕНО#
