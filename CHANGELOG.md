@@ -1,5 +1,16 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.5.1 (0000000) — Phase 0: тесты колеса
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- tests/ — интеграционные тесты колеса (pytest + FastAPI TestClient), Фаза 0 плана `HANDOFF_wheel_audit.md`. Синтетическая БД через `db.init_db()` (снапшот прода не нужен), env выставляется до импорта config/web в `tests/conftest.py`, Fernet-ключ генерируется на каждый прогон.
+- Ключевое: ОДИН TestClient на всю сессию (один event loop). При function-scope фикстуре loop умирает вместе с контекстом, недождавшиеся `_delayed_complete_spin` рвутся на середине, а занятые `_wheel_spin_locks`/`_active_spins` наследуются следующим тестом → ложные 409 при прогоне всего файла (при зелёных одиночных прогонах). Причина падений ранней версии тестов из HANDOFF, п.4.
+- `wait_spin_done` — polling `GET /api/wheel/state` вместо `time.sleep`: ждём `active_spin is None` И снятия guild-lock. Только `active_spin is None` недостаточно: `status="COMPLETED"` ставится в начале `_delayed_complete_spin` (wheel_routes.py:508), а `pop`+`release()` — в конце (590-598); между ними окно в сотни мс (записи в БД + `sleep(0.3)`), в которое следующий спин ловит ложный 409.
+- 10 тестов: CRUD лотов + цвета + анонимизация; классический спин (победитель == `items[physics.winner_idx]`, удаление из колеса, запись в winners `confirmed`); elimination → elimination_final (побеждает ДРУГОЙ элемент, колесо пустеет); 409 already_spinning + снятие lock; WS: spin_started/spin_completed двум клиентам, recovery опоздавшего клиента, close 4001 на не-approved guild; /api/wheel/state; инвариант физики `winner_idx == get_sector_under_pointer(final_rotation)`.
+- Баг 2.1 (lock остаётся при исключении) покрыт `test_lock_recovery_on_exception` с `xfail(strict=False)`: сейчас ожидаемо падает, после фикса в Фазе 2 станет XPASS — сигнал перепроверить.
+- CI (.github/workflows/ci.yml): добавлен шаг pytest `tests/test_wheel_integration.py`.
+- Результат: 9 passed, 1 xfailed — стабильно в повторных прогонах (гонок нет). Код бота НЕ менялся.
+
 ## v3.5.0 (0000000)
 
 #НОВЫЕ_ФИЧИ#
