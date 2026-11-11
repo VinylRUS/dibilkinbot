@@ -172,9 +172,10 @@ async function fetchHubGif() {
   } catch (e) { /* swallow network errors */ }
 }
 
-// v3.8.1: Библиотека гифок
+// v3.8.1/v3.8.3: Библиотека гифок
 async function fetchHubGifLibrary() {
-  if (typeof IS_SUPERUSER === 'undefined' || !IS_SUPERUSER) return;  // не Матка — не трогаем
+  // v3.8.3: библиотека грузится ВСЕМ юзерам (не только Матке) —
+  // обычные юзеры могут выбирать из сохранённого Маткой.
   try {
     const r = await fetch('/api/wheel/hub_gif/library', { cache: 'no-store' });
     if (!r.ok) return;
@@ -188,7 +189,12 @@ function renderHubGifLibrary() {
   const container = document.getElementById('hub-gif-library');
   if (!container) return;
   if (_hubGifLibrary.length === 0) {
-    container.innerHTML = '<div class="hub-gif-library-empty">Пусто. Сохраните гифку выше с галочкой «Сохранить».</div>';
+    // Текст зависит от роли — показывается сервером в SSR, но если JS перерисовывает
+    // после fetch, используем IS_SUPERUSER для выбора текста
+    const emptyText = (typeof IS_SUPERUSER !== 'undefined' && IS_SUPERUSER)
+      ? 'Пусто. Сохраните гифку выше с галочкой «Сохранить».'
+      : 'Пусто. Матка ещё не сохранила ни одной гифки.';
+    container.innerHTML = `<div class="hub-gif-library-empty">${emptyText}</div>`;
     return;
   }
   container.innerHTML = '';
@@ -202,21 +208,23 @@ function renderHubGifLibrary() {
     img.loading = 'lazy';
     img.onerror = () => { thumb.style.display = 'none'; };  // скрыть если не грузится
     thumb.appendChild(img);
-    // Клик по thumbnail → установить как активную
+    // Клик по thumbnail → установить как активную (любой юзер может)
     thumb.addEventListener('click', (e) => {
       if (e.target.classList.contains('hub-gif-thumb-remove')) return;  // клик был по кнопке удаления
       setHubGifViaApi(url, false);  // не сохраняем повторно в библиотеку
     });
-    // Кнопка удаления из библиотеки
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'hub-gif-thumb-remove';
-    removeBtn.textContent = '×';
-    removeBtn.title = 'Удалить из библиотеки';
-    removeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removeFromLibrary(url);
-    });
-    thumb.appendChild(removeBtn);
+    // Кнопка удаления из библиотеки — только для Матки (v3.8.3)
+    if (typeof IS_SUPERUSER !== 'undefined' && IS_SUPERUSER) {
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'hub-gif-thumb-remove';
+      removeBtn.textContent = '×';
+      removeBtn.title = 'Удалить из библиотеки';
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFromLibrary(url);
+      });
+      thumb.appendChild(removeBtn);
+    }
     container.appendChild(thumb);
   });
 }
