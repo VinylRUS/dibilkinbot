@@ -267,6 +267,29 @@
       {# Левая колонка: список ачивок #}
       <div>
         <h3 style="margin-bottom: 12px; color: var(--text);">Существующие ачивки</h3>
+        {% set trigger_labels = {
+          'manual': 'Только ручная выдача',
+          'ratings_count': 'Поставил N оценок',
+          'high_ratings_count': 'N оценок ≥ 4 (высокие)',
+          'perfect_rating_count': 'N оценок 5/5 (идеальные)',
+          'top_rater': 'Топ-N по количеству оценок',
+          'quotes_count': 'Добавил N цитат',
+          'watchlist_count': 'В вишлисте N фильмов',
+          'wheel_wins': 'N раз фильм выиграл в колесе',
+          'collections_started': 'Организовал N сборов',
+          'santa_participations': 'Участвовал в Тайном Санте N раз',
+          'watched_count': 'В бэклоге N фильмов (гильдия)',
+          'first_rating': 'Первая оценка',
+          'first_quote': 'Первая цитата',
+          'voice_time': 'Войс-чат (любое время)',
+          'voice_time_solo': 'Войс-чат (одиночные)',
+          'voice_time_with_others': 'Войс-чат (с другими)',
+          'game_play_time': 'Игры (время игры, Discord)',
+          'steam_play_time': 'Steam (общее время, часы)',
+          'steam_games_count': 'Steam (количество игр)',
+          'steam_play_time_specific': 'Steam (время в конкретной игре)',
+          'voice_co_sessions': 'Совместных сессий (с разными юзерами)',
+        } %}
         <div class="achievements-list">
           {% if not achievements %}
             <article class="card">
@@ -284,7 +307,7 @@
                   {% if ach.description %}<div class="ach-desc">{{ ach.description }}</div>{% endif %}
                   <div class="ach-meta">
                     {% set _is_time = ach.trigger_type in ('voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time', 'steam_play_time', 'steam_play_time_specific') %}
-                    <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' and ach.trigger_type not in ('first_rating', 'first_quote') %}{% if ach.trigger_type == 'top_rater' %} ≤ топ-{{ ach.trigger_threshold }}{% elif _is_time %} ≥ {% if ach.trigger_threshold >= 3600 %}{{ (ach.trigger_threshold / 3600) | round(1) }} ч{% elif ach.trigger_threshold >= 60 %}{{ (ach.trigger_threshold / 60) | round(0) }} мин{% else %}{{ ach.trigger_threshold }} сек{% endif %}{% else %} ≥ {{ ach.trigger_threshold }} раз{% endif %}{% endif %}</span>
+                    <span class="ach-tag">{{ trigger_labels.get(ach.trigger_type, ach.trigger_type) }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' and ach.trigger_type not in ('first_rating', 'first_quote') %}{% if ach.trigger_type == 'top_rater' %} ≤ топ-{{ ach.trigger_threshold }}{% elif _is_time %} ≥ {% if ach.trigger_threshold >= 3600 %}{{ (ach.trigger_threshold / 3600) | round(1) }} ч{% elif ach.trigger_threshold >= 60 %}{{ (ach.trigger_threshold / 60) | round(0) }} мин{% else %}{{ ach.trigger_threshold }} сек{% endif %}{% else %} ≥ {{ ach.trigger_threshold }} раз{% endif %}{% endif %}</span>
                     {% if ach.discord_role_id %}<span class="ach-tag role">Discord роль</span>{% endif %}
                     {% if ach.trigger_type == 'manual' %}<span class="ach-tag manual">Только manual</span>{% endif %}
                     <span class="ach-tag"><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> {{ ach.granted_count }}</span>
@@ -367,7 +390,7 @@
             <option value="watchlist_count">В вишлисте N фильмов</option>
             <option value="wheel_wins">N раз фильм выиграл в колесе</option>
             <option value="collections_started">Организовал N сборов</option>
-            <option value="santa_participations">Участвовал в Сайте N раз</option>
+            <option value="santa_participations">Участвовал в Тайном Санте N раз</option>
             <option value="watched_count">В бэклоге N фильмов (гильдия)</option>
             <option value="first_rating">Первая оценка</option>
             <option value="first_quote">Первая цитата</option>
@@ -528,7 +551,7 @@
       {value: 'watchlist_count', label: 'В вишлисте N фильмов'},
       {value: 'wheel_wins', label: 'N раз фильм выиграл в колесе'},
       {value: 'collections_started', label: 'Организовал N сборов'},
-      {value: 'santa_participations', label: 'Участвовал в Сайте N раз'},
+      {value: 'santa_participations', label: 'Участвовал в Тайном Санте N раз'},
       {value: 'watched_count', label: 'В бэклоге N фильмов (гильдия)'},
       {value: 'first_rating', label: 'Первая оценка'},
       {value: 'first_quote', label: 'Первая цитата'},
