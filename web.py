@@ -1448,6 +1448,10 @@ async def api_rate_winner(
     try:
         new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
         new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
+        # v3.10.0: новые рейтинговые триггеры
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "high_ratings_count")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "perfect_rating_count")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "top_rater")
     except Exception as e:
         import logging
         logging.getLogger("achievements").warning("auto-grant check failed: %s", e)
@@ -1652,6 +1656,10 @@ async def api_rate_watched(
     try:
         new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "ratings_count")
         new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "first_rating")
+        # v3.10.0: новые рейтинговые триггеры
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "high_ratings_count")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "perfect_rating_count")
+        new_achievements += await db.g_check_and_grant_auto(guild_id, user_discord_id, "top_rater")
     except Exception as e:
         import logging
         logging.getLogger("achievements").warning("auto-grant check failed: %s", e)

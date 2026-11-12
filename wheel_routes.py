@@ -880,6 +880,13 @@ async def _delayed_complete_spin(spin_id: str) -> None:
                                   actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
             if not is_test:
                 await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+                # v3.10.0: проверяем wheel_wins ачивку для юзера, добавившего выигравший лот
+                added_by = actual_winner.get("added_by")
+                if added_by:
+                    try:
+                        await db.g_check_and_grant_auto(guild_id, int(added_by), "wheel_wins")
+                    except Exception as _e:
+                        _log.warning("wheel_wins trigger check failed for user %s: %s", added_by, _e)
         elif mode == "elimination_final":
             actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
             if actual_winner:
@@ -891,6 +898,13 @@ async def _delayed_complete_spin(spin_id: str) -> None:
                                       actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
                 if not is_test:
                     await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+                    # v3.10.0: проверяем wheel_wins ачивку для юзера, добавившего выигравший лот
+                    added_by = actual_winner.get("added_by")
+                    if added_by:
+                        try:
+                            await db.g_check_and_grant_auto(guild_id, int(added_by), "wheel_wins")
+                        except Exception as _e:
+                            _log.warning("wheel_wins trigger check failed for user %s: %s", added_by, _e)
         # mode == "elimination" — ничего не записываем в winners
 
         if is_test:

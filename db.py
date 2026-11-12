@@ -1246,6 +1246,17 @@ async def is_steam_profile_set(discord_id: int) -> bool:
     return profile is not None and bool(profile.get("steam_id64"))
 
 
+# v3.10.0: список discord_id юзеров с привязанным Steam (для периодического Steam-чекера)
+async def list_users_with_steam_linked() -> list[int]:
+    """Возвращает discord_id всех юзеров, у которых steam_id64 не пустой."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT discord_id FROM users WHERE steam_id64 IS NOT NULL AND steam_id64 != ''"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [r[0] for r in rows if r[0]]
+
+
 # === v2.3.2: show_wishlist setting (для публичного профиля) ===
 
 async def get_user_show_wishlist(discord_id: int) -> bool:
@@ -2459,6 +2470,10 @@ ACHIEVEMENT_TRIGGERS = {
     "steam_games_count",      # N игр в библиотеке Steam
     "steam_play_time_specific",  # N секунд в конкретной игре (icon_config.game_name)
     "voice_co_sessions",      # N совместных сессий (был в одном войс-канале с N разными юзерами)
+    # v3.10.0: новые рейтинговые триггеры
+    "high_ratings_count",     # N оценок ≥ 4 (хорошие оценки)
+    "perfect_rating_count",   # N оценок 5/5 (идеальные оценки)
+    "top_rater",              # топ-N по количеству оценок в гильдии (threshold = N, rank ≤ N)
 }
 
 # v2.3.2: Триггеры, чьи пороги в часах (для UI — показать "часов" вместо "раз").
@@ -2910,6 +2925,29 @@ async def g_get_user_trigger_count(guild_id: int, user_discord_id: int, trigger_
                 return len(co) if co else 0
             except Exception:
                 return 0
+        # v3.10.0: новые рейтинговые триггеры (шкала 0.5-5)
+        elif trigger_type == "high_ratings_count":
+            # N оценок ≥ 4 (хорошие оценки)
+            sql = f"SELECT COUNT(*) FROM {table_r} WHERE user_discord_id = ? AND rating >= 4"
+        elif trigger_type == "perfect_rating_count":
+            # N оценок 5/5 (идеальные оценки; >= 5 чтобы покрыть 5.0)
+            sql = f"SELECT COUNT(*) FROM {table_r} WHERE user_discord_id = ? AND rating >= 5"
+        elif trigger_type == "top_rater":
+            # Топ-N по количеству оценок: возвращаем РАНГ юзера (1 = лидер).
+            # Если у юзера 0 оценок — возвращаем 0 (ачивка не выдаётся).
+            # Грант делается когда rank <= threshold (см. g_check_and_grant_auto).
+            sql = (
+                f"SELECT COUNT(*) + 1 FROM ("
+                f"  SELECT user_discord_id, COUNT(*) AS cnt FROM {table_r} GROUP BY user_discord_id"
+                f") WHERE cnt > (SELECT COUNT(*) FROM {table_r} WHERE user_discord_id = ?)"
+            )
+            row = await (await db.execute(sql, (user_discord_id,))).fetchone()
+            # Если у юзера 0 оценок — rank вернёт (N+1), но фактически он не в топе. Дополнительно проверим.
+            cnt_row = await (await db.execute(
+                f"SELECT COUNT(*) FROM {table_r} WHERE user_discord_id = ?", (user_discord_id,)
+            )).fetchone()
+            own_count = cnt_row[0] if cnt_row else 0
+            return row[0] if (row and own_count > 0) else 0
         else:
             return 0
         row = await (await db.execute(sql, (user_discord_id,))).fetchone()
@@ -2972,6 +3010,10 @@ async def g_check_and_grant_auto(guild_id: int, user_discord_id: int, trigger_ty
         # Для first_* триггеров threshold игнорируем, считаем что порог=1
         if trigger_type in ("first_rating", "first_quote"):
             should_grant = count >= 1
+        elif trigger_type == "top_rater":
+            # v3.10.0: инвертированный порог — грант когда rank ≤ threshold (1 = лидер).
+            # count=0 означает «юзер не в рейтинге» (нет оценок) — не выдаём.
+            should_grant = count > 0 and count <= threshold
         else:
             should_grant = count >= threshold
         if not should_grant:

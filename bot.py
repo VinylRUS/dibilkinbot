@@ -660,6 +660,10 @@ class KinovecherBot(commands.Bot):
         # === v2.3: Периодическая проверка авто-ачивок (раз в 30 минут) ===
         _spawn_background_task(_auto_achievements_loop(), name="auto_achievements")
 
+        # === v3.10.0: Steam periodic checker — 2 раза в день (9:00 и 21:00 MSK) ===
+        # Force-refresh Steam games cache + проверка Steam-триггеров для юзеров с привязанным Steam.
+        _spawn_background_task(_steam_achievements_loop(), name="steam_achievements")
+
         # === v2.3.3: GitHub мониторинг — presence status + уведомления Матке ===
         try:
             import github_monitor
@@ -2277,6 +2281,8 @@ async def _handle_voice_state_change(member, before, after):
                 await db.g_check_and_grant_auto(guild_id, member.id, "voice_time")
                 await db.g_check_and_grant_auto(guild_id, member.id, "voice_time_solo")
                 await db.g_check_and_grant_auto(guild_id, member.id, "voice_time_with_others")
+                # v3.10.0: проверяем voice_co_sessions — совместные сессии (был в одном канале с N разными юзерами)
+                await db.g_check_and_grant_auto(guild_id, member.id, "voice_co_sessions")
             except Exception:
                 pass
 
@@ -2755,6 +2761,11 @@ async def _check_all_auto_achievements():
         "first_rating",
         "quotes_count",
         "first_quote",
+        # v3.10.0: новые рейтинговые триггеры — проверяем периодически
+        # (real-time проверка есть в web.py после рейтинга, но periodic — для оценок через Discord)
+        "high_ratings_count",
+        "perfect_rating_count",
+        "top_rater",
     ]
 
     try:
@@ -2792,3 +2803,101 @@ async def _auto_achievements_loop():
         except Exception as e:
             log.error("Auto-achievements loop error: %s", e, exc_info=True)
         await asyncio.sleep(INTERVAL)
+
+
+# === v3.10.0: Steam periodic checker — 2 раза в день (9:00 и 21:00 MSK) ===
+# Force-refresh Steam games cache + проверка Steam-триггеров для всех юзеров с привязанным Steam.
+# 30-минутный _auto_achievements_loop читает Steam-данные из кеша (без API-запроса),
+# а этот цикл гарантирует что кеш свежий 2 раза в день.
+
+STEAM_TRIGGERS_TO_CHECK = (
+    "steam_play_time",
+    "steam_games_count",
+    "steam_play_time_specific",
+)
+
+
+def _seconds_until_next_steam_run() -> float:
+    """Посчитать секунды до ближайшего 9:00 или 21:00 MSK (UTC+3).
+
+    Возвращает float (секунды). Если уже прошло — берём следующий слот.
+    Минимум 60 сек (чтобы не зациклиться если бот стартует ровно в 9:00).
+    """
+    from datetime import datetime, timezone, timedelta
+    MSK = timezone(timedelta(hours=3))
+    now_msk = datetime.now(MSK)
+    # Целевые часы в MSK
+    target_hours = [9, 21]
+    # Найти ближайший слот сегодня или завтра
+    for hour in target_hours:
+        target = now_msk.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if target > now_msk:
+            delta = (target - now_msk).total_seconds()
+            return max(delta, 60.0)
+    # Все слоты сегодня прошли — берём первый слот завтра (9:00)
+    target = (now_msk + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+    delta = (target - now_msk).total_seconds()
+    return max(delta, 60.0)
+
+
+async def _steam_sync_and_check():
+    """Одна итерация: для всех юзеров с привязанным Steam — refresh кеша + проверка Steam-ачивок."""
+    import guild as guild_module
+    log = logging.getLogger("achievements")
+    try:
+        # Все discord_id юзеров с привязанным Steam (глобально)
+        steam_users = await db.list_users_with_steam_linked()
+        if not steam_users:
+            log.info("v3.10.0: Steam checker — no users with linked Steam, skipping")
+            return
+        # Множество для быстрого lookup
+        steam_set = set(steam_users)
+        guilds = await guild_module.list_guilds(approved_only=True)
+        total_refreshed = 0
+        total_granted = 0
+        for g in guilds:
+            gid = g["guild_id"]
+            try:
+                user_ids = await db.list_guild_user_ids(gid)
+                # Только юзеры с привязанным Steam
+                steam_in_guild = [uid for uid in user_ids if uid in steam_set]
+                for user_did in steam_in_guild:
+                    try:
+                        # Force-refresh Steam games cache (делает API-запрос к Steam)
+                        await db.g_get_user_steam_games(gid, user_did, limit=999, force_refresh=True)
+                        total_refreshed += 1
+                        # Проверяем все Steam-триггеры
+                        for trigger_type in STEAM_TRIGGERS_TO_CHECK:
+                            try:
+                                granted = await db.g_check_and_grant_auto(gid, user_did, trigger_type)
+                                if granted:
+                                    total_granted += len(granted)
+                            except Exception:
+                                pass  # ошибки отдельных триггеров не должны валить весь цикл
+                        # Небольшая пауза между юзерами — чтобы не спамить Steam API
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        log.warning("Steam checker: user %s in guild %s failed: %s", user_did, gid, e)
+            except Exception as e:
+                log.warning("Steam checker: guild %s failed: %s", gid, e)
+        log.info("v3.10.0: Steam checker done — refreshed %d users, granted %d achievements",
+                 total_refreshed, total_granted)
+    except Exception as e:
+        log.error("v3.10.0: Steam checker failed: %s", e, exc_info=True)
+
+
+async def _steam_achievements_loop():
+    """Фоновый цикл: 2 раза в день (9:00 и 21:00 MSK) — refresh Steam + проверка Steam-ачивок."""
+    log = logging.getLogger("achievements")
+    # При старте — подождём до ближайшего слота (не запускаем сразу, чтобы не дублировать
+    # первичную проверку из on_ready)
+    while True:
+        try:
+            delay = _seconds_until_next_steam_run()
+            log.info("v3.10.0: Steam checker — next run in %.0f sec (~%.1f hours)", delay, delay / 3600)
+            await asyncio.sleep(delay)
+            await _steam_sync_and_check()
+        except Exception as e:
+            log.error("v3.10.0: Steam loop error: %s", e, exc_info=True)
+            # На ошибку — подождём 5 мин перед повтором
+            await asyncio.sleep(300)
