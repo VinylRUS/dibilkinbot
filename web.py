@@ -119,8 +119,19 @@ async def serve_cached_avatar(discord_id: int):
     """Serve avatar from local cache. Falls back to SVG letter avatar if:
     - Avatar not cached and can't be downloaded (404, network error)
     - User not in DB
-    - User has no avatar_url stored"""
+    - User has no avatar_url stored
+
+    v3.10.0 (A5): если discord_id вне int64 диапазона (< 0 или > 2^63-1) —
+    возвращаем SVG fallback вместо OverflowError 500. Реальные Discord snowflake
+    IDs (18 цифр) всегда в int64, но аноним может передать 99999999999999999999999999.
+    """
     import avatar_cache
+
+    # v3.10.0 (A5): валидация диапазона — защита от OverflowError в SQLite
+    if discord_id < 0 or discord_id > (2**63 - 1):
+        svg = avatar_cache.generate_letter_avatar_svg("", discord_id)
+        return Response(content=svg, media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=300"})
 
     # 1. Check if cached file exists
     path = avatar_cache.get_avatar_path(discord_id)
@@ -1988,7 +1999,18 @@ async def public_profile_page(
     discord_id: int,
     _user: dict = Depends(require_user),
 ):
-    """Публичный профиль пользователя. Виден всем залогиненным юзерам."""
+    """Публичный профиль пользователя. Виден всем залогиненным юзерам.
+
+    v3.10.0 (A5): валидация discord_id — если вне int64 диапазона, отдаём 404
+    вместо OverflowError 500 в db.get_user.
+    """
+    # v3.10.0 (A5): валидация диапазона
+    if discord_id < 0 or discord_id > (2**63 - 1):
+        return templates.TemplateResponse(request, "profile_public.html", {
+            "user": _user,
+            "target": None,
+            "not_found": True,
+        }, status_code=404)
     target = await db.get_user(discord_id)
     if not target:
         return templates.TemplateResponse(request, "profile_public.html", {
