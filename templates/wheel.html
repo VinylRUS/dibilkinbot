@@ -338,62 +338,7 @@
       text-align: center;
       width: 100%;
     }
-    .hub-gif-thumb {
-      position: relative;
-      width: 44px;
-      height: 44px;
-      border-radius: 6px;
-      overflow: hidden;
-      border: 2px solid var(--border);
-      cursor: pointer;
-      transition: border-color 0.15s, transform 0.15s, opacity 0.15s;
-    }
-    .hub-gif-thumb:hover {
-      border-color: var(--accent);
-      transform: scale(1.05);
-    }
-    /* v3.10.0: активный thumbnail — темнеет (toggle выбран) */
-    .hub-gif-thumb.hub-gif-thumb-active {
-      border-color: var(--accent);
-      opacity: 0.5;
-      transform: scale(0.95);
-    }
-    .hub-gif-thumb.hub-gif-thumb-active::after {
-      content: '✓';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: var(--accent);
-      font-size: 1.2rem;
-      font-weight: bold;
-      text-shadow: 0 0 4px rgba(0,0,0,0.8);
-    }
-    .hub-gif-thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .hub-gif-thumb-remove {
-      position: absolute;
-      top: -2px;
-      right: -2px;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: var(--red);
-      color: #fff;
-      border: none;
-      font-size: 10px;
-      line-height: 16px;
-      text-align: center;
-      cursor: pointer;
-      padding: 0;
-    }
-    .hub-gif-thumb-remove:hover {
-      background: #c00;
-    }
+    /* v3.10.0: .hub-gif-thumb* стили перенесены в style.css (общие для колеса и настроек) */
     .spin-btn {
       background: var(--accent);
       color: var(--accent-text, #1A1A1A);

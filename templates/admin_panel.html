@@ -185,9 +185,9 @@
       <div id="settings-gif-library" class="hub-gif-library" style="display:flex;flex-wrap:wrap;gap:8px;">
         {% if hub_gif_library %}
           {% for gif_url in hub_gif_library %}
-          <div class="hub-gif-thumb {% if hub_gif_url == gif_url %}hub-gif-thumb-active{% endif %}" style="width:60px;height:60px;">
-            <img src="{{ gif_url }}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.style.display='none'">
-            <button class="hub-gif-thumb-remove" onclick="settingsRemoveGif('{{ gif_url }}')" style="width:18px;height:18px;font-size:11px;">×</button>
+          <div class="hub-gif-thumb {% if hub_gif_url == gif_url %}hub-gif-thumb-active{% endif %}" style="width:64px;height:64px;">
+            <img src="{{ gif_url }}" alt="" onerror="this.parentElement.style.display='none'">
+            <button class="hub-gif-thumb-remove" onclick="settingsRemoveGif('{{ gif_url }}')" title="Удалить из библиотеки">×</button>
           </div>
           {% endfor %}
         {% else %}

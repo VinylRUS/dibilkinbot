@@ -331,6 +331,12 @@
             <img src="/static/icons/idea.png" alt="" width="16" height="16" class="ui-icon"> На <a href="https://icons8.ru/" target="_blank" rel="noopener" style="color:var(--accent);">icons8.ru</a> выбери иконку → скопируй «Link to this image» → вставь сюда. Цвет в URL можно менять (hex-код без #).
           </p>
 
+          {# v3.10.0: Гифка из библиотеки гифок (hub_gif_library) как иконка ачивки #}
+          <label>Или гифка из библиотеки <span style="font-weight:400;color:var(--text-soft);font-size:0.72rem;">(анимированная, круглая)</span></label>
+          <div id="ach-gif-library" style="display:flex;flex-wrap:wrap;gap:6px;min-height:44px;padding:8px;background:var(--card-alt);border-radius:6px;border:1px solid var(--border);">
+            <div style="color:var(--text-muted);font-size:0.74rem;padding:8px;width:100%;text-align:center;">Загрузка библиотеки...</div>
+          </div>
+
           <label>Цвет фона кружка</label>
           <div class="color-grid" id="color-grid">
             <button type="button" class="color-btn active" data-color="accent" style="background: var(--accent);" title="accent"></button>
@@ -583,6 +589,8 @@
         document.querySelectorAll('#icon-grid .option-btn').forEach(b => b.classList.remove('active'));
         builderConfig.icon_url = url;
         builderConfig.icon_key = '';
+        // v3.10.0: снять выделение с гифок
+        document.querySelectorAll('#ach-gif-library .hub-gif-thumb').forEach(t => t.classList.remove('hub-gif-thumb-active'));
       } else {
         // URL пустой — возвращаемся к preset
         builderConfig.icon_url = '';
@@ -594,6 +602,53 @@
       }
       updatePreview();
     });
+
+    // v3.10.0: Загрузка библиотеки гифок для выбора как иконки ачивки
+    (async function loadAchGifLibrary() {
+      const container = document.getElementById('ach-gif-library');
+      if (!container) return;
+      try {
+        const r = await fetch('/api/wheel/hub_gif/library', { headers: { 'Accept': 'application/json' } });
+        const data = await r.json();
+        const urls = Array.isArray(data.urls) ? data.urls : [];
+        if (urls.length === 0) {
+          container.innerHTML = '<div style="color:var(--text-muted);font-size:0.74rem;padding:8px;width:100%;text-align:center;">Библиотека пуста. Добавьте гифки через Настройки → Гифки.</div>';
+          return;
+        }
+        container.innerHTML = '';
+        urls.forEach(url => {
+          const thumb = document.createElement('div');
+          thumb.className = 'hub-gif-thumb';
+          // Если текущий icon_url совпадает — отметить как активный
+          if (builderConfig.icon_url === url) {
+            thumb.classList.add('hub-gif-thumb-active');
+          }
+          thumb.title = 'Выбрать эту гифку как иконку';
+          thumb.style.width = '40px';
+          thumb.style.height = '40px';
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = '';
+          img.loading = 'lazy';
+          img.onerror = () => { thumb.style.display = 'none'; };
+          thumb.appendChild(img);
+          thumb.addEventListener('click', () => {
+            // Снять выделение со всех preset + гифок
+            document.querySelectorAll('#icon-grid .option-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('#ach-gif-library .hub-gif-thumb').forEach(t => t.classList.remove('hub-gif-thumb-active'));
+            // Установить эту гифку
+            thumb.classList.add('hub-gif-thumb-active');
+            builderConfig.icon_url = url;
+            builderConfig.icon_key = '';
+            document.getElementById('ach-icon-url').value = url;
+            updatePreview();
+          });
+          container.appendChild(thumb);
+        });
+      } catch (e) {
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:0.74rem;padding:8px;width:100%;text-align:center;">Ошибка загрузки библиотеки</div>';
+      }
+    })();
 
     // Color buttons
     document.querySelectorAll('#color-grid .color-btn').forEach(btn => {
