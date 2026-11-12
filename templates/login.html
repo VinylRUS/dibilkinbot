@@ -199,7 +199,9 @@
 
       errEl.style.display = 'none';
       if (!pw) { errEl.textContent = 'Пароль не может быть пустым'; errEl.style.display = 'block'; return; }
-      if (pw.length < 4) { errEl.textContent = 'Минимум 4 символа'; errEl.style.display = 'block'; return; }
+      // v3.10.0 (A4): клиентская валидация синхронизирована с сервером (web.py — len < 8).
+      // Раньше было < 4 → сервер редиректил 303 → fetch следовал → r.ok=true → ложный успех.
+      if (pw.length < 8) { errEl.textContent = 'Минимум 8 символов'; errEl.style.display = 'block'; return; }
       if (pw !== pwConfirm) { errEl.textContent = 'Пароли не совпадают'; errEl.style.display = 'block'; return; }
 
       // Отправляем POST на /set-password
@@ -207,12 +209,28 @@
       formData.append('password', pw);
       formData.append('password_confirm', pwConfirm);
       try {
-        const r = await fetch('/set-password', { method: 'POST', body: formData });
-        if (r.ok) {
+        // v3.10.0 (A4): Accept: application/json → сервер возвращает JSON {ok, error}
+        // вместо 303 редиректа. Раньше fetch следовал редиректу → r.ok=true → ложный успех.
+        const r = await fetch('/set-password', {
+          method: 'POST',
+          body: formData,
+          headers: { 'Accept': 'application/json' },
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.ok) {
           // Успех — редирект на логин с сообщением
-          window.location.href = '/login?error=password_set';
+          window.location.href = data.redirect || '/login?error=password_set';
         } else {
-          errEl.textContent = 'Ошибка установки пароля';
+          // JSON с ошибкой — показываем понятное сообщение
+          const errMap = {
+            'session expired': 'Сессия истекла. Начните вход заново.',
+            'invalid session': 'Невалидная сессия. Начните вход заново.',
+            'password required': 'Пароль не может быть пустым',
+            'minimum 8 characters': 'Минимум 8 символов',
+            'passwords do not match': 'Пароли не совпадают',
+            'failed to set password': 'Не удалось установить пароль. Попробуйте позже.',
+          };
+          errEl.textContent = errMap[data.error] || data.error || 'Ошибка установки пароля';
           errEl.style.display = 'block';
         }
       } catch (e) {

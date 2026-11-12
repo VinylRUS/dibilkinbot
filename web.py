@@ -603,35 +603,51 @@ async def set_password_submit(
     password: str = Form(...),
     password_confirm: str = Form(...),
 ):
-    """Установить пароль для юзера."""
+    """Установить пароль для юзера.
+
+    v3.10.0 (A4): для fetch-запросов (Accept: application/json) возвращаем JSON
+    вместо 303 редиректа. Раньше сервер всегда отвечал 303 → fetch следовал →
+    r.ok=true → ложный успех даже при ошибке (пароль < 8 символов, mismatch).
+    """
+    # v3.10.0 (A4): определяем fetch-запрос по Accept header
+    wants_json = "application/json" in request.headers.get("accept", "")
+
+    def json_or_redirect(url, error=None):
+        if wants_json:
+            return JSONResponse({"ok": False, "error": error or "failed"} if error else {"ok": True})
+        return RedirectResponse(url=url, status_code=303)
+
     temp_token = request.cookies.get("temp_session")
     if not temp_token:
-        return RedirectResponse(url="/login", status_code=303)
+        return json_or_redirect("/login", "session expired")
     temp_user = read_session(temp_token)
     if not temp_user or not temp_user.get("temp"):
-        return RedirectResponse(url="/login", status_code=303)
+        return json_or_redirect("/login", "session expired")
 
     discord_id = temp_user.get("discord_id", 0)
     if not discord_id:
-        return RedirectResponse(url="/login?error=invalid", status_code=303)
+        return json_or_redirect("/login?error=invalid", "invalid session")
 
     password = password.strip()
     password_confirm = password_confirm.strip()
 
     if not password:
-        return RedirectResponse(url="/set-password?error=empty", status_code=303)
+        return json_or_redirect("/set-password?error=empty", "password required")
     if len(password) < 8:
-        return RedirectResponse(url="/set-password?error=short", status_code=303)
+        return json_or_redirect("/set-password?error=short", "minimum 8 characters")
     if password != password_confirm:
-        return RedirectResponse(url="/set-password?error=mismatch", status_code=303)
+        return json_or_redirect("/set-password?error=mismatch", "passwords do not match")
 
     # Устанавливаем пароль
     success = await db.set_user_password(discord_id, password)
     if not success:
-        return RedirectResponse(url="/set-password?error=failed", status_code=303)
+        return json_or_redirect("/set-password?error=failed", "failed to set password")
 
-    # Возвращаем на логин — юзер должен войти с новым паролем
-    resp = RedirectResponse(url=f"/login?error=password_set&did={discord_id}", status_code=303)
+    # Успех
+    if wants_json:
+        resp = JSONResponse({"ok": True, "redirect": f"/login?error=password_set&did={discord_id}"})
+    else:
+        resp = RedirectResponse(url=f"/login?error=password_set&did={discord_id}", status_code=303)
     resp.delete_cookie("temp_session")
     return resp
 
