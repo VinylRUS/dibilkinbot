@@ -453,7 +453,7 @@ async def api_get_hub_gif_library(_user: dict = Depends(require_user)):
 
 @router.post("/api/wheel/hub_gif/library")
 async def api_add_to_hub_gif_library(
-    _user: dict = Depends(require_superuser),
+    _user: dict = Depends(require_admin),  # v3.10.0: require_admin (Трутень+ может добавлять гифки)
     url: str = Form(...),
 ):
     """v3.8.1: Добавить URL в библиотеку (только Матка). Дедуплицирует."""
@@ -479,7 +479,7 @@ async def api_add_to_hub_gif_library(
 
 @router.delete("/api/wheel/hub_gif/library")
 async def api_remove_from_hub_gif_library(
-    _user: dict = Depends(require_superuser),
+    _user: dict = Depends(require_admin),  # v3.10.0: require_admin (Трутень+ может удалять гифки)
     url: str = "",
 ):
     """v3.8.1: Удалить URL из библиотеки (только Матка). No-op если нет.
