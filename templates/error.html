@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ code }} · DeeBeelkin</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
+</head>
+<body>
+  <main class="container" style="text-align:center; padding-top: 60px;">
+    <div style="font-size: 4rem; font-weight: 800; color: var(--accent); margin-bottom: 8px;">{{ code }}</div>
+    <h2 style="margin: 0 0 12px;">{{ title }}</h2>
+    <p style="color: var(--text-muted); margin-bottom: 24px;">{{ message }}</p>
+    <a href="/" class="btn-primary" style="display:inline-block; padding: 10px 24px; text-decoration:none;">← На главную</a>
+  </main>
+</body>
+</html>

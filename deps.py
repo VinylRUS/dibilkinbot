@@ -233,10 +233,22 @@ async def get_current_user(request: Request) -> dict | None:
     return user
 
 
+def _wants_json(request: Request) -> bool:
+    """v3.10.0: определяет fetch-запрос по Accept header — для /api/* возвращаем JSON."""
+    return "application/json" in request.headers.get("accept", "")
+
+
 async def require_user(request: Request) -> dict:
-    """Зависимость: юзер обязан быть залогинен."""
+    """Зависимость: юзер обязан быть залогинен.
+
+    v3.10.0: для fetch-запросов (Accept: application/json) возвращаем 401 JSON
+    вместо 303 редиректа. Раньше fetch следовал редиректу → получал HTML логина
+    → r.json() падал с 'Сетевая ошибка'.
+    """
     user = await get_current_user(request)
     if not user:
+        if _wants_json(request):
+            raise HTTPException(status_code=401, detail="unauthorized")
         raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
     return user
 

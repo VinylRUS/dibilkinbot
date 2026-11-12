@@ -76,6 +76,30 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+# v3.10.0: 403/404 exception handlers — для HTML рендерят простую страницу,
+# для fetch (Accept: application/json) — JSON.
+@app.exception_handler(403)
+async def handler_403(request: Request, exc: HTTPException):
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"error": exc.detail or "forbidden"}, status_code=403)
+    return templates.TemplateResponse(request, "error.html", {
+        "code": 403,
+        "title": "Доступ запрещён",
+        "message": exc.detail or "У вас нет прав для просмотра этой страницы.",
+    }, status_code=403)
+
+
+@app.exception_handler(404)
+async def handler_404(request: Request, exc: HTTPException):
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return templates.TemplateResponse(request, "error.html", {
+        "code": 404,
+        "title": "Не найдено",
+        "message": "Страница не существует или была удалена.",
+    }, status_code=404)
+
+
 # v3.0.3: Cache-Control middleware — HTML responses должны быть no-store,
 # иначе после deploy браузер отдаёт закешированную старую страницу (с старым
 # JS-кодом внутри, который использует устаревший guild_id / Discord ID).
