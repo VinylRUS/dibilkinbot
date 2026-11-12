@@ -299,6 +299,11 @@ async def api_ping_telegram(_user: dict = Depends(require_user)):
     if not raw_token:
         return JSONResponse({"online": False, "error": "token not set"})
     token = crypto.decrypt(raw_token)
+    # v3.10.0 (A11): если расшифровка вернула None (ключ APP_SECRET изменён или
+    # токен повреждён) — не делаем HTTP запрос на botNone/getMe, это бесполезный
+    # внешний вызов + засоряет логи Telegram API.
+    if not token:
+        return JSONResponse({"online": False, "error": "token decryption failed (check APP_SECRET)"})
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(f"https://api.telegram.org/bot{token}/getMe")
