@@ -468,9 +468,10 @@ window.showRatingsModal = function(winnerId, filmTitle) {
       content.innerHTML = data.ratings.map(r => {
         const name = r.display_name || r.username || 'User#' + r.user_discord_id;
         const initials = (name || '?')[0].toUpperCase();
-        const avatar = r.avatar_url
-          ? `<img src="/avatars/${r.discord_id}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">`
-          : `<div style="width:36px;height:36px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;">${initials}</div>`;
+        // v3.10.0 (A7): r.discord_id не существует в ответе — только r.user_discord_id.
+        // Раньше ${r.discord_id} → undefined → /avatars/undefined → 422 JSON → битая картинка.
+        // Теперь всегда используем /avatars/${r.user_discord_id} (прокси сам отдаст SVG fallback).
+        const avatar = `<img src="/avatars/${r.user_discord_id}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div style="width:36px;height:36px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;display:none;">${initials}</div>`;
         return `
           <a href="/u/${r.user_discord_id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);text-decoration:none;color:inherit;">
             ${avatar}
