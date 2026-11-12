@@ -37,6 +37,7 @@ from deps import (
     get_current_user, require_user, require_admin, require_superuser,
     get_current_guild_id, anonymize_items,
     _get_bot_version, _get_git_commit_id,
+    invalidate_role_cache,  # v3.10.0 (B3): инвалидация кеша роли после смены
 )
 from timezone_utils import format_msk, format_msk_short
 import wheel_routes
@@ -1302,6 +1303,8 @@ async def api_admin_set_role(
             {"error": "Не удалось изменить роль — возможно это env-админ или юзера нет в БД. Подробности в логах db."},
             status_code=400,
         )
+    # v3.10.0 (B3): инвалидировать кеш роли — новый запрос сразу увидит новую роль
+    invalidate_role_cache(discord_id)
     return JSONResponse({"ok": True})
 
 
@@ -1733,6 +1736,8 @@ async def toggle_admin(
     if not ok:
         # Подробности уже в логе db.set_user_role — здесь только UI feedback
         return RedirectResponse(url="/users?error=role_change_failed", status_code=303)
+    # v3.10.0 (B3): инвалидировать кеш роли — новый запрос сразу увидит новую роль
+    invalidate_role_cache(discord_id)
     return RedirectResponse(url="/users?saved=1", status_code=303)
 
 

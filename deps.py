@@ -108,8 +108,70 @@ def _setup_templates_globals():
 
 # === Auth dependencies ===
 
+# v3.10.0 (B3): кеш роли из БД — чтобы не дёргать БД на каждый запрос.
+# TTL 30 сек: если Матка понизила Трутня → Пчелу, через 30 сек права отзовутся.
+# Раньше роль хранилась в cookie 7 дней — пониженный админ хранил права неделю.
+_role_cache: dict[int, tuple[str, float]] = {}
+_ROLE_CACHE_TTL = 30.0
+
+
+async def _refresh_role_from_db(user: dict) -> None:
+    """Перечитать роль юзера из БД и обновить user dict (is_admin, is_superuser, role).
+
+    v3.10.0 (B3): cookie хранит роль 7 дней — пониженный админ сохранял права.
+    Теперь роль перечитывается из БД с кешем 30 сек. Env-admin (discord_id=0
+    или = settings.admin_discord_id) — всегда superuser, не трогаем.
+    """
+    import time
+    discord_id = user.get("discord_id", 0)
+    if not discord_id:
+        return  # env-admin без discord_id — роль из env, не из БД
+
+    # Env-admin — всегда superuser
+    if settings.admin_discord_id is not None and discord_id == settings.admin_discord_id:
+        user["role"] = "superuser"
+        user["is_superuser"] = True
+        user["is_admin"] = True
+        return
+    env_login = settings.admin_login
+    if env_login and env_login.isdigit() and int(env_login) == discord_id:
+        user["role"] = "superuser"
+        user["is_superuser"] = True
+        user["is_admin"] = True
+        return
+
+    # Кеш — не дёргаем БД на каждый запрос
+    now = time.time()
+    cached = _role_cache.get(discord_id)
+    if cached and now - cached[1] < _ROLE_CACHE_TTL:
+        role = cached[0]
+    else:
+        try:
+            role = await db.get_user_role(discord_id)
+        except Exception:
+            role = "user"  # безопасный fallback
+        _role_cache[discord_id] = (role, now)
+
+    user["role"] = role
+    user["is_superuser"] = (role == "superuser")
+    user["is_admin"] = role in ("superuser", "junior-admin")
+
+
+def invalidate_role_cache(discord_id: int) -> None:
+    """v3.10.0 (B3): инвалидировать кеш роли для discord_id.
+
+    Вызывается после смены роли (web.toggle_admin, api_admin_set_role) —
+    чтобы новый запрос сразу увидел обновлённую роль, без ожидания TTL 30 сек.
+    """
+    _role_cache.pop(discord_id, None)
+
+
 async def get_current_user(request: Request) -> dict | None:
-    """Возвращает user dict из сессии, или None."""
+    """Возвращает user dict из сессии, или None.
+
+    v3.10.0 (B3): роль перечитывается из БД (с кешем 30 сек) — cookie больше
+    не является источником правды для is_admin/is_superuser/role.
+    """
     token = request.cookies.get("session")
     if not token:
         return None
@@ -125,6 +187,8 @@ async def get_current_user(request: Request) -> dict | None:
             user["unread_achievements_count"] = 0
     else:
         user["unread_achievements_count"] = 0
+    # v3.10.0 (B3): перечитать роль из БД (с кешем) — cookie не источник правды
+    await _refresh_role_from_db(user)
     return user
 
 
