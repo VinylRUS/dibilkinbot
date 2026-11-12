@@ -283,7 +283,8 @@
                   <div class="ach-name">{{ ach.name }}</div>
                   {% if ach.description %}<div class="ach-desc">{{ ach.description }}</div>{% endif %}
                   <div class="ach-meta">
-                    <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' and ach.trigger_type not in ('first_rating', 'first_quote') %} ≥ {% if ach.trigger_threshold >= 3600 %}{{ (ach.trigger_threshold / 3600) | round(1) }} ч{% elif ach.trigger_threshold >= 60 %}{{ (ach.trigger_threshold / 60) | round(0) }} мин{% else %}{{ ach.trigger_threshold }} сек{% endif %}{% endif %}</span>
+                    {% set _is_time = ach.trigger_type in ('voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time', 'steam_play_time', 'steam_play_time_specific') %}
+                    <span class="ach-tag">{{ ach.trigger_type }}{% if ach.trigger_threshold and ach.trigger_type != 'manual' and ach.trigger_type not in ('first_rating', 'first_quote') %}{% if ach.trigger_type == 'top_rater' %} ≤ топ-{{ ach.trigger_threshold }}{% elif _is_time %} ≥ {% if ach.trigger_threshold >= 3600 %}{{ (ach.trigger_threshold / 3600) | round(1) }} ч{% elif ach.trigger_threshold >= 60 %}{{ (ach.trigger_threshold / 60) | round(0) }} мин{% else %}{{ ach.trigger_threshold }} сек{% endif %}{% else %} ≥ {{ ach.trigger_threshold }} раз{% endif %}{% endif %}</span>
                     {% if ach.discord_role_id %}<span class="ach-tag role">Discord роль</span>{% endif %}
                     {% if ach.trigger_type == 'manual' %}<span class="ach-tag manual">Только manual</span>{% endif %}
                     <span class="ach-tag"><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> {{ ach.granted_count }}</span>
@@ -359,6 +360,9 @@
           <select id="ach-trigger" name="trigger_type" data-native-select onchange="onTriggerChange()">
             <option value="manual">Только ручная выдача</option>
             <option value="ratings_count">Поставил N оценок</option>
+            <option value="high_ratings_count">N оценок ≥ 4 (высокие)</option>
+            <option value="perfect_rating_count">N оценок 5/5 (идеальные)</option>
+            <option value="top_rater">Топ-N по количеству оценок</option>
             <option value="quotes_count">Добавил N цитат</option>
             <option value="watchlist_count">В вишлисте N фильмов</option>
             <option value="wheel_wins">N раз фильм выиграл в колесе</option>
@@ -517,6 +521,9 @@
     const TRIGGER_OPTIONS = [
       {value: 'manual', label: 'Только ручная выдача'},
       {value: 'ratings_count', label: 'Поставил N оценок'},
+      {value: 'high_ratings_count', label: 'N оценок ≥ 4 (высокие)'},
+      {value: 'perfect_rating_count', label: 'N оценок 5/5 (идеальные)'},
+      {value: 'top_rater', label: 'Топ-N по количеству оценок'},
       {value: 'quotes_count', label: 'Добавил N цитат'},
       {value: 'watchlist_count', label: 'В вишлисте N фильмов'},
       {value: 'wheel_wins', label: 'N раз фильм выиграл в колесе'},
@@ -670,12 +677,28 @@
       const trigger = document.getElementById('ach-trigger').value;
       const thresholdInput = document.getElementById('ach-threshold');
       const thresholdLabel = document.getElementById('threshold-label');
+      const unitSelect = document.getElementById('ach-threshold-unit');
+      // v3.10.0: триггеры с порогом по времени (показываем unit select: сек/мин/час)
+      const TIME_TRIGGERS_UI = new Set(['voice_time', 'voice_time_solo', 'voice_time_with_others', 'game_play_time', 'steam_play_time', 'steam_play_time_specific']);
       if (trigger === 'first_rating' || trigger === 'first_quote' || trigger === 'manual') {
         thresholdInput.style.display = 'none';
         thresholdLabel.style.display = 'none';
+        if (unitSelect) unitSelect.style.display = 'none';
       } else {
         thresholdInput.style.display = '';
         thresholdLabel.style.display = '';
+        // v3.10.0: меняем label порога в зависимости от типа триггера
+        if (trigger === 'top_rater') {
+          thresholdLabel.textContent = 'Топ-N (ранг ≤ N)';
+          if (unitSelect) unitSelect.style.display = 'none';
+        } else if (TIME_TRIGGERS_UI.has(trigger)) {
+          thresholdLabel.textContent = 'Порог';
+          if (unitSelect) unitSelect.style.display = '';
+        } else {
+          // count-based: ratings_count, quotes_count, wheel_wins, collections_started, etc.
+          thresholdLabel.textContent = 'Количество (раз)';
+          if (unitSelect) unitSelect.style.display = 'none';
+        }
       }
       // v2.0.1: Показать dropdown с играми при выборе game_play_time
       // v2.3.2: также для steam_play_time_specific
