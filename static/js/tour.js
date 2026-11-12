@@ -212,6 +212,9 @@
     return steps;
   }
 
+  // v3.10.0: arrow hint убран — пользователь сказал что анимация не нужна.
+  // Sidebar свёрнут по умолчанию — тур не указывает на sidebar элементы.
+
   // === Bootstrap ===
   function init() {
     if (shouldShowBanner()) {
