@@ -81,11 +81,14 @@ def test_tour_banner_dismiss_button_present(client):
     assert 'hideTourBannerSession' in html, "hideTourBannerSession function missing"
 
 
-def test_tour_arrow_hint_present(client):
-    """Arrow hint элемент есть в DOM (для подсветки баннера при скролле)."""
+def test_tour_arrow_hint_removed(client):
+    """v3.10.0: arrow hint убран — анимация не нужна, sidebar свёрнут по умолчанию."""
     r = client.get("/")
     html = r.text
-    assert 'id="tour-arrow-hint"' in html, "tour-arrow-hint element missing"
+    assert 'id="tour-arrow-hint"' not in html, "tour-arrow-hint should be removed in v3.10.0"
+    assert 'tour-arrow-bounce' not in html, "arrow animation should be removed"
+    assert 'tour-banner-pulse' not in html, "banner pulse animation should be removed"
+    assert 'tour-bee-bounce' not in html, "bee bounce animation should be removed"
 
 
 def test_driver_js_vendor_files_exist():
