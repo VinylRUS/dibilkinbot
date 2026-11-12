@@ -1839,6 +1839,8 @@ body.has-sidebar.sidebar-open {
 /* URL иконка (icons8) — <img> внутри обёртки */
 .ach-icon-wrap img {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  object-fit: cover;  /* v3.10.0: для GIF-иконок — покрывает круг, обрезается по border-radius */
+  border-radius: 50%;  /* дополнительно обрезает img по кругу */
 }
 
 /* Glow варианты: box-shadow вокруг обёртки */

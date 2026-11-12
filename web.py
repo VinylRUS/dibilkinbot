@@ -1095,43 +1095,69 @@ async def features_save(
 # === Admin panel (v2.3.1 — только для Матка) ===
 
 @app.get("/adminpanel", response_class=HTMLResponse)
-async def admin_panel_page(request: Request, _user: dict = Depends(require_superuser)):
-    """Единая админ-панель с табами: Юзеры, Токены, Каналы, Фичи, Серверы."""
-    guild_id = get_current_guild_id(_user)
-    # Данные для вкладки Юзеры
-    users = await db.list_users()
-    # Данные для вкладки Токены
-    saved_tokens = {}
-    for key, _label in KNOWN_TOKENS:
-        v = await db.get_setting(key)
-        saved_tokens[key] = bool(v)
-    # Данные для вкладки Каналы
-    channel_values = {key: (await db.get_setting(key) or "") for key, _label in KNOWN_CHANNELS}
-    # Данные для вкладки Фичи
-    feature_values = {key: (await db.get_setting(key) or default) for key, _label, default in KNOWN_FEATURES}
-    # Данные для вкладки Серверы
-    import guild as guild_module
-    guilds = await guild_module.list_guilds(approved_only=False)
+async def admin_panel_page(request: Request, _user: dict = Depends(require_admin)):
+    """v3.10.0: Настройки панели с табами.
 
-    # v3.3: latest commit info for self-update button
-    from deps import _get_bot_version, _get_git_commit_id
-    current_version = _get_bot_version()
-    current_commit = _get_git_commit_id()
+    require_admin (Трутень+) — Трутень видит только таб «Гифки».
+    Матка (is_superuser) видит все табы: Гифки, Юзеры, Токены, Каналы, Фичи, Серверы.
+    """
+    guild_id = get_current_guild_id(_user)
+    is_superuser = _user.get("is_superuser", False)
+
+    # v3.10.0: данные для таба «Гифки» — видны всем admin+
+    hub_gif_url = await db.g_get_hub_gif(guild_id)
+    hub_gif_library = await db.g_get_hub_gif_library(guild_id)
+
+    # Для Трутня — не загружаем superuser-only данные
+    users = []
+    saved_tokens = {}
+    channel_values = {}
+    feature_values = {}
+    guilds = []
+    KNOWN_TOKENS_LOCAL = []
+    KNOWN_CHANNELS_LOCAL = []
+    KNOWN_FEATURES_LOCAL = []
+
+    if is_superuser:
+        users = await db.list_users()
+        KNOWN_TOKENS_LOCAL = KNOWN_TOKENS
+        for key, _label in KNOWN_TOKENS:
+            saved_tokens[key] = bool(await db.get_setting(key))
+        KNOWN_CHANNELS_LOCAL = KNOWN_CHANNELS
+        channel_values = {key: (await db.get_setting(key) or "") for key, _label in KNOWN_CHANNELS}
+        KNOWN_FEATURES_LOCAL = KNOWN_FEATURES
+        feature_values = {key: (await db.get_setting(key) or default) for key, _label, default in KNOWN_FEATURES}
+        import guild as guild_module
+        guilds = await guild_module.list_guilds(approved_only=False)
+
+    # v3.3: latest commit info for self-update button (только для Матки)
+    current_version = None
+    current_commit = None
+    if is_superuser:
+        from deps import _get_bot_version, _get_git_commit_id
+        current_version = _get_bot_version()
+        current_commit = _get_git_commit_id()
+
+    # v3.10.0: default tab зависит от роли
+    default_tab = "gifs" if not is_superuser else request.query_params.get("tab", "gifs")
+    active_tab = request.query_params.get("tab", default_tab)
 
     return templates.TemplateResponse(request, "admin_panel.html", {
         "user": _user,
         "users": users,
-        "tokens": KNOWN_TOKENS,
+        "tokens": KNOWN_TOKENS_LOCAL,
         "saved_tokens": saved_tokens,
-        "channels": KNOWN_CHANNELS,
+        "channels": KNOWN_CHANNELS_LOCAL,
         "channel_values": channel_values,
-        "features": KNOWN_FEATURES,
+        "features": KNOWN_FEATURES_LOCAL,
         "feature_values": feature_values,
         "guilds": guilds,
         "role_labels": db.ROLE_LABELS,
-        "active_tab": request.query_params.get("tab", "users"),
+        "active_tab": active_tab,
         "current_version": current_version,
         "current_commit": current_commit,
+        "hub_gif_url": hub_gif_url,
+        "hub_gif_library": hub_gif_library,
     })
 
 
