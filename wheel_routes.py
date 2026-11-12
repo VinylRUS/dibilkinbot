@@ -1183,8 +1183,42 @@ async def ws_wheel(websocket: WebSocket):
       невидимо в проде, баг маскировался).
     - Если гильдия approved, но запрос упал по другой причине — close с 4002,
       клиент может реконнектиться.
+
+    v3.10.0 (B1): проверка сессии в handshake. Раньше WS был без auth —
+    аноним мог подписаться на события любой approved гильдии (лоты, спины,
+    collection token, discord_id). Теперь cookie session проверяется,
+    при отсутствии — close с кодом 4401.
     """
     import json
+
+    # v3.10.0 (B1): проверка сессии
+    from deps import read_session
+    session_token = websocket.cookies.get("session")
+    if not session_token:
+        await websocket.accept()
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "payload": {"code": "unauthorized", "message": "session required"},
+            }, ensure_ascii=False))
+        except Exception:
+            pass
+        await websocket.close(code=4401, reason="session required")
+        _log.warning("WS rejected: no session cookie")
+        return
+    user = read_session(session_token)
+    if not user:
+        await websocket.accept()
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "payload": {"code": "unauthorized", "message": "invalid or expired session"},
+            }, ensure_ascii=False))
+        except Exception:
+            pass
+        await websocket.close(code=4401, reason="invalid session")
+        _log.warning("WS rejected: invalid session")
+        return
 
     # Читаем guild_id из query-параметров (по умолчанию 0)
     guild_id_str = websocket.query_params.get("guild_id", "0")
