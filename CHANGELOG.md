@@ -1,5 +1,27 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.9.1 (0000000) — Фиксы из аудита (Wave 1): A1, A2, A3, A8, A9
+
+#ИСПРАВЛЕНО#
+- **A2 — `/static/wheel_gifs/*` и `/static/icons/custom/*` всегда 404 на проде**. `app.mount("/static")` стоял ПЕРЕД route'ами `/static/icons/custom/{filename}` и `/static/wheel_gifs/{filename}` — Starlette проверяет маршруты по порядку, Mount перехватывал все `/static/*` запросы. На dev спасал symlink, на проде — нет. Фикс: route'ы зарегистрированы ДО mount. Это объясняло почему GIF на секторах (v3.7.0) не показывались даже с прямым .gif URL — браузер всегда получал 404.
+- **A3 — без `bot.on_ready` колесо/дашборд/киновечер падают 500**. Миграция колонок `gif_path`/`gif_poster_path` была только в `guild.init_guild_tables()` (вызывается из бота/логина), startup веба (`db.init_db`) не делал миграцию. Если Discord недоступен при старте → `OperationalError: no such column: gif_path`. Фикс: миграция добавлена в `db.init_db()` для всех guilds из реестра (идемпотентно через PRAGMA table_info).
+- **A1 — `/users` всегда 500**. В `templates/users.html:105` переменная цикла `avatar_url` перекрывала глобальную функцию `avatar_url()` (web.py:55), вызываемую на строке 109 → `TypeError: 'str' object is not callable`. Фикс: переменная цикла переименована в `u_avatar`. Это разблокирует v3.6.1 фикс (баг смены ролей) — теперь Матка может открыть /users.
+- **A8 — 404 на `/static/icons/sound.png`** при каждом заходе на `/wheel`. Файла нет, был `onerror` fallback на `microphone.png` (лишний запрос). Фикс: убран `<img>`, используется emoji 🔊.
+- **A9 — тур Driver.js: шаги для `/channels` и `/users` никогда не показываются**. Селекторы `.sb-item[href="/channels"]` и `.sb-item[href="/users"]` отсутствуют в sidebar.html (они только в мёртвом `_nav.html`). Баннер обещал «6 шагов», реально 5. Фикс: убраны role-aware шаги 6 и 7 из `tour.js`, текст баннера и описание первого шага обновлены на «5 шагов».
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- **web.py**: `app.mount("/static")` (строка ~233) перенесён НИЖЕ route'ов `/static/icons/custom/{filename}` (стр. ~175) и `/static/wheel_gifs/{filename}` (стр. ~205). Комментарии обновлены. Avatar proxy `/avatars/{discord_id}` остался где был — не конфликтует с `/static/*`.
+- **db.py:init_db()**: в блок миграций для каждого guild_id добавлен вызов `_migrate_wheel_items_add_gif_columns` через `PRAGMA table_info` + `ALTER TABLE ADD COLUMN` для `gif_path` и `gif_poster_path`. Идемпотентно — если колонки есть, пропускает. Таблицы может не быть (новая гильдия без init_guild_tables) — ловится except с warning.
+- **templates/users.html**: `{% for ... avatar_url, ... in users %}` → `{% for ... u_avatar, ... in users %}`. Функция `{{ avatar_url(discord_id) }}` на строке 109 не тронута.
+- **templates/wheel.html**: `<img src="/static/icons/sound.png" ... onerror="this.src='/static/icons/microphone.png'">` → `🔊` emoji.
+- **static/js/tour.js**: убраны шаги 6 (Каналы) и 7 (Юзеры) с селекторами `.sb-item[href="/channels"]` и `.sb-item[href="/users"]`. Убраны неиспользуемые `isSuperuser`/`isAdmin` переменные. Описание первого шага: «6 шагов» → «5 шагов».
+- **templates/_tour_banner.html**: текст «~1 минута, 6 шагов» → «~1 минута, 5 шагов».
+- tests/test_wheel_gif.py — добавлено 3 теста для A2:
+  - `test_static_wheel_gifs_route_reachable` — GET /static/wheel_gifs/test.gif → 200 (не 404 от mount).
+  - `test_static_icons_custom_route_reachable` — GET /static/icons/custom/test.png → 200.
+  - `test_static_mount_still_works` — обычные /static/ файлы (style.css) всё ещё раздаются.
+- Все тесты: 84 passed + 1 xfailed.
+
 ## v3.9.0 (0000000) — Тур по вебпанели (Driver.js)
 
 #НОВЫЕ_ФИЧИ#

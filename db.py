@@ -397,6 +397,24 @@ async def init_db() -> None:
                             log.info("v2.3.3 migration: added is_test column to %s", table_test_migr)
                     except Exception as e:
                         log.warning("v2.3.3 migration: %s: %s", table_test_migr, e)
+                # v3.7.0/v3.9.1: добавить gif_path, gif_poster_path в wheel_items.
+                # Раньше миграция была только в guild.init_guild_tables() (вызывается из
+                # bot.on_ready и /login) — startup веба (db.init_db) не делал миграцию.
+                # Если Discord недоступен при старте → on_ready не выполняется → колонок нет →
+                # /wheel, /, /movienight падают с OperationalError 'no such column: gif_path'.
+                # Фикс A3 из аудита: миграция в db.init_db для всех guilds (идемпотентно).
+                table_wi_migr = guild_module.guild_table(gid, "wheel_items")
+                try:
+                    async with db.execute(f"PRAGMA table_info({table_wi_migr})") as cur:
+                        wi_cols = {row[1] for row in await cur.fetchall()}
+                    for col_name, col_type in (("gif_path", "TEXT"), ("gif_poster_path", "TEXT")):
+                        if col_name not in wi_cols:
+                            await db.execute(f"ALTER TABLE {table_wi_migr} ADD COLUMN {col_name} {col_type}")
+                            log.info("v3.7.0 migration: added %s column to %s", col_name, table_wi_migr)
+                except Exception as e:
+                    # Таблицы может не быть (новая гильдия без init_guild_tables) —
+                    # это нормально, init_guild_tables создаст её с правильной схемой.
+                    log.warning("v3.7.0 migration: %s: %s", table_wi_migr, e)
             await db.commit()
 
         log.info("DB initialized at %s (size=%d bytes)",

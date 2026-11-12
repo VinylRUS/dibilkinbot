@@ -332,3 +332,59 @@ def test_anonymize_items_legacy_items_without_gif_fields():
     out = anonymize_items(items)
     assert out[0]["id"] == 1
     assert "gif_path" not in out[0]
+
+
+# ============ v3.9.1: A2 fix — mount порядок ============
+
+def test_static_wheel_gifs_route_reachable(client):
+    """v3.9.1: A2 fix — GET /static/wheel_gifs/{filename} должен раздавать файл,
+    не падать с 404 от app.mount('/static') который перехватывает все /static/*.
+
+    Раньше app.mount('/static') стоял ПЕРЕД route /static/wheel_gifs/{filename} —
+    Mount перехватывал запрос и отдавал 404 (файла нет в static/ каталоге).
+    Фикс: route зарегистрирован ДО mount.
+    """
+    import os
+    from config import settings
+    gifs_dir = Path(settings.database_path).parent / "wheel_gifs"
+    gifs_dir.mkdir(parents=True, exist_ok=True)
+    test_file = gifs_dir / "test_a2_fix.gif"
+    test_file.write_bytes(b"GIF89a" + b"\x00" * 20)  # minimal GIF-like content
+
+    try:
+        r = client.get("/static/wheel_gifs/test_a2_fix.gif")
+        assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text[:200]}"
+        assert r.headers.get("content-type") == "image/gif"
+        assert b"GIF89a" in r.content[:10]
+    finally:
+        if test_file.exists():
+            test_file.unlink()
+
+
+def test_static_icons_custom_route_reachable(client):
+    """v3.9.1: A2 fix — GET /static/icons/custom/{filename} тоже должен работать.
+
+    Кастомные иконки ачивок (v2.1.0) хранятся в /app/data/icons, раздаются через
+    fallback-роут. Тот же баг — mount перехватывал."""
+    import os
+    from config import settings
+    icons_dir = Path(settings.database_path).parent / "icons"
+    icons_dir.mkdir(parents=True, exist_ok=True)
+    test_file = icons_dir / "test_a2_icon.png"
+    test_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 20)  # PNG header
+
+    try:
+        r = client.get("/static/icons/custom/test_a2_icon.png")
+        assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text[:200]}"
+    finally:
+        if test_file.exists():
+            test_file.unlink()
+
+
+def test_static_mount_still_works(client):
+    """v3.9.1: после перемещения mount ниже routes — обычные /static/ файлы
+    должны всё ещё раздаваться (style.css, icons/ и т.д.)."""
+    r = client.get("/static/style.css")
+    # Может быть 200 или 404 если файла нет в test env — главное что не падает
+    # с 500 и не отдаёт JSON error от fallback route.
+    assert r.status_code in (200, 404), f"unexpected status: {r.status_code}"

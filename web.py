@@ -105,8 +105,10 @@ _cached_bot_version: str | None = None
 # v2.3.3 Вариант D: состояние активных спинов.
 # spin_id → {guild_id, items, mode, is_test, duration, started_at, completed}
 # Используется /api/wheel/result для валидации и fallback-таймером.
-if _STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+# v3.9.1: app.mount('/static') перенесён НИЖЕ route'ов /static/icons/custom и
+# /static/wheel_gifs — иначе Mount перехватывает все /static/* запросы и
+# fallback-роуты для персистентных каталогов (custom иконки ачивок, GIF секторов
+# колеса) недостижимы → 404 на проде (на dev спасал symlink).
 
 # v3.4: Avatar proxy — serves cached Discord avatars from local storage.
 # Templates use {{ avatar_url(discord_id) }} which returns /avatars/{id}.
@@ -173,7 +175,10 @@ except Exception as _e:
 @app.get("/static/icons/custom/{filename:path}")
 async def _serve_custom_icon(filename: str):
     """v2.1.0: Fallback-роут для раздачи custom_*.png из /app/data/icons,
-    если symlink не сработал (Windows-хосты без прав)."""
+    если symlink не сработал (Windows-хосты без прав).
+
+    v3.9.1: route зарегистрирован ДО app.mount('/static') — иначе Mount
+    перехватывает /static/* и этот route недостижим."""
     # FileResponse импортирован в начале файла (v3.4.2)
     # Защита от path traversal
     if ".." in filename or "/" in filename:
@@ -203,7 +208,10 @@ async def _serve_wheel_gif(filename: str):
 
     Fallback-роут (без symlink) — работает на любой ОС. Cache-Control: immutable
     + 1 день max-age — файлы immutable (имя содержит hash URL'а), браузер кеширует.
-    """
+
+    v3.9.1: route зарегистрирован ДО app.mount('/static') — иначе Mount
+    перехватывает /static/* и этот route недостижим (баг A2 из аудита:
+    GIF на секторах и кастомные иконки ачивок всегда 404 на проде)."""
     if ".." in filename or "/" in filename:
         return JSONResponse({"error": "invalid filename"}, status_code=400)
     file_path = _os.path.join(_data_wheel_gifs_dir, filename)
@@ -216,6 +224,14 @@ async def _serve_wheel_gif(filename: str):
         media_type=media_type,
         headers={"Cache-Control": "public, max-age=86400, immutable"},
     )
+
+
+# v3.9.1: mount /static ПОСЛЕ персистентных fallback-роутов выше.
+# Starlette проверяет маршруты по порядку регистрации — Mount('/static')
+# перехватывает все /static/* запросы. Если mount стоит раньше — routes
+# /static/icons/custom/{filename} и /static/wheel_gifs/{filename} недостижимы.
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 # === Session ===
