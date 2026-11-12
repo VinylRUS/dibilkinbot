@@ -553,6 +553,9 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
     3. Через duration + 0.5с (delayed task) сервер сам определяет winner,
        удаляет из колеса, постит в Discord/TG, шлёт spin_completed.
     4. Lock удерживается до полного завершения (status COMPLETED + cleanup).
+
+    v3.10.0 (D): duration ограничен 3-30 сек (max(3, min(30, duration))).
+    Раньше без лимита — можно было удержать lock на часы.
     5. Второй запрос во время SPINNING → 409 Conflict.
 
     Нет endpoint'а /api/wheel/result — серверу не нужно от клиента результат,
@@ -561,6 +564,9 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
     guild_id = int(get_current_guild_id(_user))
 
     is_test = await _is_wheel_test_mode(guild_id)
+
+    # v3.10.0 (D): ограничить duration 3-30 сек
+    duration = max(3, min(30, int(duration) if duration else 5))
 
     async def _list_items():
         if is_test:
@@ -677,6 +683,9 @@ async def api_spin_wheel_elimination(_user: dict = Depends(require_user),
     guild_id = int(get_current_guild_id(_user))
 
     is_test = await _is_wheel_test_mode(guild_id)
+
+    # v3.10.0 (D): ограничить duration 3-30 сек
+    duration = max(3, min(30, int(duration) if duration else 5))
 
     async def _list_items():
         if is_test:
@@ -835,102 +844,98 @@ async def _delayed_complete_spin(spin_id: str) -> None:
     physics: SpinPhysics = spin_state["physics"]
     lock = _wheel_spin_locks.get(guild_id)
 
-    # Помечаем завершённым — protects against re-entry
-    spin_state["status"] = "COMPLETED"
-
-    winner_idx = physics.winner_idx
-    # eliminated — элемент под указателем (в classic: тот же, что и winner;
-    # в elimination(_final): выбывающий).
-    if 0 <= winner_idx < len(items):
-        eliminated = items[winner_idx]
-    else:
-        _log.warning(
-            "Spin %s: winner_idx=%s out of range (len=%s). Falling back to items[0].",
-            spin_id, winner_idx, len(items),
-        )
-        eliminated = items[0]
-
-    # Удаляем eliminated из колеса
-    remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
-    await remove_fn(guild_id, eliminated["id"])
-    if not is_test:
-        await db.g_reassign_colors(guild_id)
-
-    # Определяем actual_winner — кто записывается в winners и постится в Discord/TG.
-    # classic: winner = eliminated (тот же элемент)
-    # elimination: actual_winner = None (промежуточный раунд, выбывший просто удаляется)
-    # elimination_final: winner = другой элемент (не eliminated)
+    # v3.10.0 (D): try/finally — гарантированное освобождение lock + cleanup
+    # _active_spins даже при исключении в DB или WS broadcast. Раньше при ошибке
+    # в remove_fn/g_add_winner/broadcast — lock висел до рестарта, колесо зависало.
     actual_winner = None
-    if mode == "classic":
-        actual_winner = eliminated
-        await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
-                              actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+    try:
+        # Помечаем завершённым — protects against re-entry
+        spin_state["status"] = "COMPLETED"
+
+        winner_idx = physics.winner_idx
+        # eliminated — элемент под указателем (в classic: тот же, что и winner;
+        # в elimination(_final): выбывающий).
+        if 0 <= winner_idx < len(items):
+            eliminated = items[winner_idx]
+        else:
+            _log.warning(
+                "Spin %s: winner_idx=%s out of range (len=%s). Falling back to items[0].",
+                spin_id, winner_idx, len(items),
+            )
+            eliminated = items[0]
+
+        # Удаляем eliminated из колеса
+        remove_fn = db.g_remove_test_wheel_item if is_test else db.g_remove_wheel_item
+        await remove_fn(guild_id, eliminated["id"])
         if not is_test:
-            await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
-    elif mode == "elimination_final":
-        actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
-        if actual_winner:
-            # Удаляем победителя из колеса тоже (после финала колесо пустое)
-            await remove_fn(guild_id, actual_winner["id"])
-            if not is_test:
-                await db.g_reassign_colors(guild_id)
+            await db.g_reassign_colors(guild_id)
+
+        # Определяем actual_winner — кто записывается в winners и постится в Discord/TG.
+        # classic: winner = eliminated (тот же элемент)
+        # elimination: actual_winner = None (промежуточный раунд, выбывший просто удаляется)
+        # elimination_final: winner = другой элемент (не eliminated)
+        if mode == "classic":
+            actual_winner = eliminated
             await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
                                   actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
             if not is_test:
                 await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
-    # mode == "elimination" — ничего не записываем в winners
+        elif mode == "elimination_final":
+            actual_winner = next((it for it in items if it["id"] != eliminated["id"]), None)
+            if actual_winner:
+                # Удаляем победителя из колеса тоже (после финала колесо пустое)
+                await remove_fn(guild_id, actual_winner["id"])
+                if not is_test:
+                    await db.g_reassign_colors(guild_id)
+                await db.g_add_winner(guild_id, str(actual_winner["id"]), actual_winner["name"],
+                                      actual_winner.get("tmdb_id"), "confirmed", is_test=is_test)
+                if not is_test:
+                    await db.g_mark_watchlist_watched(guild_id, actual_winner["name"])
+        # mode == "elimination" — ничего не записываем в winners
 
-    if is_test:
-        wheel_test_log.log_event("spin_completed", {
-            "spin_id": spin_id,
-            "mode": mode,
-            "winner_idx": winner_idx,
-            "eliminated": {"id": eliminated["id"], "name": eliminated["name"]},
-            "winner": ({"id": actual_winner["id"], "name": actual_winner["name"]}
-                       if actual_winner else None),
-            "final_rotation": physics.final_rotation,
-            "total_rotation": physics.total_rotation,
-        })
+        if is_test:
+            wheel_test_log.log_event("spin_completed", {
+                "spin_id": spin_id,
+                "mode": mode,
+                "winner_idx": winner_idx,
+                "eliminated": {"id": eliminated["id"], "name": eliminated["name"]},
+                "winner": ({"id": actual_winner["id"], "name": actual_winner["name"]}
+                           if actual_winner else None),
+                "final_rotation": physics.final_rotation,
+                "total_rotation": physics.total_rotation,
+            })
 
-    # Шлём WS spin_completed — все клиенты синхронизируют финальную позицию
-    broadcast_winner = actual_winner if actual_winner else eliminated
-    await ws_manager.broadcast_spin_completed(
-        guild_id, spin_id,
-        winner=anonymize_items([broadcast_winner])[0] if broadcast_winner else None,
-        final_rotation=physics.final_rotation,
-        mode=mode,
-        eliminated=(anonymize_items([eliminated])[0]
-                    if mode in ("elimination", "elimination_final") else None),
-        remaining_count=max(0, len(items) - (2 if mode == "elimination_final" else 1)),
-    )
+        # Шлём WS spin_completed — все клиенты синхронизируют финальную позицию
+        broadcast_winner = actual_winner if actual_winner else eliminated
+        await ws_manager.broadcast_spin_completed(
+            guild_id, spin_id,
+            winner=anonymize_items([broadcast_winner])[0] if broadcast_winner else None,
+            final_rotation=physics.final_rotation,
+            mode=mode,
+            eliminated=(anonymize_items([eliminated])[0]
+                        if mode in ("elimination", "elimination_final") else None),
+            remaining_count=max(0, len(items) - (2 if mode == "elimination_final" else 1)),
+        )
 
-    # Сначала обновляем список лотов у всех клиентов (winner удалён).
-    # Это критично: без broadcast_wheel_updated фронт не уберёт победителя из
-    # списка, и пользователю придётся перезагружать страницу.
-    # Раньше тут была пауза 1с + долгий await bot.on_wheel_spin_completed —
-    # он блокировал event loop (kinopoisk/telegram API могут висеть секунды),
-    # и broadcast_wheel_updated уходил с задержкой или вообще не уходил.
-    await asyncio.sleep(0.3)
-    if is_test:
-        remaining = await db.g_list_test_wheel_items(guild_id)
-    else:
-        remaining = await db.g_list_wheel_items(guild_id, active_only=True)
-    await ws_manager.broadcast_wheel_updated(guild_id, anonymize_items(remaining))
+        # Сначала обновляем список лотов у всех клиентов (winner удалён).
+        await asyncio.sleep(0.3)
+        if is_test:
+            remaining = await db.g_list_test_wheel_items(guild_id)
+        else:
+            remaining = await db.g_list_wheel_items(guild_id, active_only=True)
+        await ws_manager.broadcast_wheel_updated(guild_id, anonymize_items(remaining))
+    except Exception as e:
+        _log.error("Spin %s: _delayed_complete_spin failed: %s: %s", spin_id, type(e).__name__, e, exc_info=True)
+    finally:
+        # v3.10.0 (D): гарантированный cleanup — даже при исключении выше
+        _active_spins.pop(spin_id, None)
+        if lock is not None and lock.locked():
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
 
-    # Чистим состояние активного спина
-    _active_spins.pop(spin_id, None)
-    # Освобождаем lock — с этого момента новая крутка возможна.
-    # Дискорд/ТГ-постинг пойдёт в фоне и не должен блокировать UI.
-    if lock is not None and lock.locked():
-        try:
-            lock.release()
-        except RuntimeError:
-            # Lock already released — race with another cleanup path
-            pass
-
-    # Постинг в Discord/TG — в фоновой задаче, чтобы не блокировать
-    # завершение спина (event loop свободен для WS-бродкастов).
-    # Логируем ошибки, но не роняем спин.
+    # Постинг в Discord/TG — в фоновой задаче, вне finally (не должен держать lock)
     if actual_winner:
         asyncio.create_task(_safe_post_to_external(actual_winner, is_test, spin_id))
 
