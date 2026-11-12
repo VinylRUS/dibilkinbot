@@ -1,5 +1,36 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.10.0 (0000000) — Фиксы из аудита (Wave 2-5) + переработка UI
+
+#ИСПРАВЛЕНО#
+- **A11**: `/api/ping/telegram` — проверка `if not token` после `crypto.decrypt`. Раньше при None токене запрос шёл на `botNone/getMe`.
+- **A5**: `/avatars/{id}` и `/u/{id}` — валидация int64 диапазона. Если id ≥ 2^63 — SVG fallback (avatars) или 404 (u) вместо OverflowError 500.
+- **A7**: модалка «кто как оценил» — `r.discord_id` → `r.user_discord_id`. Раньше `/avatars/undefined` → 422 → битая картинка.
+- **A4**: пароль — клиент ≥8 символов (было ≥4), синхронизировано с сервером. Сервер для fetch (Accept: application/json) отдаёт JSON `{ok, error}` вместо 303 редиректа. Раньше fetch следовал редиректу → r.ok=true → ложный успех.
+- **B3**: роль перечитывается из БД (кеш 30 сек) — cookie не источник правды. `invalidate_role_cache(discord_id)` после смены роли. Раньше пониженный админ хранил права 7 дней.
+- **C**: Discord ID в JS — кастомный `deps.JSONResponse` автоматически конвертирует int > 2^53 в str. Все API отдают ID строками. JS правки: `parseInt()` → строка, onclick с кавычками. Закрывает класс багов: kick неверного юзера, ачивка несуществующему, и т.д.
+- **B1**: WS `/ws/wheel` — проверка сессии в handshake. Раньше аноним мог подписаться на события любой гильдии.
+- **B2**: `is_guild_member(discord_id, guild_id)` — проверка в КОНКРЕТНОЙ гильдии. Раньше проверяла любую → межгильдийный доступ через `/select_guild`.
+- **D**: колесо — `_delayed_complete_spin` обёрнут в try/finally (гарантированное освобождение lock + cleanup). `duration` ограничен 3-30 сек. Раньше при ошибке в DB lock висел до рестарта.
+- **401 JSON для /api/***: `require_user` для fetch-запросов возвращает 401 JSON вместо 303 редиректа.
+- **403/404 HTML pages**: exception handlers рендерят `templates/error.html` для HTML, JSON для fetch.
+- **Pillow в requirements.txt**: добавлен `Pillow>=10.0.0`. Раньше отсутствовал, но импортировался в `wheel_routes.py`.
+- **CI**: `pip install -r requirements.txt` вместо ручного списка. Все тесты запускаются (`pytest tests/`), не только `test_wheel_integration`.
+
+#НОВЫЕ_ФИЧИ#
+- **Toggle thumbnails в колесе**: клик по thumbnail → установить (темнеет с ✓), повторный клик → убрать (вернуть пчелу), клик на другой → поменять. Кнопка «Убрать» больше не нужна.
+- **Загрузка гифок убрана из колеса**: URL input + галочка + кнопки убраны. Загрузка теперь только через /settings (Wave 5.3, в разработке). В колесе осталась только библиотека thumbnail'ов.
+- **Тур — без анимации**: убраны pulsing border, прыгающая пчела, arrow hint. Баннер статичный. Sidebar свёрнут по умолчанию — тур не указывает на невидимые элементы.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- `deps.py`: `_wants_json(request)` helper. `require_user` — 401 JSON для fetch. `JSONResponse` — кастомный с `_convert_snowflakes` (int > 2^53 → str). `_refresh_role_from_db` + `_role_cache` (TTL 30 сек) + `invalidate_role_cache`.
+- `web.py`: `app.mount("/static")` перенесён ниже routes (A2 fix из v3.9.1). `set_password_submit` — JSON для fetch. Exception handlers 403/404. `get_user_guilds` — `is_guild_member(discord_id, guild_id)`.
+- `bot.py`: `is_guild_member(discord_id, guild_id=None)` — per-guild проверка.
+- `wheel_routes.py`: WS handshake — проверка cookie session. `_delayed_complete_spin` — try/finally. `duration` limit 3-30.
+- `wheel.html`: убрана секция загрузки GIF. Toggle thumbnails с `.hub-gif-thumb-active` CSS.
+- `wheel.js`: `renderHubGifLibrary` — toggle логика (активный thumbnail темнеет).
+- Все тесты: 84 passed + 1 xfailed.
+
 ## v3.9.1 (0000000) — Фиксы из аудита (Wave 1): A1, A2, A3, A8, A9
 
 #ИСПРАВЛЕНО#
