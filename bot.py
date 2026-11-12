@@ -40,8 +40,11 @@ intents.voice_states = True  # v2.0: трекинг войс-чатов
 
 # === Проверка member сервера ===
 
-async def is_guild_member(discord_id: int) -> tuple[bool, dict | None]:
-    """Проверить, является ли discord_id участником какого-либо сервера с ботом.
+async def is_guild_member(discord_id: int, guild_id: int | None = None) -> tuple[bool, dict | None]:
+    """Проверить, является ли discord_id участником сервера с ботом.
+
+    v3.10.0 (B2): если guild_id передан — проверяет членство в КОНКРЕТНОЙ гильдии.
+    Если guild_id=None — проверяет в любой (старое поведение, для обратной совместимости).
 
     Возвращает (True, member_info_dict) если да, иначе (False, None).
     member_info содержит: display_name, username, avatar_url, top_role_name, roles.
@@ -52,6 +55,34 @@ async def is_guild_member(discord_id: int) -> tuple[bool, dict | None]:
     if bot is None:
         return False, None
 
+    # v3.10.0 (B2): если guild_id указан — ищем только в нём
+    if guild_id is not None:
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return False, None
+        member = guild.get_member(discord_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(discord_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                return False, None
+        if member is None:
+            return False, None
+        roles = [r.name for r in member.roles if r.name != "@everyone"]
+        top_role = member.top_role.name if member.top_role and member.top_role.name != "@everyone" else None
+        return True, {
+            "display_name": member.display_name or member.name,
+            "username": str(member),
+            "avatar_url": str(member.display_avatar.url) if member.display_avatar else None,
+            "guild_name": guild.name,
+            "guild_id": guild.id,
+            "roles": roles,
+            "top_role": top_role,
+            "joined_at": member.joined_at.isoformat() if member.joined_at else None,
+            "is_owner": guild.owner_id == discord_id,
+        }
+
+    # Старое поведение — искать в любой гильдии (для обратной совместимости)
     for guild in bot.guilds:
         member = guild.get_member(discord_id)
         if member is None:

@@ -382,6 +382,10 @@ async def get_user_guilds(user_payload: dict) -> list[dict]:
     """Список серверов, доступных пользователю.
     - Обычный юзер: только те сервера, где он участник (через бота) и которые approved
     - Админ: ВСЕ сервера (даже не approved, даже не где он участник)
+
+    v3.10.0 (B2): проверка членства в КОНКРЕТНОЙ гильдии через is_guild_member(discord_id, guild_id).
+    Раньше is_guild_member(discord_id) проверяла любую гильдию бота — юзер.member в guild A
+    давал доступ к guild B.
     """
     import guild as guild_module
     if user_payload.get("is_admin"):
@@ -394,10 +398,8 @@ async def get_user_guilds(user_payload: dict) -> list[dict]:
     all_guilds = await guild_module.list_guilds(approved_only=True)
     result = []
     for g in all_guilds:
-        # Проверяем через бота
-        is_member, _ = await bot_module.is_guild_member(discord_id)
-        # is_guild_member ищет по всем серверам бота — упрощённая проверка
-        # TODO: в Фазе 3 сделаем per-guild проверку
+        # v3.10.0 (B2): проверяем членство в КОНКРЕТНОЙ гильдии
+        is_member, _ = await bot_module.is_guild_member(discord_id, g["guild_id"])
         if is_member:
             result.append(g)
     return result
