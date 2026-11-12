@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -33,6 +33,7 @@ from config import settings
 
 # v2.3.3: модульная структура — wheel и movienight роуты в отдельных файлах
 from deps import (
+    JSONResponse,
     serializer, templates, create_session, read_session,
     get_current_user, require_user, require_admin, require_superuser,
     get_current_guild_id, anonymize_items,

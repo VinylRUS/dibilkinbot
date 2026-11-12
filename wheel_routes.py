@@ -29,7 +29,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
 import db
 import wheel_physics
@@ -42,6 +42,7 @@ from wheel_physics import (
 )
 
 from deps import (
+    JSONResponse,
     anonymize_items,
     get_current_guild_id,
     require_admin,

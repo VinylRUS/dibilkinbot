@@ -4,20 +4,61 @@
 """
 from __future__ import annotations
 
+import json as _json
 import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
+from fastapi.responses import JSONResponse as _FastAPIJSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 import crypto
 import db
+
+
+# v3.10.0 (C): Discord snowflake IDs — 18 цифр, всегда > 2^53 = 9007199254740992.
+# JS Number теряет точность после 2^53 → ID округляются → баги (kick неверного
+# юзера, ачивка несуществующему, и т.д.). Кастомный JSONResponse автоматически
+# конвертирует int > 2^53 в str — все API отдают ID строками.
+_SNOWFLAKE_THRESHOLD = 2 ** 53
+
+
+def _convert_snowflakes(obj: Any) -> Any:
+    """Рекурсивно конвертировать int > 2^53 в str — Discord snowflake IDs."""
+    if isinstance(obj, int) and abs(obj) > _SNOWFLAKE_THRESHOLD:
+        return str(obj)
+    if isinstance(obj, dict):
+        return {k: _convert_snowflakes(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_snowflakes(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_convert_snowflakes(v) for v in obj]
+    return obj
+
+
+class JSONResponse(_FastAPIJSONResponse):
+    """v3.10.0 (C): JSON response с автоматической конвертацией Discord snowflake IDs в строки.
+
+    Заменяет fastapi.responses.JSONResponse — импортируется из deps во всех роутерах.
+    JS получает ID строками, не делает parseInt/Number → нет потери точности.
+    """
+
+    def render(self, content: Any) -> bytes:
+        return _json.dumps(
+            _convert_snowflakes(content),
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+
 from config import settings
 
 # === Paths ===

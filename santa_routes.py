@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import datetime as dt
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import crypto
 import db
@@ -25,6 +25,7 @@ import ws_manager
 from config import settings
 
 from deps import (
+    JSONResponse,
     anonymize_items,
     get_current_guild_id,
     require_admin,
