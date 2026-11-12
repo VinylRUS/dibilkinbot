@@ -2455,7 +2455,7 @@ ACHIEVEMENT_TRIGGERS = {
     "watchlist_count",        # в вишлисте N фильмов
     "wheel_wins",             # N раз фильм юзера выиграл в колесе
     "collections_started",    # N раз организовал сбор
-    "santa_participations",   # N раз участвовал в Сайте
+    "santa_participations",   # N раз участвовал в Тайном Санте
     "watched_count",          # в бэклоге N фильмов
     "first_rating",           # первая оценка (threshold=1, особый)
     "first_quote",            # первая цитата
