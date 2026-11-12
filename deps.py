@@ -4,20 +4,61 @@
 """
 from __future__ import annotations
 
+import json as _json
 import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
+from fastapi.responses import JSONResponse as _FastAPIJSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 import crypto
 import db
+
+
+# v3.10.0 (C): Discord snowflake IDs — 18 цифр, всегда > 2^53 = 9007199254740992.
+# JS Number теряет точность после 2^53 → ID округляются → баги (kick неверного
+# юзера, ачивка несуществующему, и т.д.). Кастомный JSONResponse автоматически
+# конвертирует int > 2^53 в str — все API отдают ID строками.
+_SNOWFLAKE_THRESHOLD = 2 ** 53
+
+
+def _convert_snowflakes(obj: Any) -> Any:
+    """Рекурсивно конвертировать int > 2^53 в str — Discord snowflake IDs."""
+    if isinstance(obj, int) and abs(obj) > _SNOWFLAKE_THRESHOLD:
+        return str(obj)
+    if isinstance(obj, dict):
+        return {k: _convert_snowflakes(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_snowflakes(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_convert_snowflakes(v) for v in obj]
+    return obj
+
+
+class JSONResponse(_FastAPIJSONResponse):
+    """v3.10.0 (C): JSON response с автоматической конвертацией Discord snowflake IDs в строки.
+
+    Заменяет fastapi.responses.JSONResponse — импортируется из deps во всех роутерах.
+    JS получает ID строками, не делает parseInt/Number → нет потери точности.
+    """
+
+    def render(self, content: Any) -> bytes:
+        return _json.dumps(
+            _convert_snowflakes(content),
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+
 from config import settings
 
 # === Paths ===
@@ -108,8 +149,70 @@ def _setup_templates_globals():
 
 # === Auth dependencies ===
 
+# v3.10.0 (B3): кеш роли из БД — чтобы не дёргать БД на каждый запрос.
+# TTL 30 сек: если Матка понизила Трутня → Пчелу, через 30 сек права отзовутся.
+# Раньше роль хранилась в cookie 7 дней — пониженный админ хранил права неделю.
+_role_cache: dict[int, tuple[str, float]] = {}
+_ROLE_CACHE_TTL = 30.0
+
+
+async def _refresh_role_from_db(user: dict) -> None:
+    """Перечитать роль юзера из БД и обновить user dict (is_admin, is_superuser, role).
+
+    v3.10.0 (B3): cookie хранит роль 7 дней — пониженный админ сохранял права.
+    Теперь роль перечитывается из БД с кешем 30 сек. Env-admin (discord_id=0
+    или = settings.admin_discord_id) — всегда superuser, не трогаем.
+    """
+    import time
+    discord_id = user.get("discord_id", 0)
+    if not discord_id:
+        return  # env-admin без discord_id — роль из env, не из БД
+
+    # Env-admin — всегда superuser
+    if settings.admin_discord_id is not None and discord_id == settings.admin_discord_id:
+        user["role"] = "superuser"
+        user["is_superuser"] = True
+        user["is_admin"] = True
+        return
+    env_login = settings.admin_login
+    if env_login and env_login.isdigit() and int(env_login) == discord_id:
+        user["role"] = "superuser"
+        user["is_superuser"] = True
+        user["is_admin"] = True
+        return
+
+    # Кеш — не дёргаем БД на каждый запрос
+    now = time.time()
+    cached = _role_cache.get(discord_id)
+    if cached and now - cached[1] < _ROLE_CACHE_TTL:
+        role = cached[0]
+    else:
+        try:
+            role = await db.get_user_role(discord_id)
+        except Exception:
+            role = "user"  # безопасный fallback
+        _role_cache[discord_id] = (role, now)
+
+    user["role"] = role
+    user["is_superuser"] = (role == "superuser")
+    user["is_admin"] = role in ("superuser", "junior-admin")
+
+
+def invalidate_role_cache(discord_id: int) -> None:
+    """v3.10.0 (B3): инвалидировать кеш роли для discord_id.
+
+    Вызывается после смены роли (web.toggle_admin, api_admin_set_role) —
+    чтобы новый запрос сразу увидел обновлённую роль, без ожидания TTL 30 сек.
+    """
+    _role_cache.pop(discord_id, None)
+
+
 async def get_current_user(request: Request) -> dict | None:
-    """Возвращает user dict из сессии, или None."""
+    """Возвращает user dict из сессии, или None.
+
+    v3.10.0 (B3): роль перечитывается из БД (с кешем 30 сек) — cookie больше
+    не является источником правды для is_admin/is_superuser/role.
+    """
     token = request.cookies.get("session")
     if not token:
         return None
@@ -125,13 +228,27 @@ async def get_current_user(request: Request) -> dict | None:
             user["unread_achievements_count"] = 0
     else:
         user["unread_achievements_count"] = 0
+    # v3.10.0 (B3): перечитать роль из БД (с кешем) — cookie не источник правды
+    await _refresh_role_from_db(user)
     return user
 
 
+def _wants_json(request: Request) -> bool:
+    """v3.10.0: определяет fetch-запрос по Accept header — для /api/* возвращаем JSON."""
+    return "application/json" in request.headers.get("accept", "")
+
+
 async def require_user(request: Request) -> dict:
-    """Зависимость: юзер обязан быть залогинен."""
+    """Зависимость: юзер обязан быть залогинен.
+
+    v3.10.0: для fetch-запросов (Accept: application/json) возвращаем 401 JSON
+    вместо 303 редиректа. Раньше fetch следовал редиректу → получал HTML логина
+    → r.json() падал с 'Сетевая ошибка'.
+    """
     user = await get_current_user(request)
     if not user:
+        if _wants_json(request):
+            raise HTTPException(status_code=401, detail="unauthorized")
         raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
     return user
 

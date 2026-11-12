@@ -502,7 +502,7 @@
       description: {{ (ach.description or '') | tojson }},
       trigger_type: {{ ach.trigger_type | tojson }},
       trigger_threshold: {{ ach.trigger_threshold }},
-      discord_role_id: {{ ach.discord_role_id | tojson if ach.discord_role_id else 'null' | safe }},
+      discord_role_id: {{ ach.discord_role_id | string | tojson if ach.discord_role_id else 'null' | safe }},
       icon_config: {{ ach.icon_config | tojson }},
     };
     {% endfor %}
@@ -1056,7 +1056,7 @@
                 <div style="color:var(--text-muted);font-size:0.72rem;" class="mono">${u.granted_at ? new Date(u.granted_at).toLocaleDateString('ru-RU') : ''}</div>
               </div>
               ${isActive
-                ? `<button onclick="revokeAchievement(${u.user_discord_id})" class="ach-delete-btn" style="font-size:0.72rem;padding:4px 8px;">Забрать</button>`
+                ? `<button onclick="revokeAchievement('${u.user_discord_id}')" class="ach-delete-btn" style="font-size:0.72rem;padding:4px 8px;">Забрать</button>`
                 : `<span style="color:var(--text-muted);font-size:0.72rem;">отозвана</span>`}
             </div>
           `;
@@ -1069,7 +1069,7 @@
     async function grantAchievement() {
       if (!currentGrantAchId) return;
       const userInput = document.getElementById('grant-user-input');
-      const userId = parseInt(userInput.value.trim());
+      const userId = userInput.value.trim();  // v3.10.0 (C): строка, не parseInt — Discord ID > 2^53
       if (!userId) {
         showToast('Введите Discord ID', 'error');
         return;

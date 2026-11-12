@@ -346,11 +346,28 @@
       overflow: hidden;
       border: 2px solid var(--border);
       cursor: pointer;
-      transition: border-color 0.15s, transform 0.15s;
+      transition: border-color 0.15s, transform 0.15s, opacity 0.15s;
     }
     .hub-gif-thumb:hover {
       border-color: var(--accent);
       transform: scale(1.05);
+    }
+    /* v3.10.0: активный thumbnail — темнеет (toggle выбран) */
+    .hub-gif-thumb.hub-gif-thumb-active {
+      border-color: var(--accent);
+      opacity: 0.5;
+      transform: scale(0.95);
+    }
+    .hub-gif-thumb.hub-gif-thumb-active::after {
+      content: '✓';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--accent);
+      font-size: 1.2rem;
+      font-weight: bold;
+      text-shadow: 0 0 4px rgba(0,0,0,0.8);
     }
     .hub-gif-thumb img {
       width: 100%;
@@ -973,31 +990,17 @@
         </div>
 
         <div class="setting-row">
-          <label for="volume-slider"><img src="/static/icons/sound.png" alt="" width="14" height="14" class="ui-icon" onerror="this.src='/static/icons/microphone.png'"> Громкость тиков</label>
+          <label for="volume-slider">🔊 Громкость тиков</label>
           <div class="volume-row">
             <button id="sound-btn" onclick="toggleSound()" title="Включить/выключить звук" class="sound-btn-inline">🔊</button>
             <input type="range" id="volume-slider" min="0" max="100" value="40" oninput="setVolume(this.value)" title="Громкость" class="setting-slider">
           </div>
         </div>
 
-        {% if user.is_superuser %}
-        <div class="setting-row hub-gif-section">
-          <label><img src="/static/icons/film.png" alt="" width="14" height="14" class="ui-icon"> Загрузить новую GIF</label>
-          <input type="text" id="hub-gif-url-input" placeholder="https://media.giphy.com/..." class="hub-gif-input">
-          <label class="checkbox-row">
-            <input type="checkbox" id="hub-gif-save-chk"> Сохранить в библиотеку
-          </label>
-          <div class="hub-gif-buttons">
-            <button onclick="setHubGifFromInput()" class="btn-primary" style="font-size:0.78rem;padding:6px 10px;">Установить</button>
-            <button onclick="clearHubGif()" class="btn-ghost" style="font-size:0.78rem;padding:6px 10px;">Убрать</button>
-          </div>
-        </div>
-        {% endif %}
-
         <div class="setting-row hub-gif-library-section">
-          <label><img src="/static/icons/star.png" alt="" width="14" height="14" class="ui-icon"> Библиотека гифок <span style="font-size:0.7rem;color:var(--text-muted);font-weight:normal;">— выбери чтобы поставить</span></label>
+          <label><img src="/static/icons/star.png" alt="" width="14" height="14" class="ui-icon"> Библиотека гифок <span style="font-size:0.7rem;color:var(--text-muted);font-weight:normal;">— клик чтобы поставить, повторный клик чтобы убрать</span></label>
           <div id="hub-gif-library" class="hub-gif-library">
-            <div class="hub-gif-library-empty">{% if user.is_superuser %}Пусто. Сохраните гифку выше с галочкой «Сохранить».{% else %}Пусто. Матка ещё не сохранила ни одной гифки.{% endif %}</div>
+            <div class="hub-gif-library-empty">{% if user.is_superuser %}Пусто. Загрузите гифки через /settings.{% else %}Пусто. Матка ещё не загрузила ни одной гифки.{% endif %}</div>
           </div>
         </div>
       </div>

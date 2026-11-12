@@ -6,7 +6,9 @@
    Include только в panel.html (dashboard). #}
 
 <style>
-  /* v3.9.0: Welcome banner для тура — компактный, одна строка */
+  /* v3.10.0: Welcome banner — без анимации (пользователь просил убрать).
+     Sidebar свёрнут по умолчанию — тур не должен указывать на sidebar элементы
+     (они невидимы). Тур либо разворачивает sidebar, либо подсвечивает main content. */
   .tour-banner {
     position: relative;
     background: linear-gradient(135deg, rgba(255,183,3,0.10), rgba(251,133,0,0.05));
@@ -16,35 +18,19 @@
     margin: 0 0 12px;
     display: flex;
     align-items: center;
-    justify-content: center;  /* v3.9.0: кнопки по центру по горизонтали */
+    justify-content: center;
     gap: 10px;
     flex-wrap: nowrap;
     box-shadow: 0 0 16px rgba(255,183,3,0.18);
-    animation: tour-banner-pulse 2.4s ease-in-out infinite;
     overflow: hidden;
-  }
-  @keyframes tour-banner-pulse {
-    0%, 100% {
-      box-shadow: 0 0 16px rgba(255,183,3,0.18);
-      border-color: var(--accent);
-    }
-    50% {
-      box-shadow: 0 0 28px rgba(255,183,3,0.40);
-      border-color: #FFD700;
-    }
   }
   .tour-banner-icon {
     font-size: 1.3rem;
     flex-shrink: 0;
     line-height: 1;
-    animation: tour-bee-bounce 1.6s ease-in-out infinite;
-  }
-  @keyframes tour-bee-bounce {
-    0%, 100% { transform: translateY(0) rotate(-3deg); }
-    50% { transform: translateY(-2px) rotate(3deg); }
   }
   .tour-banner-content {
-    flex: 0 1 auto;  /* v3.9.0: не растягивается — кнопки центрируются */
+    flex: 0 1 auto;
     min-width: 0;
     display: flex;
     align-items: baseline;
@@ -119,11 +105,9 @@
     background: var(--card-alt);
     color: var(--text);
   }
-  /* Mobile: не показываем баннер */
   @media (max-width: 768px) {
     .tour-banner { display: none !important; }
   }
-  /* Очень узкий экран (>768px но мало места) — позволяем wrap */
   @media (max-width: 900px) {
     .tour-banner {
       flex-wrap: wrap;
@@ -134,24 +118,6 @@
       justify-content: flex-end;
     }
   }
-  /* Pulsing arrow — если баннер вне viewport */
-  .tour-arrow-hint {
-    position: fixed;
-    top: 70px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 1.4rem;
-    color: var(--accent);
-    z-index: 999;
-    pointer-events: none;
-    animation: tour-arrow-bounce 1.2s ease-in-out infinite;
-    display: none;
-    text-shadow: 0 0 8px rgba(255,183,3,0.6);
-  }
-  @keyframes tour-arrow-bounce {
-    0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.85; }
-    50% { transform: translateX(-50%) translateY(6px); opacity: 1; }
-  }
 </style>
 
 <div id="tour-banner" class="tour-banner" style="display:none;">
@@ -159,14 +125,13 @@
   <div class="tour-banner-icon">🐝</div>
   <div class="tour-banner-content">
     <div class="tour-banner-title">Привет! Хочешь короткий тур по панели?</div>
-    <div class="tour-banner-text">~1 минута, 6 шагов</div>
+    <div class="tour-banner-text">~1 минута, 5 шагов</div>
   </div>
   <div class="tour-banner-actions">
     <button class="tour-btn-primary" onclick="startDeebeelkinTour()">Посмотреть тур</button>
     <button class="tour-btn-secondary" onclick="dismissTourBannerForever()">Больше не показывать</button>
   </div>
 </div>
-<div id="tour-arrow-hint" class="tour-arrow-hint">⬆</div>
 
 <link rel="stylesheet" href="/static/vendor/driver.min.css?v={{ commit_id }}">
 <script>

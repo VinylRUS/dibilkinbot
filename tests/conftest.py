@@ -118,9 +118,16 @@ def client():
 
     with TestClient(web.app) as c:
         import guild as guild_mod
+        import db as db_mod
 
         run_async(guild_mod.upsert_guild(TEST_GUILD_ID, "Test Guild", auto_approve=True))
         run_async(guild_mod.init_guild_tables(TEST_GUILD_ID))
+
+        # v3.10.0 (B3): создать тестового юзера в БД с role='superuser' —
+        # иначе _refresh_role_from_db перечитает role='user' (юзера нет в БД)
+        # и все require_superuser тесты получат 403.
+        run_async(db_mod.upsert_user(TEST_ADMIN_DISCORD_ID, username="tester", display_name="Tester"))
+        run_async(db_mod.set_user_role(TEST_ADMIN_DISCORD_ID, "superuser"))
 
         import deps
 

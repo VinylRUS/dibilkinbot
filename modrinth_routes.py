@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
 import db
 import modrinth
@@ -29,6 +29,7 @@ from modrinth import (
 )
 
 from deps import (
+    JSONResponse,
     get_current_guild_id,
     require_admin,
     templates,

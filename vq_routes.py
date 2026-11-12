@@ -33,11 +33,12 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
 import vq_api
 import vq_data
 from deps import (
+    JSONResponse,
     get_current_guild_id,
     require_admin,
     templates,

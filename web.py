@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -33,10 +33,12 @@ from config import settings
 
 # v2.3.3: модульная структура — wheel и movienight роуты в отдельных файлах
 from deps import (
+    JSONResponse,
     serializer, templates, create_session, read_session,
     get_current_user, require_user, require_admin, require_superuser,
     get_current_guild_id, anonymize_items,
     _get_bot_version, _get_git_commit_id,
+    invalidate_role_cache,  # v3.10.0 (B3): инвалидация кеша роли после смены
 )
 from timezone_utils import format_msk, format_msk_short
 import wheel_routes
@@ -74,6 +76,30 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+# v3.10.0: 403/404 exception handlers — для HTML рендерят простую страницу,
+# для fetch (Accept: application/json) — JSON.
+@app.exception_handler(403)
+async def handler_403(request: Request, exc: HTTPException):
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"error": exc.detail or "forbidden"}, status_code=403)
+    return templates.TemplateResponse(request, "error.html", {
+        "code": 403,
+        "title": "Доступ запрещён",
+        "message": exc.detail or "У вас нет прав для просмотра этой страницы.",
+    }, status_code=403)
+
+
+@app.exception_handler(404)
+async def handler_404(request: Request, exc: HTTPException):
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return templates.TemplateResponse(request, "error.html", {
+        "code": 404,
+        "title": "Не найдено",
+        "message": "Страница не существует или была удалена.",
+    }, status_code=404)
+
+
 # v3.0.3: Cache-Control middleware — HTML responses должны быть no-store,
 # иначе после deploy браузер отдаёт закешированную старую страницу (с старым
 # JS-кодом внутри, который использует устаревший guild_id / Discord ID).
@@ -105,8 +131,10 @@ _cached_bot_version: str | None = None
 # v2.3.3 Вариант D: состояние активных спинов.
 # spin_id → {guild_id, items, mode, is_test, duration, started_at, completed}
 # Используется /api/wheel/result для валидации и fallback-таймером.
-if _STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+# v3.9.1: app.mount('/static') перенесён НИЖЕ route'ов /static/icons/custom и
+# /static/wheel_gifs — иначе Mount перехватывает все /static/* запросы и
+# fallback-роуты для персистентных каталогов (custom иконки ачивок, GIF секторов
+# колеса) недостижимы → 404 на проде (на dev спасал symlink).
 
 # v3.4: Avatar proxy — serves cached Discord avatars from local storage.
 # Templates use {{ avatar_url(discord_id) }} which returns /avatars/{id}.
@@ -117,8 +145,19 @@ async def serve_cached_avatar(discord_id: int):
     """Serve avatar from local cache. Falls back to SVG letter avatar if:
     - Avatar not cached and can't be downloaded (404, network error)
     - User not in DB
-    - User has no avatar_url stored"""
+    - User has no avatar_url stored
+
+    v3.10.0 (A5): если discord_id вне int64 диапазона (< 0 или > 2^63-1) —
+    возвращаем SVG fallback вместо OverflowError 500. Реальные Discord snowflake
+    IDs (18 цифр) всегда в int64, но аноним может передать 99999999999999999999999999.
+    """
     import avatar_cache
+
+    # v3.10.0 (A5): валидация диапазона — защита от OverflowError в SQLite
+    if discord_id < 0 or discord_id > (2**63 - 1):
+        svg = avatar_cache.generate_letter_avatar_svg("", discord_id)
+        return Response(content=svg, media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=300"})
 
     # 1. Check if cached file exists
     path = avatar_cache.get_avatar_path(discord_id)
@@ -173,7 +212,10 @@ except Exception as _e:
 @app.get("/static/icons/custom/{filename:path}")
 async def _serve_custom_icon(filename: str):
     """v2.1.0: Fallback-роут для раздачи custom_*.png из /app/data/icons,
-    если symlink не сработал (Windows-хосты без прав)."""
+    если symlink не сработал (Windows-хосты без прав).
+
+    v3.9.1: route зарегистрирован ДО app.mount('/static') — иначе Mount
+    перехватывает /static/* и этот route недостижим."""
     # FileResponse импортирован в начале файла (v3.4.2)
     # Защита от path traversal
     if ".." in filename or "/" in filename:
@@ -203,7 +245,10 @@ async def _serve_wheel_gif(filename: str):
 
     Fallback-роут (без symlink) — работает на любой ОС. Cache-Control: immutable
     + 1 день max-age — файлы immutable (имя содержит hash URL'а), браузер кеширует.
-    """
+
+    v3.9.1: route зарегистрирован ДО app.mount('/static') — иначе Mount
+    перехватывает /static/* и этот route недостижим (баг A2 из аудита:
+    GIF на секторах и кастомные иконки ачивок всегда 404 на проде)."""
     if ".." in filename or "/" in filename:
         return JSONResponse({"error": "invalid filename"}, status_code=400)
     file_path = _os.path.join(_data_wheel_gifs_dir, filename)
@@ -216,6 +261,14 @@ async def _serve_wheel_gif(filename: str):
         media_type=media_type,
         headers={"Cache-Control": "public, max-age=86400, immutable"},
     )
+
+
+# v3.9.1: mount /static ПОСЛЕ персистентных fallback-роутов выше.
+# Starlette проверяет маршруты по порядку регистрации — Mount('/static')
+# перехватывает все /static/* запросы. Если mount стоит раньше — routes
+# /static/icons/custom/{filename} и /static/wheel_gifs/{filename} недостижимы.
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 # === Session ===
@@ -283,6 +336,11 @@ async def api_ping_telegram(_user: dict = Depends(require_user)):
     if not raw_token:
         return JSONResponse({"online": False, "error": "token not set"})
     token = crypto.decrypt(raw_token)
+    # v3.10.0 (A11): если расшифровка вернула None (ключ APP_SECRET изменён или
+    # токен повреждён) — не делаем HTTP запрос на botNone/getMe, это бесполезный
+    # внешний вызов + засоряет логи Telegram API.
+    if not token:
+        return JSONResponse({"online": False, "error": "token decryption failed (check APP_SECRET)"})
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(f"https://api.telegram.org/bot{token}/getMe")
@@ -348,6 +406,10 @@ async def get_user_guilds(user_payload: dict) -> list[dict]:
     """Список серверов, доступных пользователю.
     - Обычный юзер: только те сервера, где он участник (через бота) и которые approved
     - Админ: ВСЕ сервера (даже не approved, даже не где он участник)
+
+    v3.10.0 (B2): проверка членства в КОНКРЕТНОЙ гильдии через is_guild_member(discord_id, guild_id).
+    Раньше is_guild_member(discord_id) проверяла любую гильдию бота — юзер.member в guild A
+    давал доступ к guild B.
     """
     import guild as guild_module
     if user_payload.get("is_admin"):
@@ -360,10 +422,8 @@ async def get_user_guilds(user_payload: dict) -> list[dict]:
     all_guilds = await guild_module.list_guilds(approved_only=True)
     result = []
     for g in all_guilds:
-        # Проверяем через бота
-        is_member, _ = await bot_module.is_guild_member(discord_id)
-        # is_guild_member ищет по всем серверам бота — упрощённая проверка
-        # TODO: в Фазе 3 сделаем per-guild проверку
+        # v3.10.0 (B2): проверяем членство в КОНКРЕТНОЙ гильдии
+        is_member, _ = await bot_module.is_guild_member(discord_id, g["guild_id"])
         if is_member:
             result.append(g)
     return result
@@ -571,35 +631,51 @@ async def set_password_submit(
     password: str = Form(...),
     password_confirm: str = Form(...),
 ):
-    """Установить пароль для юзера."""
+    """Установить пароль для юзера.
+
+    v3.10.0 (A4): для fetch-запросов (Accept: application/json) возвращаем JSON
+    вместо 303 редиректа. Раньше сервер всегда отвечал 303 → fetch следовал →
+    r.ok=true → ложный успех даже при ошибке (пароль < 8 символов, mismatch).
+    """
+    # v3.10.0 (A4): определяем fetch-запрос по Accept header
+    wants_json = "application/json" in request.headers.get("accept", "")
+
+    def json_or_redirect(url, error=None):
+        if wants_json:
+            return JSONResponse({"ok": False, "error": error or "failed"} if error else {"ok": True})
+        return RedirectResponse(url=url, status_code=303)
+
     temp_token = request.cookies.get("temp_session")
     if not temp_token:
-        return RedirectResponse(url="/login", status_code=303)
+        return json_or_redirect("/login", "session expired")
     temp_user = read_session(temp_token)
     if not temp_user or not temp_user.get("temp"):
-        return RedirectResponse(url="/login", status_code=303)
+        return json_or_redirect("/login", "session expired")
 
     discord_id = temp_user.get("discord_id", 0)
     if not discord_id:
-        return RedirectResponse(url="/login?error=invalid", status_code=303)
+        return json_or_redirect("/login?error=invalid", "invalid session")
 
     password = password.strip()
     password_confirm = password_confirm.strip()
 
     if not password:
-        return RedirectResponse(url="/set-password?error=empty", status_code=303)
+        return json_or_redirect("/set-password?error=empty", "password required")
     if len(password) < 8:
-        return RedirectResponse(url="/set-password?error=short", status_code=303)
+        return json_or_redirect("/set-password?error=short", "minimum 8 characters")
     if password != password_confirm:
-        return RedirectResponse(url="/set-password?error=mismatch", status_code=303)
+        return json_or_redirect("/set-password?error=mismatch", "passwords do not match")
 
     # Устанавливаем пароль
     success = await db.set_user_password(discord_id, password)
     if not success:
-        return RedirectResponse(url="/set-password?error=failed", status_code=303)
+        return json_or_redirect("/set-password?error=failed", "failed to set password")
 
-    # Возвращаем на логин — юзер должен войти с новым паролем
-    resp = RedirectResponse(url=f"/login?error=password_set&did={discord_id}", status_code=303)
+    # Успех
+    if wants_json:
+        resp = JSONResponse({"ok": True, "redirect": f"/login?error=password_set&did={discord_id}"})
+    else:
+        resp = RedirectResponse(url=f"/login?error=password_set&did={discord_id}", status_code=303)
     resp.delete_cookie("temp_session")
     return resp
 
@@ -1254,6 +1330,8 @@ async def api_admin_set_role(
             {"error": "Не удалось изменить роль — возможно это env-админ или юзера нет в БД. Подробности в логах db."},
             status_code=400,
         )
+    # v3.10.0 (B3): инвалидировать кеш роли — новый запрос сразу увидит новую роль
+    invalidate_role_cache(discord_id)
     return JSONResponse({"ok": True})
 
 
@@ -1685,6 +1763,8 @@ async def toggle_admin(
     if not ok:
         # Подробности уже в логе db.set_user_role — здесь только UI feedback
         return RedirectResponse(url="/users?error=role_change_failed", status_code=303)
+    # v3.10.0 (B3): инвалидировать кеш роли — новый запрос сразу увидит новую роль
+    invalidate_role_cache(discord_id)
     return RedirectResponse(url="/users?saved=1", status_code=303)
 
 
@@ -1967,7 +2047,18 @@ async def public_profile_page(
     discord_id: int,
     _user: dict = Depends(require_user),
 ):
-    """Публичный профиль пользователя. Виден всем залогиненным юзерам."""
+    """Публичный профиль пользователя. Виден всем залогиненным юзерам.
+
+    v3.10.0 (A5): валидация discord_id — если вне int64 диапазона, отдаём 404
+    вместо OverflowError 500 в db.get_user.
+    """
+    # v3.10.0 (A5): валидация диапазона
+    if discord_id < 0 or discord_id > (2**63 - 1):
+        return templates.TemplateResponse(request, "profile_public.html", {
+            "user": _user,
+            "target": None,
+            "not_found": True,
+        }, status_code=404)
     target = await db.get_user(discord_id)
     if not target:
         return templates.TemplateResponse(request, "profile_public.html", {

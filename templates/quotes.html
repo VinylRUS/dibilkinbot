@@ -362,7 +362,7 @@
       let author_user_id = null;
       const mentionMatch = author.match(/^<@!?(\d+)>$/);
       if (mentionMatch) {
-        author_user_id = parseInt(mentionMatch[1]);
+        author_user_id = mentionMatch[1];  // v3.10.0 (C): строка, не parseInt — Discord ID > 2^53
       }
 
       const payload = new FormData();

@@ -140,11 +140,11 @@
   };
 
   function buildTourSteps() {
-    // Шаги depend от роли (Матка видит больше) и от того что есть на странице.
+    // Шаги depend от того что есть на странице (sidebar links).
     // Используем CSS-селекторы (sidebar links) — не требуем ID.
+    // v3.9.1: убраны role-aware шаги для /channels и /users — этих ссылок
+    // нет в sidebar.html. Если добавить — можно вернуть проверку IS_SUPERUSER.
     const steps = [];
-    const isSuperuser = (typeof IS_SUPERUSER !== 'undefined') && IS_SUPERUSER;
-    const isAdmin = (typeof IS_ADMIN !== 'undefined') && IS_ADMIN;
 
     // Шаг 1: приветствие — БЕЗ element (центрированный popover без highlight).
     // Раньше было `element: '#tour-banner'` но мы скрываем баннер перед туром,
@@ -152,7 +152,7 @@
     steps.push({
       element: null,
       title: '🐝 Привет!',
-      description: 'Короткий тур по панели — 6 шагов, ~1 минута. Жми «Далее» чтобы продолжить, или «Завершить» чтобы прервать.',
+      description: 'Короткий тур по панели — 5 шагов, ~1 минута. Жми «Далее» чтобы продолжить, или «Завершить» чтобы прервать.',
       side: 'bottom',
       align: 'center',
     });
@@ -205,36 +205,15 @@
       });
     }
 
-    // Шаг 6 (для админов): Каналы
-    if (isAdmin) {
-      const channelsLink = document.querySelector('.sb-item[href="/channels"]');
-      if (channelsLink) {
-        steps.push({
-          element: channelsLink,
-          title: '🔧 Каналы',
-          description: 'ID Discord каналов куда бот постит — ачивки, цитаты, победители колеса, обновления. Тут же настраивается канал для анонсов ачивок (новое в v3.6.0).',
-          side: 'right',
-          align: 'center',
-        });
-      }
-    }
-
-    // Шаг 7 (для Матки): Юзеры
-    if (isSuperuser) {
-      const usersLink = document.querySelector('.sb-item[href="/users"]');
-      if (usersLink) {
-        steps.push({
-          element: usersLink,
-          title: '👥 Юзеры',
-          description: 'Управление ролями: Пчела ↔ Трутень. Матка управляется только через env (ADMIN_DISCORD_ID). Если не получается понизить Трутня — проверь .env.',
-          side: 'right',
-          align: 'center',
-        });
-      }
-    }
+    // v3.9.1: убраны шаги для /channels и /users — этих ссылок нет в sidebar.html
+    // (они только в мёртвом _nav.html). Если добавить ссылки в sidebar позже —
+    // можно вернуть шаги. Баг A9 из аудита: тур обещал 6 шагов, реально 5.
 
     return steps;
   }
+
+  // v3.10.0: arrow hint убран — пользователь сказал что анимация не нужна.
+  // Sidebar свёрнут по умолчанию — тур не указывает на sidebar элементы.
 
   // === Bootstrap ===
   function init() {

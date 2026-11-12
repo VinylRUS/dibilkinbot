@@ -189,11 +189,9 @@ function renderHubGifLibrary() {
   const container = document.getElementById('hub-gif-library');
   if (!container) return;
   if (_hubGifLibrary.length === 0) {
-    // Текст зависит от роли — показывается сервером в SSR, но если JS перерисовывает
-    // после fetch, используем IS_SUPERUSER для выбора текста
     const emptyText = (typeof IS_SUPERUSER !== 'undefined' && IS_SUPERUSER)
-      ? 'Пусто. Сохраните гифку выше с галочкой «Сохранить».'
-      : 'Пусто. Матка ещё не сохранила ни одной гифки.';
+      ? 'Пусто. Загрузите гифки через /settings.'
+      : 'Пусто. Матка ещё не загрузила ни одной гифки.';
     container.innerHTML = `<div class="hub-gif-library-empty">${emptyText}</div>`;
     return;
   }
@@ -201,19 +199,32 @@ function renderHubGifLibrary() {
   _hubGifLibrary.forEach((url) => {
     const thumb = document.createElement('div');
     thumb.className = 'hub-gif-thumb';
-    thumb.title = 'Установить эту гифку';
+    // v3.10.0: toggle — если этот URL сейчас активный, thumbnail темнеет
+    if (_hubGifUrl === url) {
+      thumb.classList.add('hub-gif-thumb-active');
+    }
+    thumb.title = _hubGifUrl === url ? 'Клик чтобы убрать (вернуть пчелу)' : 'Клик чтобы поставить';
     const img = document.createElement('img');
     img.src = url;
     img.alt = '';
     img.loading = 'lazy';
-    img.onerror = () => { thumb.style.display = 'none'; };  // скрыть если не грузится
+    img.onerror = () => { thumb.style.display = 'none'; };
     thumb.appendChild(img);
-    // Клик по thumbnail → установить как активную (любой юзер может)
+    // v3.10.0: toggle логика
+    // - клик по неактивному thumbnail → установить (меняет гифку)
+    // - клик по активному thumbnail → убрать (вернуть пчелу 🐝)
+    // - клик по другому когда есть активный → поменять
     thumb.addEventListener('click', (e) => {
-      if (e.target.classList.contains('hub-gif-thumb-remove')) return;  // клик был по кнопке удаления
-      setHubGifViaApi(url, false);  // не сохраняем повторно в библиотеку
+      if (e.target.classList.contains('hub-gif-thumb-remove')) return;
+      if (_hubGifUrl === url) {
+        // Уже активный → убрать (вернуть пчелу)
+        setHubGifViaApi('', false);
+      } else {
+        // Не активный → установить
+        setHubGifViaApi(url, false);
+      }
     });
-    // Кнопка удаления из библиотеки — только для Матки (v3.8.3)
+    // Кнопка удаления из библиотеки — только для Матки
     if (typeof IS_SUPERUSER !== 'undefined' && IS_SUPERUSER) {
       const removeBtn = document.createElement('button');
       removeBtn.className = 'hub-gif-thumb-remove';

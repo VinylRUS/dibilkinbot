@@ -826,7 +826,7 @@
                   <td>${escapeHtml(p.name)} <code style="opacity:0.5;">${escapeHtml(p.uuid.slice(0, 8))}...</code></td>
                   <td>${escapeHtml(p.discord_link.discord_username || '?')} <code style="opacity:0.5;">${p.discord_link.discord_id}</code></td>
                   <td>${formatTs(p.discord_link.linked_at)}</td>
-                  <td><button class="vq-btn danger" onclick="unlinkMc(${p.discord_link.discord_id})" style="padding: 4px 10px;">Отвязать</button></td>
+                  <td><button class="vq-btn danger" onclick="unlinkMc('${p.discord_link.discord_id}')" style="padding: 4px 10px;">Отвязать</button></td>
                 </tr>
               `).join('')}
             </tbody>

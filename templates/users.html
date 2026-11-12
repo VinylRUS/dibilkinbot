@@ -102,7 +102,7 @@
           <th>Последний вход</th>
           <th>Управление</th>
         </tr>
-        {% for discord_id, username, display_name, is_admin_flag, last_login_at, avatar_url, top_role, guild_name, role, left_at in users %}
+        {% for discord_id, username, display_name, is_admin_flag, last_login_at, u_avatar, top_role, guild_name, role, left_at in users %}
           <tr{% if left_at %} style="opacity: 0.5;"{% endif %}>
             <td>
               <a href="/u/{{ discord_id }}" class="user-row" style="border-bottom:none; padding:0; text-decoration:none; color:inherit;">

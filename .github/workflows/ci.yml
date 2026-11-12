@@ -21,9 +21,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install httpx aiosqlite itsdangerous cryptography python-multipart jinja2
-        pip install fastapi uvicorn discord.py
-        pip install pytest
+        # v3.10.0: ставим deps из requirements.txt (раньше вручную — пропускали Pillow,
+        # python-dotenv). Плюс pytest для тестов.
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio
 
     - name: Syntax check all Python files
       run: |
@@ -55,5 +56,5 @@ jobs:
     - name: Run changelog parser tests
       run: python scripts/test_changelog_parser.py
 
-    - name: Run wheel integration tests (pytest)
-      run: python -m pytest tests/test_wheel_integration.py -v
+    - name: Run all pytest tests
+      run: python -m pytest tests/ -v --tb=short
