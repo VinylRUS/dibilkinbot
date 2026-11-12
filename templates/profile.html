@@ -7,239 +7,469 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
   <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
-    .watchlist-add-form {
-      display: flex; gap: 8px; margin-bottom: 14px;
+    /* === Заголовок страницы === */
+    .profile-title { margin: 0 0 16px; font-size: 1.4rem; font-weight: 700; color: var(--text); }
+
+    /* === Sticky-навигация по секциям === */
+    .profile-nav {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; gap: 6px; flex-wrap: wrap;
+      padding: 8px; margin-bottom: 20px;
+      background: var(--glass-bg); backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border); border-radius: 12px;
+      box-shadow: var(--glass-shadow), var(--glass-inset);
     }
+    .profile-nav-item {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 12px; border-radius: 8px;
+      color: var(--text-muted); font-size: 0.84rem; font-weight: 600;
+      text-decoration: none; cursor: pointer; white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+    }
+    .profile-nav-item:hover { background: var(--glass-bg-hover); color: var(--text); }
+    .profile-nav-item.active { background: var(--accent-soft); color: var(--accent); }
+    .profile-nav-item img { width: 14px; height: 14px; opacity: 0.8; }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+      margin-left: 2px;
+    }
+    .status-dot.warn { background: var(--accent); box-shadow: 0 0 6px rgba(255, 183, 3, 0.6); }
+    .status-dot.alert { background: var(--red); box-shadow: 0 0 6px rgba(196, 69, 54, 0.6); }
+
+    /* === Секции: нумерованные + accent-полоска === */
+    .profile-section { scroll-margin-top: 84px; margin-bottom: 24px; }
+    .section-head {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .section-num {
+      font-size: 0.72rem; font-weight: 700; color: var(--accent);
+      background: var(--accent-soft); padding: 2px 7px; border-radius: 6px;
+    }
+    .section-head h2 {
+      margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--text);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .section-head h2 img { width: 16px; height: 16px; }
+    .profile-section .card { position: relative; }
+
+    /* === Компактные field-строки === */
+    .field-row {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border);
+      font-size: 0.86rem;
+    }
+    .field-row:last-child { border-bottom: none; }
+    .field-label { color: var(--text-muted); font-size: 0.8rem; flex-shrink: 0; }
+    .field-value-group { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+    .field-value-group .mono { font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; }
+    .copy-btn {
+      background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+      padding: 2px 6px; border-radius: 5px; cursor: pointer; line-height: 0;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .copy-btn img { width: 13px; height: 13px; }
+
+    /* === Switch-строки (TG-настройки, wishlist) === */
+    .switch-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+    }
+    .switch-row:last-child { border-bottom: none; }
+    .switch-row-text { flex: 1; min-width: 0; }
+    .switch-row-title { font-weight: 600; color: var(--text); font-size: 0.88rem; }
+    .switch-row-desc { color: var(--text-muted); font-size: 0.76rem; margin-top: 2px; line-height: 1.3; }
+    .save-indicator {
+      font-size: 0.72rem; color: var(--green); opacity: 0;
+      transition: opacity 0.2s; flex-shrink: 0; min-width: 70px; text-align: right;
+    }
+    .save-indicator.show { opacity: 1; }
+    .save-indicator.error { color: var(--red); }
+    .section-intro { margin: 0 0 12px; padding: 0 16px; }
+
+    /* === Steam === */
+    .steam-row { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
+    .steam-avatar { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--accent); flex-shrink: 0; }
+    .steam-info { flex: 1; min-width: 0; }
+    .steam-persona { font-weight: 700; color: var(--text); font-size: 1rem; overflow: hidden; text-overflow: ellipsis; }
+    .steam-link { color: var(--accent); font-size: 0.82rem; text-decoration: none; }
+    .steam-link:hover { text-decoration: underline; }
+    .steam-remove {
+      background: transparent; color: var(--red); border: 1px solid var(--red);
+      padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;
+      display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+    .steam-remove:hover { background: var(--red); color: #fff; }
+    .steam-remove img { width: 14px; height: 14px; }
+    .steam-form { padding: 14px 16px; }
+    .steam-input {
+      width: 100%; box-sizing: border-box; padding: 9px 12px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 0.88rem; margin-bottom: 10px;
+    }
+    .steam-input:focus { outline: none; border-color: var(--accent); }
+    .steam-validation { font-size: 0.8rem; margin: -4px 0 10px; min-height: 16px; }
+
+    /* === Вишлист (переиспользуем старые классы + компактность) === */
+    .watchlist-add-form { display: flex; gap: 8px; margin-bottom: 12px; }
     .watchlist-add-form input {
       flex: 1; padding: 8px 12px; background: var(--bg);
       border: 1px solid var(--border); border-radius: 6px;
-      color: var(--text); font-size: 0.9rem;
+      color: var(--text); font-size: 0.88rem;
     }
     .watchlist-add-form input:focus { outline: none; border-color: var(--accent); }
     .watchlist-add-form button {
       background: var(--accent); color: var(--accent-text); border: none;
-      padding: 0 16px; border-radius: 6px; cursor: pointer; font-weight: 600;
-      margin: 0; font-size: 0.9rem; white-space: nowrap;
+      padding: 0 14px; border-radius: 6px; cursor: pointer; font-weight: 600;
+      font-size: 0.86rem; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 5px;
     }
     .watchlist-add-form button:hover { background: var(--accent-hover); }
+    .watchlist-add-form button img { width: 14px; height: 14px; }
     .watchlist-item {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 10px 14px; border-bottom: 1px solid var(--border); gap: 12px;
+      padding: 8px 14px; border-bottom: 1px solid var(--border); gap: 12px;
     }
     .watchlist-item:last-child { border-bottom: none; }
-    .watchlist-title { font-weight: 600; color: var(--text); font-size: 0.9rem; flex: 1; }
+    .watchlist-title { font-weight: 600; color: var(--text); font-size: 0.88rem; flex: 1; overflow: hidden; text-overflow: ellipsis; }
     .watchlist-title.watched { color: var(--text-muted); text-decoration: line-through; }
-    .watchlist-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .watchlist-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
     .wl-edit-btn, .wl-del-btn {
       background: transparent; border: 1px solid var(--border);
-      color: var(--text-muted); cursor: pointer; padding: 3px 8px;
-      border-radius: 4px; font-size: 0.75rem; margin: 0;
+      color: var(--text-muted); cursor: pointer; padding: 3px 7px;
+      border-radius: 5px; line-height: 0;
     }
+    .wl-edit-btn img, .wl-del-btn img { width: 14px; height: 14px; }
     .wl-edit-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .wl-del-btn { border-color: var(--red); color: var(--red); }
+    .wl-del-btn { border-color: var(--red); color: var(--red); font-size: 0.9rem; line-height: 1; }
     .wl-del-btn:hover { background: var(--red); color: #fff; }
     .wl-title-input {
-      background: var(--bg); border: 1px solid var(--accent); border-radius: 4px;
-      padding: 4px 8px; color: var(--text); font-size: 0.9rem; font-weight: 600;
+      background: var(--bg); border: 1px solid var(--accent); border-radius: 5px;
+      padding: 4px 8px; color: var(--text); font-size: 0.88rem; font-weight: 600;
       width: 100%; flex: 1;
     }
-    .add-result { font-size: 0.82rem; margin-bottom: 8px; }
-    .add-result.ok { color: var(--badge-confirmed-text); }
+    .add-result { font-size: 0.8rem; margin-bottom: 8px; }
+    .add-result.ok { color: var(--green); }
     .add-result.error { color: var(--red); }
+    .empty-mini { text-align: center; padding: 20px 12px; color: var(--text-muted); font-size: 0.84rem; }
+
+    /* === Pin-ачивки: компактные плашки + превью === */
+    .pin-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .pin-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 10px; background: var(--content-bg);
+      border: 1px solid var(--content-border); border-radius: 8px;
+      cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    }
+    .pin-chip:hover { border-color: var(--accent); }
+    .pin-chip input { accent-color: var(--accent); margin: 0; width: 14px; height: 14px; }
+    .pin-chip-name { font-size: 0.8rem; color: var(--text); }
+    .pin-chip.selected { border-color: var(--accent); background: var(--accent-soft); }
+    .pin-preview {
+      display: flex; gap: 10px; flex-wrap: wrap;
+      padding: 14px 16px; margin-bottom: 12px;
+      background: var(--bg); border: 1px dashed var(--border-strong); border-radius: 10px;
+      min-height: 70px; align-items: center;
+    }
+    .pin-preview-empty { color: var(--text-muted); font-size: 0.8rem; width: 100%; text-align: center; }
+    .pin-preview-slot {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      width: 56px;
+    }
+    .pin-preview-slot .ach-icon-wrap {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(circle at 30% 25%, var(--accent-soft) 0%, transparent 72%);
+      border: 1px solid var(--glass-border);
+    }
+    .pin-preview-slot svg { width: 60%; height: 60%; }
+    .pin-preview-slot .pinned-ach-name {
+      font-size: 0.6rem; font-weight: 600; color: var(--text-muted);
+      text-align: center; line-height: 1.1; max-width: 56px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* === Публичный профиль (кнопка-ссылка) === */
+    .btn-public-link {
+      margin-bottom: 12px; display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.84rem;
+    }
+    .btn-public-link img { width: 14px; height: 14px; }
+
+    /* === Mobile === */
+    @media (max-width: 640px) {
+      .profile-nav { flex-wrap: nowrap; overflow-x: auto; }
+      .profile-nav-item { flex-shrink: 0; }
+      .steam-row { flex-wrap: wrap; }
+      .steam-remove { width: 100%; justify-content: center; }
+      .switch-row { flex-wrap: wrap; }
+      .save-indicator { min-width: 0; width: 100%; text-align: left; }
+      .field-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+      .field-value-group { width: 100%; }
+    }
   </style>
 </head>
 <body>
   {% include "sidebar.html" %}
 
   <main class="container">
-    <h2><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> Профиль</h2>
-    {% if user.discord_id %}
-    <a href="/u/{{ user.discord_id }}" class="btn-outline" style="margin-bottom: 16px; display: inline-flex; align-items: center; gap: 6px;"><img src="/static/icons/eye.png" alt="" width="16" height="16" class="ui-icon"> Посмотреть публичный профиль</a>
-    {% endif %}
-    <article class="card">
-      <div class="activity-row">
-        <span class="hint">Discord ID</span>
-        <span class="mono">{{ user.discord_id }}</span>
-      </div>
-      <div class="activity-row">
-        <span class="hint">Имя</span>
-        <span class="mono">{{ user.username }}</span>
-      </div>
-      <div class="activity-row">
-        <span class="hint">Роль</span>
-        <span>
-          {% if user.is_superuser %}
-            <span class="badge admin" style="background: var(--accent); color: var(--accent-text);"> Матка</span>
-          {% elif user.is_admin %}
-            <span class="badge admin" style="background: var(--green); color: #fff;">Трутень</span>
-          {% else %}
-            <span class="badge user">Пчела</span>
-          {% endif %}
-        </span>
-      </div>
-      <div class="activity-row">
-        <span class="hint">Telegram</span>
-        <span>
-          {% if tg_link and tg_link[5] %}
-            <span class="badge confirmed"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> @{{ tg_link[2] or 'без username' }}</span>
-          {% else %}
-            <span class="badge unconfirmed">не привязан</span>
-          {% endif %}
-        </span>
-      </div>
-      {% if not (tg_link and tg_link[5]) %}
-      <p class="hint" style="margin-top: 14px;">
-        Привязать Telegram: команда <code>/linktg</code> в Discord → код → отправь боту в TG.
-      </p>
-      {% endif %}
-    </article>
+    <h1 class="profile-title">Профиль</h1>
 
-    <h2><img src="/static/icons/phone.png" alt="" width="16" height="16" class="ui-icon"> Уведомления в Telegram</h2>
-    <article class="card">
-      {% if not is_tg_linked %}
-        <div class="empty">
-          Сначала привяжите Telegram выше. После привязки здесь появятся тумблеры для персональных уведомлений.
+    {# === Sticky-навигация по секциям === #}
+    <nav class="profile-nav" aria-label="Разделы профиля">
+      <a href="#sec-profile" class="profile-nav-item active" data-target="sec-profile">
+        <img src="/static/icons/user.png" alt=""> Профиль
+      </a>
+      <a href="#sec-notify" class="profile-nav-item" data-target="sec-notify">
+        <img src="/static/icons/phone.png" alt=""> Уведомления
+        {% if not is_tg_linked %}<span class="status-dot alert" title="Telegram не привязан"></span>{% endif %}
+      </a>
+      <a href="#sec-steam" class="profile-nav-item" data-target="sec-steam">
+        <img src="/static/icons/controller.png" alt=""> Steam
+        {% if not steam_profile %}<span class="status-dot warn" title="Steam не указан"></span>{% endif %}
+      </a>
+      <a href="#sec-watchlist" class="profile-nav-item" data-target="sec-watchlist">
+        <img src="/static/icons/copy.png" alt=""> Вишлист
+      </a>
+      <a href="#sec-achievements" class="profile-nav-item" data-target="sec-achievements">
+        <img src="/static/icons/medal.png" alt=""> Ачивки
+      </a>
+    </nav>
+
+    {# === 01 Профиль === #}
+    <section class="profile-section" id="sec-profile">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> Профиль</h2>
+      </div>
+      {% if user.discord_id %}
+      <a href="/u/{{ user.discord_id }}" class="btn-outline btn-public-link"><img src="/static/icons/eye.png" alt="" width="14" height="14" class="ui-icon"> Публичный профиль</a>
+      {% endif %}
+      <article class="card">
+        <div class="field-row">
+          <span class="field-label">Discord ID</span>
+          <span class="field-value-group">
+            <span class="mono">{{ user.discord_id }}</span>
+            {% if user.discord_id %}<button class="copy-btn" onclick="copyText('{{ user.discord_id }}')" title="Скопировать" aria-label="Скопировать Discord ID"><img src="/static/icons/copy.png" alt=""></button>{% endif %}
+          </span>
         </div>
-      {% else %}
-        <p class="hint" style="margin-bottom: 14px;">
-          Персональные уведомления приходят вам в личку в Telegram когда вы — <strong>организатор</strong> сбора
-          (или админ с привязанным TG). По умолчанию все выключены — включите нужные.
+        <div class="field-row">
+          <span class="field-label">Имя</span>
+          <span class="field-value-group">
+            <span class="mono">{{ user.username }}</span>
+            <button class="copy-btn" onclick="copyText('{{ user.username }}')" title="Скопировать" aria-label="Скопировать имя"><img src="/static/icons/copy.png" alt=""></button>
+          </span>
+        </div>
+        <div class="field-row">
+          <span class="field-label">Роль</span>
+          <span>
+            {% if user.is_superuser %}
+              <span class="badge admin" style="background: var(--accent); color: var(--accent-text);">Матка</span>
+            {% elif user.is_admin %}
+              <span class="badge admin" style="background: var(--green); color: #fff;">Трутень</span>
+            {% else %}
+              <span class="badge user">Пчела</span>
+            {% endif %}
+          </span>
+        </div>
+        <div class="field-row">
+          <span class="field-label">Telegram</span>
+          <span>
+            {% if tg_link and tg_link[5] %}
+              <span class="badge confirmed"><img src="/static/icons/check.png" alt="" width="12" height="12" class="ui-icon"> @{{ tg_link[2] or 'без username' }}</span>
+            {% else %}
+              <span class="badge unconfirmed">не привязан</span>
+            {% endif %}
+          </span>
+        </div>
+        {% if not (tg_link and tg_link[5]) %}
+        <p class="hint" style="margin: 12px 16px 4px; font-size: 0.8rem;">
+          Привязка: <code>/linktg</code> в Discord → код → боту в TG.
         </p>
-        {% for key, label, description in tg_notify_settings %}
-          <div class="activity-row" style="padding: 12px 0; border-bottom: 1px solid var(--border);">
-            <div>
-              <div style="font-weight: 600; color: var(--text); font-size: 0.92rem;">{{ label }}</div>
-              <div class="hint" style="margin-top: 2px;">{{ description }}</div>
+        {% endif %}
+      </article>
+    </section>
+
+    {# === 02 Уведомления === #}
+    <section class="profile-section" id="sec-notify">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2><img src="/static/icons/phone.png" alt="" width="16" height="16" class="ui-icon"> Уведомления</h2>
+      </div>
+      <article class="card">
+        {% if not is_tg_linked %}
+          <div class="empty-mini">Сначала привяжите Telegram в секции «Профиль».</div>
+        {% else %}
+          <p class="hint section-intro">В личку в Telegram, когда вы — организатор сбора.</p>
+          {% for key, label, description in tg_notify_settings %}
+            <div class="switch-row">
+              <div class="switch-row-text">
+                <div class="switch-row-title">{{ label }}</div>
+                <div class="switch-row-desc">{{ description }}</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" name="{{ key }}"
+                       {% if tg_settings.get(key) %}checked{% endif %}
+                       value="true"
+                       onchange="toggleTgSetting('{{ key }}', this.checked, this)">
+                <span class="slider"></span>
+              </label>
+              <span class="save-indicator" data-for="{{ key }}"></span>
+            </div>
+          {% endfor %}
+        {% endif %}
+      </article>
+    </section>
+
+    {# === 03 Steam === #}
+    <section class="profile-section" id="sec-steam">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2><img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"> Steam</h2>
+      </div>
+      <article class="card">
+        {% if steam_profile %}
+          <div class="steam-row">
+            {% if steam_profile.steam_avatar_url %}
+              <img class="steam-avatar" src="{{ steam_profile.steam_avatar_url }}" alt="">
+            {% endif %}
+            <div class="steam-info">
+              <div class="steam-persona">{{ steam_profile.steam_persona }}</div>
+              <a class="steam-link" href="{{ steam_profile.steam_profile_url }}" target="_blank" rel="noopener">Steam-профиль ↗</a>
+            </div>
+            <button class="steam-remove" onclick="removeSteamProfile()">
+              <img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"> Удалить
+            </button>
+          </div>
+          {% if is_santa_enabled %}
+            <p class="hint" style="margin: 0 16px 12px; font-size: 0.8rem;">
+              <img src="/static/icons/check.png" alt="" width="12" height="12" class="ui-icon"> Готов для Тайного Санты. Вишлист подтянется автоматически.
+            </p>
+          {% endif %}
+          <div class="switch-row" style="border-top: 1px solid var(--border);">
+            <div class="switch-row-text">
+              <div class="switch-row-title">Вишлист в публичном профиле</div>
+              <div class="switch-row-desc">Виден всем. Приватный Steam — не сработает.</div>
             </div>
             <label class="switch">
-              <input type="checkbox" name="{{ key }}"
-                     {% if tg_settings.get(key) %}checked{% endif %}
-                     value="true"
-                     onchange="toggleTgSetting('{{ key }}', this.checked)">
+              <input type="checkbox" id="show-wishlist-toggle" {% if show_wishlist %}checked{% endif %}
+                     onchange="toggleShowWishlist(this.checked, this)">
               <span class="slider"></span>
             </label>
+            <span class="save-indicator" id="show-wishlist-indicator"></span>
           </div>
-        {% endfor %}
-        <div id="tg-setting-result" style="margin-top: 10px; font-size: 0.82rem; display: none;"></div>
-      {% endif %}
-    </article>
-
-    <h2><img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"> Steam-профиль</h2>
-    <article class="card">
-      {% if steam_profile %}
-        {# Профиль указан === #}
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px;">
-          {% if steam_profile.steam_avatar_url %}
-            <img src="{{ steam_profile.steam_avatar_url }}" alt="" style="width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--accent);">
-          {% endif %}
-          <div style="flex: 1;">
-            <div style="font-weight: 700; color: var(--text); font-size: 1.05rem;">{{ steam_profile.steam_persona }}</div>
-            <a href="{{ steam_profile.steam_profile_url }}" target="_blank" style="color: var(--accent); font-size: 0.85rem; text-decoration: none;">
-              Steam-профиль ↗
-            </a>
+        {% else %}
+          <div class="steam-form">
+            <p class="hint" style="margin: 0 0 12px; font-size: 0.82rem;">
+              Ссылка на профиль. Бот проверит, что он публичный, и подтянет вишлист для Тайного Санты.
+            </p>
+            <input type="text" id="steam-url" class="steam-input"
+                   placeholder="steamcommunity.com/profiles/7656... или /id/name"
+                   oninput="validateSteamUrl(this)">
+            <div id="steam-validation" class="steam-validation"></div>
+            <button type="button" class="btn-primary" onclick="saveSteamProfile()" style="font-size: 0.86rem;">
+              <img src="/static/icons/controller.png" alt="" width="14" height="14" class="ui-icon"> Проверить и сохранить
+            </button>
           </div>
-          <button type="button" onclick="removeSteamProfile()"
-                  style="background: transparent; color: var(--red); border: 1px solid var(--red); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.82rem; margin: 0;">
-            <img src="/static/icons/exit.png" alt="" width="14" height="14" class="ui-icon"> Удалить
-          </button>
-        </div>
-        {% if is_santa_enabled %}
-          <p class="hint" style="margin: 0;">
-            <img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Steam-профиль готов для участия в Тайном Санте.
-            Бот автоматически подтянет ваш вишлист при присоединении к событию.
-          </p>
         {% endif %}
+      </article>
+    </section>
 
-        {# v2.3.2: Показывать ли Steam-вишлист в публичном профиле #}
-        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);">
-          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
-            <input type="checkbox" id="show-wishlist-toggle" {% if show_wishlist %}checked{% endif %}
-                   onchange="toggleShowWishlist(this.checked)"
-                   style="margin-top: 3px; width: 18px; height: 18px; cursor: pointer;">
-            <div>
-              <div style="font-weight: 600; color: var(--text); font-size: 0.88rem;">Показывать Steam-вишлист в публичном профиле</div>
-              <div class="hint" style="margin: 4px 0 0; color: var(--text-muted); font-size: 0.78rem;">
-                Вишлист увидят все, кто зайдёт на вашу страницу. <strong>Внимание:</strong> если ваш Steam-профиль приватный — вишлист будет недоступен, переключатель не сработает.
+    {# === 04 Вишлист === #}
+    <section class="profile-section" id="sec-watchlist">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2><img src="/static/icons/copy.png" alt="" width="16" height="16" class="ui-icon"> Вишлист</h2>
+      </div>
+      <article class="card">
+        <form id="watchlist-add-form" class="watchlist-add-form" style="padding: 14px 16px 0;">
+          <input type="text" id="wl-title-input" placeholder="Название фильма..." autocomplete="off">
+          <button type="submit"><img src="/static/icons/plus.png" alt="" width="14" height="14" class="ui-icon"> Добавить</button>
+        </form>
+        <div id="wl-add-result" class="add-result" style="display:none; padding: 0 16px;"></div>
+        {% if watchlist|length == 0 %}
+          <div class="empty-mini">Пусто. Добавьте выше или /addfilm в Discord.</div>
+        {% else %}
+          {% for w_id, title, tmdb_id, added_at, is_watched in watchlist %}
+            <div class="watchlist-item" id="wl-{{ w_id }}">
+              <div class="watchlist-title {{ 'watched' if is_watched else '' }}" id="wl-title-{{ w_id }}">{{ title }}</div>
+              <div class="watchlist-actions">
+                {% if not is_watched %}
+                  <button class="wl-edit-btn" onclick="editWatchlistTitle({{ w_id }})" id="wl-edit-{{ w_id }}" title="Редактировать" aria-label="Редактировать"><img src="/static/icons/edit.png" alt="" width="14" height="14" class="ui-icon"></button>
+                  <button class="wl-del-btn" onclick="deleteWatchlistItem({{ w_id }})" title="Удалить" aria-label="Удалить">×</button>
+                {% else %}
+                  <span class="badge confirmed" style="font-size: 0.7rem;">просмотрен</span>
+                {% endif %}
               </div>
             </div>
-          </label>
-          <div id="show-wishlist-msg" style="margin-top: 6px; font-size: 0.78rem; display: none;"></div>
-        </div>
-      {% else %}
-        {# Профиль не указан === #}
-        <p class="hint" style="margin-bottom: 14px;">
-          Укажите ссылку на ваш Steam-профиль. Бот проверит что профиль публичный
-          и получит ваш вишлист. Это нужно для участия в Тайном Санте.
-        </p>
-        <label for="steam-url">Ссылка на Steam-профиль</label>
-        <input type="text" id="steam-url"
-               placeholder="https://steamcommunity.com/profiles/765611... или /id/username"
-               style="width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; box-sizing: border-box;"
-               oninput="validateSteamUrl(this)">
-        <div id="steam-validation" style="font-size: 0.82rem; margin: 6px 0 14px;"></div>
-        <button type="button" onclick="saveSteamProfile()"
-                style="background: var(--accent); color: var(--accent-text); border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: 600; margin: 0; font-size: 0.9rem;">
-          <img src="/static/icons/controller.png" alt="" width="16" height="16" class="ui-icon"> Проверить и сохранить
-        </button>
-        <div id="steam-result" style="margin-top: 12px; font-size: 0.85rem; display: none;"></div>
-      {% endif %}
-    </article>
+          {% endfor %}
+        {% endif %}
+      </article>
+    </section>
 
-    <h2><img src="/static/icons/copy.png" alt="" width="16" height="16" class="ui-icon"> Список желаемого</h2>
-    <article class="card">
-      <!-- Форма добавления -->
-      <form id="watchlist-add-form" class="watchlist-add-form">
-        <input type="text" id="wl-title-input" placeholder="Название фильма..." autocomplete="off">
-        <button type="submit">+ Добавить</button>
-      </form>
-      <div id="wl-add-result" class="add-result" style="display:none;"></div>
-
-      <!-- Список -->
-      {% if watchlist|length == 0 %}
-        <div class="empty">Список желаемого пуст. Добавьте фильм выше или используйте /addfilm в Discord.</div>
-      {% else %}
-        {% for w_id, title, tmdb_id, added_at, is_watched in watchlist %}
-          <div class="watchlist-item" id="wl-{{ w_id }}">
-            <div class="watchlist-title {{ 'watched' if is_watched else '' }}" id="wl-title-{{ w_id }}">{{ title }}</div>
-            <div class="watchlist-actions">
-              {% if not is_watched %}
-                <button class="wl-edit-btn" onclick="editWatchlistTitle({{ w_id }})" id="wl-edit-{{ w_id }}"><img src="/static/icons/edit.png" alt="" width="16" height="16" class="ui-icon"></button>
-                <button class="wl-del-btn" onclick="deleteWatchlistItem({{ w_id }})">×</button>
-              {% else %}
-                <span class="badge confirmed" style="font-size:0.72rem;">просмотрен</span>
-              {% endif %}
-            </div>
-          </div>
-        {% endfor %}
-      {% endif %}
-    </article>
-
-    {# v2.3: Выбор 3 пинн-ачивок для показа под ником #}
-    <h2><img src="/static/icons/medal.png" alt="" width="16" height="16" class="ui-icon"> Ачивки в профиле</h2>
-    <article class="card">
-      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:12px;">
-        Выберите до 3 достижений, которые будут отображаться рядом с вашим ником в публичном профиле.
-      </p>
-      <div id="pin-achievements-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
-        <span style="color:var(--text-muted);font-size:0.82rem;">Загрузка...</span>
+    {# === 05 Ачивки === #}
+    <section class="profile-section" id="sec-achievements">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2><img src="/static/icons/medal.png" alt="" width="16" height="16" class="ui-icon"> Ачивки</h2>
       </div>
-      <button type="button" class="btn-primary" onclick="savePinnedAchievements()" style="margin-top:0;font-size:0.82rem;padding:8px 16px;"><img src="/static/icons/check.png" alt="" width="16" height="16" class="ui-icon"> Сохранить</button>
-    </article>
+      <article class="card">
+        <p class="hint" style="margin: 0 16px 8px; font-size: 0.82rem;">До 3 ачивок под ником в публичном профиле.</p>
+        <div class="pin-preview" id="pin-preview">
+          <div class="pin-preview-empty">Выберите ниже — превью появится тут.</div>
+        </div>
+        <div class="pin-grid" id="pin-achievements-list" style="padding: 0 16px;">
+          <span class="hint" style="font-size: 0.82rem;">Загрузка...</span>
+        </div>
+        <div style="padding: 0 16px 14px;">
+          <button type="button" class="btn-primary" onclick="savePinnedAchievements()" style="font-size: 0.84rem; padding: 8px 16px;">
+            <img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Сохранить
+          </button>
+        </div>
+      </article>
+    </section>
   </main>
 
   <script>
-    // === Добавление ===
+    // === Copy to clipboard ===
+    function copyText(value) {
+      if (!value) return;
+      navigator.clipboard.writeText(value).then(
+        () => showToast('Скопировано', 'success', 1800),
+        () => showToast('Не удалось скопировать', 'error', 1800)
+      );
+    }
+
+    // === Sticky-nav: smooth scroll + scrollspy ===
+    const navItems = document.querySelectorAll('.profile-nav-item');
+    navItems.forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.getElementById(item.dataset.target);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+    const spyObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const id = e.target.id;
+          navItems.forEach(n => n.classList.toggle('active', n.dataset.target === id));
+        }
+      });
+    }, { rootMargin: '-90px 0px -70% 0px' });
+    document.querySelectorAll('.profile-section').forEach(s => spyObserver.observe(s));
+
+    // === Watchlist: добавление ===
     document.getElementById('watchlist-add-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('wl-title-input');
       const result = document.getElementById('wl-add-result');
       const title = input.value.trim();
       if (!title) return;
-
       const btn = e.target.querySelector('button');
       btn.disabled = true; btn.innerHTML = '<span class="spinner-inline"></span>';
       result.style.display = 'none';
-
       const formData = new FormData();
       formData.append('title', title);
       try {
@@ -250,15 +480,13 @@
           result.textContent = '✓ «' + data.title + '» добавлен';
           result.style.display = 'block';
           input.value = '';
-          input.focus();
           setTimeout(() => window.location.reload(), 800);
         } else {
           result.className = 'add-result error';
-          // Особый значок для «уже кем-то добавлен»
           if (data.error_code === 'already_in_other_watchlist') {
-            result.textContent = '⚠️ ' + (data.error || 'Фильм уже добавлен другим участником');
+            result.textContent = '⚠️ ' + (data.error || 'Уже добавлен другим участником');
           } else if (data.error_code === 'already_yours') {
-            result.textContent = 'ℹ️ ' + (data.error || 'Фильм уже в вашем списке');
+            result.textContent = 'ℹ️ ' + (data.error || 'Уже в вашем списке');
           } else {
             result.textContent = '❌ ' + (data.error || 'Ошибка');
           }
@@ -269,11 +497,12 @@
         result.textContent = '❌ ' + err.message;
         result.style.display = 'block';
       }
-      btn.disabled = false; btn.textContent = '+ Добавить';
+      btn.disabled = false;
+      btn.innerHTML = '<img src="/static/icons/plus.png" alt="" width="14" height="14" class="ui-icon"> Добавить';
       input.focus();
     });
 
-    // === Удаление ===
+    // === Watchlist: удаление ===
     async function deleteWatchlistItem(id) {
       if (!confirm('Удалить фильм из списка?')) return;
       try {
@@ -281,11 +510,16 @@
         if (r.ok) {
           const el = document.getElementById(`wl-${id}`);
           if (el) el.remove();
+          showToast('Удалено', 'success', 1800);
+        } else {
+          showToast('Не удалось удалить', 'error');
         }
-      } catch (e) { alert('Ошибка: ' + e.message); }
+      } catch (e) {
+        showToast('Сетевая ошибка: ' + e.message, 'error');
+      }
     }
 
-    // === Редактирование ===
+    // === Watchlist: редактирование (на png-иконках) ===
     function editWatchlistTitle(id) {
       const titleEl = document.getElementById(`wl-title-${id}`);
       const editBtn = document.getElementById(`wl-edit-${id}`);
@@ -295,7 +529,7 @@
       input.className = 'wl-title-input'; input.id = `wl-input-${id}`;
       titleEl.replaceWith(input);
       input.focus(); input.select();
-      editBtn.textContent = '💾';
+      editBtn.innerHTML = '<img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon">';
       editBtn.onclick = () => saveWatchlistTitle(id, oldTitle);
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') saveWatchlistTitle(id, oldTitle);
@@ -317,10 +551,11 @@
           div.className = 'watchlist-title'; div.id = `wl-title-${id}`;
           div.textContent = newTitle;
           input.replaceWith(div);
-          editBtn.textContent = '✏️';
+          editBtn.innerHTML = '<img src="/static/icons/edit.png" alt="" width="14" height="14" class="ui-icon">';
           editBtn.onclick = () => editWatchlistTitle(id);
-        } else { cancelWLEdit(id, oldTitle); }
-      } catch (e) { cancelWLEdit(id, oldTitle); }
+          showToast('Сохранено', 'success', 1800);
+        } else { cancelWLEdit(id, oldTitle); showToast('Не удалось сохранить', 'error'); }
+      } catch (e) { cancelWLEdit(id, oldTitle); showToast('Сетевая ошибка', 'error'); }
     }
 
     function cancelWLEdit(id, oldTitle) {
@@ -331,197 +566,208 @@
       div.textContent = oldTitle;
       input.replaceWith(div);
       const editBtn = document.getElementById(`wl-edit-${id}`);
-      editBtn.textContent = '✏️';
+      editBtn.innerHTML = '<img src="/static/icons/edit.png" alt="" width="14" height="14" class="ui-icon">';
       editBtn.onclick = () => editWatchlistTitle(id);
     }
 
-    // === TG Notification settings ===
-    async function toggleTgSetting(settingKey, value) {
-      const result = document.getElementById('tg-setting-result');
+    // === TG-настройки: autosave + индикатор ===
+    function flashIndicator(key, text, isError) {
+      const ind = document.querySelector(`.save-indicator[data-for="${key}"]`);
+      if (!ind) return;
+      ind.textContent = text;
+      ind.classList.toggle('error', !!isError);
+      ind.classList.add('show');
+      clearTimeout(ind._t);
+      ind._t = setTimeout(() => ind.classList.remove('show'), 2200);
+    }
+
+    async function toggleTgSetting(settingKey, value, checkbox) {
       const formData = new FormData();
       formData.append('setting_key', settingKey);
       formData.append('value', value);
+      flashIndicator(settingKey, 'сохранение…');
       try {
         const r = await fetch('/api/profile/tg_settings', { method: 'POST', body: formData });
         const data = await r.json();
         if (r.ok) {
-          result.style.color = 'var(--badge-confirmed-text)';
-          result.textContent = (value ? '✓ Включено: ' : '✕ Выключено: ') + settingKey;
-          result.style.display = 'block';
-          setTimeout(() => { result.style.display = 'none'; }, 2500);
+          flashIndicator(settingKey, value ? '✓ вкл' : '✓ выкл');
         } else {
-          // Откатить чекбокс
-          result.style.color = 'var(--red)';
-          result.textContent = '❌ ' + (data.error || 'Ошибка');
-          result.style.display = 'block';
-          // Снимаем чекбокс обратно
-          event.target.checked = !value;
+          checkbox.checked = !value;
+          flashIndicator(settingKey, 'ошибка', true);
+          showToast(data.error || 'Ошибка', 'error');
         }
       } catch (e) {
-        result.style.color = 'var(--red)';
-        result.textContent = '❌ Сетевая ошибка: ' + e.message;
-        result.style.display = 'block';
-        event.target.checked = !value;
+        checkbox.checked = !value;
+        flashIndicator(settingKey, 'сеть', true);
+        showToast('Сетевая ошибка', 'error');
       }
     }
 
-    // === Steam profile ===
+    // === Steam: валидация URL ===
     function validateSteamUrl(input) {
       const val = input.value.trim();
       const hint = document.getElementById('steam-validation');
-      if (!val) {
-        input.style.borderColor = '';
-        hint.innerHTML = '';
-        return;
-      }
+      if (!val) { input.style.borderColor = ''; hint.textContent = ''; return; }
       if (val.includes('steamcommunity.com') || /^765611\d{11}$/.test(val)) {
         input.style.borderColor = 'var(--green)';
-        hint.innerHTML = '<span style="color: var(--green);">✓ Ссылка распознана</span>';
+        hint.style.color = 'var(--green)';
+        hint.textContent = '✓ Ссылка распознана';
       } else {
         input.style.borderColor = 'var(--red)';
-        hint.innerHTML = '<span style="color: var(--red);">⚠️ Формат: steamcommunity.com/profiles/7656... или /id/username</span>';
+        hint.style.color = 'var(--red)';
+        hint.textContent = '⚠️ Формат: steamcommunity.com/.../7656... или /id/name';
       }
     }
 
     async function saveSteamProfile() {
       const url = document.getElementById('steam-url').value.trim();
-      const result = document.getElementById('steam-result');
-      if (!url) {
-        result.className = 'flash error';
-        result.textContent = '❌ Укажите ссылку на Steam-профиль.';
-        result.style.display = 'block';
-        return;
-      }
-      result.className = 'flash info';
-      result.textContent = '⏳ Проверяю Steam-профиль...';
-      result.style.display = 'block';
+      if (!url) { showToast('Укажите ссылку на Steam-профиль', 'error'); return; }
+      showToast('Проверяю Steam-профиль…', 'info', 4000);
       const formData = new FormData();
       formData.append('steam_profile_url', url);
       try {
         const r = await fetch('/api/profile/steam', { method: 'POST', body: formData });
         const data = await r.json();
         if (r.ok) {
-          result.className = 'flash info';
-          result.textContent = '✓ Профиль проверен: ' + (data.steam_persona || 'OK') + '. Перезагрузка...';
-          setTimeout(() => location.reload(), 1500);
+          showToast('✓ Профиль проверен: ' + (data.steam_persona || 'OK'), 'success', 2000);
+          setTimeout(() => location.reload(), 1400);
         } else {
-          result.className = 'flash error';
-          result.textContent = '❌ ' + (data.error || 'Ошибка');
+          showToast(data.error || 'Ошибка', 'error');
         }
       } catch (e) {
-        result.className = 'flash error';
-        result.textContent = '❌ Сетевая ошибка: ' + e.message;
+        showToast('Сетевая ошибка: ' + e.message, 'error');
       }
     }
 
     async function removeSteamProfile() {
-      if (!confirm('Удалить Steam-профиль? Если вы участвуете в Тайном Санте — ваш получатель не сможет увидеть ваш вишлист.')) return;
+      if (!confirm('Удалить Steam-профиль? Если вы в Тайном Санте — получатель не увидит ваш вишлист.')) return;
       try {
         const r = await fetch('/api/profile/steam', { method: 'DELETE' });
-        if (r.ok) {
-          location.reload();
-        }
+        if (r.ok) location.reload();
+        else showToast('Не удалось удалить', 'error');
       } catch (e) {
-        alert('Сетевая ошибка: ' + e.message);
+        showToast('Сетевая ошибка: ' + e.message, 'error');
       }
     }
 
-    // v2.3.2: показать/скрыть Steam-вишлист в публичном профиле
-    async function toggleShowWishlist(value) {
-      const msgEl = document.getElementById('show-wishlist-msg');
-      const toggleEl = document.getElementById('show-wishlist-toggle');
-      msgEl.style.display = 'block';
-      msgEl.style.color = 'var(--text-muted)';
-      msgEl.textContent = 'Сохраняю...';
+    // === Wishlist visibility: switch + индикатор ===
+    async function toggleShowWishlist(value, checkbox) {
+      const ind = document.getElementById('show-wishlist-indicator');
+      if (ind) { ind.textContent = 'сохранение…'; ind.classList.remove('error'); ind.classList.add('show'); }
+      const fd = new FormData();
+      fd.append('value', value ? 'true' : 'false');
       try {
-        const fd = new FormData();
-        fd.append('value', value ? 'true' : 'false');
         const r = await fetch('/api/profile/show_wishlist', { method: 'POST', body: fd });
         const data = await r.json();
         if (r.ok) {
-          msgEl.style.color = 'var(--green)';
-          msgEl.textContent = value ? 'Вишлист виден в публичном профиле.' : 'Вишлист скрыт.';
+          if (ind) { ind.textContent = value ? '✓ виден' : '✓ скрыт'; }
         } else {
-          // Откатываем чекбокс
-          toggleEl.checked = !value;
-          msgEl.style.color = 'var(--red)';
-          msgEl.textContent = data.error || 'Не удалось сохранить.';
+          checkbox.checked = !value;
+          if (ind) { ind.textContent = 'ошибка'; ind.classList.add('error'); }
+          showToast(data.error || 'Не удалось сохранить', 'error');
         }
       } catch (e) {
-        toggleEl.checked = !value;
-        msgEl.style.color = 'var(--red)';
-        msgEl.textContent = 'Сетевая ошибка.';
+        checkbox.checked = !value;
+        if (ind) { ind.textContent = 'сеть'; ind.classList.add('error'); }
+        showToast('Сетевая ошибка', 'error');
       }
-      // Прячем сообщение через 3 сек
-      setTimeout(() => { msgEl.style.display = 'none'; }, 3000);
+      clearTimeout(window._wlIndT);
+      window._wlIndT = setTimeout(() => { if (ind) ind.classList.remove('show'); }, 2200);
     }
 
-    // === v2.3: Пинн-ачивки ===
+    // === Pin-ачивки: выбор + превью + unsaved guard ===
     let pinSelected = new Set();
     let pinAchievements = [];
+    let pinDirty = false;
 
     async function loadPinAchievements() {
       try {
         const r = await fetch('/api/achievements/my_grants');
         const data = await r.json();
         pinAchievements = data.achievements || [];
-        // Загружаем текущие пины
-        const pr = await fetch('/u/{{ user.discord_id }}');
-        // Не парсим HTML — просто запросим пины через API (пока нет отдельного API, используем данные страницы)
-        // Для простоты — пока не загружаем текущие пины, юзер выбирает заново
         renderPinList();
       } catch (e) {
-        document.getElementById('pin-achievements-list').innerHTML = '<span style="color:var(--text-muted);font-size:0.82rem;">Нет ачивок</span>';
+        document.getElementById('pin-achievements-list').innerHTML = '<span class="hint" style="font-size:0.82rem;">Не удалось загрузить</span>';
       }
     }
 
     function renderPinList() {
       const container = document.getElementById('pin-achievements-list');
       if (!pinAchievements.length) {
-        container.innerHTML = '<span style="color:var(--text-muted);font-size:0.82rem;">У вас нет ачивок</span>';
+        container.innerHTML = '<span class="hint" style="font-size:0.82rem;">У вас пока нет ачивок</span>';
         return;
       }
       container.innerHTML = '';
       pinAchievements.forEach(ach => {
-        const div = document.createElement('div');
-        div.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--content-bg);border:1px solid var(--content-border);border-radius:8px;cursor:pointer;transition:all 0.15s;';
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.style.cssText = 'accent-color:var(--accent);';
-        checkbox.dataset.achId = ach.achievement_id;
-        checkbox.addEventListener('change', () => {
-          if (checkbox.checked) {
+        const chip = document.createElement('label');
+        chip.className = 'pin-chip';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.dataset.achId = ach.achievement_id;
+        cb.addEventListener('change', () => {
+          if (cb.checked) {
             if (pinSelected.size >= 3) {
-              checkbox.checked = false;
-              showToast('Максимум 3 ачивки', 'error');
+              cb.checked = false;
+              showToast('Максимум 3 ачивки', 'error', 2000);
               return;
             }
             pinSelected.add(ach.achievement_id);
-            div.style.borderColor = 'var(--accent)';
-            div.style.background = 'var(--accent-soft)';
+            chip.classList.add('selected');
           } else {
             pinSelected.delete(ach.achievement_id);
-            div.style.borderColor = 'var(--content-border)';
-            div.style.background = 'var(--content-bg)';
+            chip.classList.remove('selected');
           }
+          pinDirty = true;
+          renderPinPreview();
         });
-        const label = document.createElement('span');
-        label.textContent = ach.name;
-        label.style.cssText = 'font-size:0.82rem;color:var(--text);';
-        div.appendChild(checkbox);
-        div.appendChild(label);
-        container.appendChild(div);
+        const name = document.createElement('span');
+        name.className = 'pin-chip-name';
+        name.textContent = ach.name;
+        chip.appendChild(cb);
+        chip.appendChild(name);
+        container.appendChild(chip);
+      });
+    }
+
+    function renderPinPreview() {
+      const preview = document.getElementById('pin-preview');
+      const selected = pinAchievements.filter(a => pinSelected.has(a.achievement_id));
+      if (!selected.length) {
+        preview.innerHTML = '<div class="pin-preview-empty">Выберите ниже — превью появится тут.</div>';
+        return;
+      }
+      preview.innerHTML = '';
+      selected.forEach(ach => {
+        const slot = document.createElement('div');
+        slot.className = 'pin-preview-slot';
+        const iconWrap = document.createElement('div');
+        iconWrap.className = 'ach-icon-wrap';
+        iconWrap.dataset.iconConfig = JSON.stringify(ach.icon_config || {});
+        const nameEl = document.createElement('div');
+        nameEl.className = 'pinned-ach-name';
+        nameEl.textContent = ach.name;
+        slot.appendChild(iconWrap);
+        slot.appendChild(nameEl);
+        preview.appendChild(slot);
+      });
+      // Рендер иконок через глобальный renderAchievementSVG (sidebar.html)
+      preview.querySelectorAll('.ach-icon-wrap[data-icon-config]').forEach(el => {
+        try {
+          const cfg = JSON.parse(el.dataset.iconConfig);
+          if (window.renderAchievementSVG) el.innerHTML = window.renderAchievementSVG(cfg);
+        } catch (_) { /* пустая иконка — не критично */ }
       });
     }
 
     async function savePinnedAchievements() {
       const ids = Array.from(pinSelected).join(',');
+      const fd = new FormData();
+      fd.append('achievement_ids', ids);
       try {
-        const fd = new FormData();
-        fd.append('achievement_ids', ids);
         const r = await fetch('/api/profile/pin_achievements', { method: 'POST', body: fd });
         const data = await r.json();
         if (r.ok) {
+          pinDirty = false;
           showToast('✓ Ачивки сохранены', 'success');
         } else {
           showToast(data.error || 'Ошибка', 'error');
@@ -530,6 +776,11 @@
         showToast('Сетевая ошибка: ' + e.message, 'error');
       }
     }
+
+    // === Unsaved-changes guard ===
+    window.addEventListener('beforeunload', (e) => {
+      if (pinDirty) { e.preventDefault(); e.returnValue = ''; }
+    });
 
     loadPinAchievements();
   </script>
