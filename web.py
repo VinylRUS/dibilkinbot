@@ -817,41 +817,32 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
     unrated_winners = []
     stats = {}
     if _user.get("is_admin"):
-        # Активность за 7 дней
-        from datetime import datetime, timedelta
-        cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
-
-        # Последние входы юзеров
-        async with db._connect() as conn:
-            async with conn.execute(
-                "SELECT discord_id, username, display_name, last_login_at FROM users WHERE last_login_at > ? ORDER BY last_login_at DESC LIMIT 10",
-                (cutoff,)
-            ) as cur:
-                for r in await cur.fetchall():
-                    user_did = r[0]
-                    username = r[2] or r[1] or "Unknown"
-                    login_at = r[3]
-                    # Вычисляем "time ago"
-                    if login_at:
-                        try:
-                            dt = datetime.fromisoformat(login_at)
-                            diff = datetime.utcnow() - dt
-                            if diff.days > 0:
-                                time_ago = f"{diff.days} дн назад"
-                            elif diff.seconds > 3600:
-                                time_ago = f"{diff.seconds // 3600} ч назад"
-                            else:
-                                time_ago = f"{diff.seconds // 60} мин назад"
-                        except Exception:
-                            time_ago = "недавно"
-                    else:
-                        time_ago = "недавно"
-                    admin_activity.append({
-                        "discord_id": user_did,
-                        "username": username,
-                        "action": "заходил(а) в панель",
-                        "time_ago": time_ago,
-                    })
+        # v3.10: активность из guild_activity_log (персистентные события:
+        # ачивки, сборы, колесо, цитаты, steam, вишлист). Убрано «заходил(а) в панель»
+        # для всех — теперь видны реальные действия участников.
+        _ACTION_LABELS = {
+            "achievement_granted": "получил(а) ачивку",
+            "collection_started": "запустил(а) сбор на киновечер",
+            "wheel_spun": "крутнул(а) колесо",
+            "quote_added": "добавил(а) цитату",
+            "steam_linked": "привязал(а) Steam",
+            "watchlist_added": "добавил(а) в вишлист",
+            "watched": "посмотрел(а) фильм",
+            "login": "заходил(а) в панель",
+        }
+        raw_activity = await db.g_list_activity(guild_id, limit=15, days=7)
+        for ev in raw_activity:
+            label = _ACTION_LABELS.get(ev["event_type"], ev["event_type"])
+            action = label
+            if ev.get("target_name"):
+                action = f"{label} «{ev['target_name']}»"
+            admin_activity.append({
+                "discord_id": ev["actor_discord_id"],
+                "username": ev["actor_name"],
+                "action": action,
+                "time_ago": ev["time_ago"],
+                "event_type": ev["event_type"],
+            })
 
         # Неоценённые победители
         all_winners = await db.g_get_winners_with_ratings(guild_id, limit=20)
@@ -889,8 +880,13 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
     # Обогащаем Discord статусами
     try:
         import bot as bot_module
+        # v3.10: фильтруем ушедших с сервера — но только если бот запущен.
+        # Если бот остановлен, get_member_discord_info вернёт None для всех,
+        # и фильтр опустошил бы список — поэтому в этом случае показываем всех.
+        bot_running = bool(getattr(bot_module, "_bot_running", False))
         status_order = {'online': 0, 'idle': 1, 'dnd': 2, 'offline': 3}
         for m in active_members:
+            m["_on_server"] = False  # по умолчанию считаем неизвестным
             try:
                 info = await bot_module.get_member_discord_info(m["discord_id"], int(guild_id))
                 if info:
@@ -898,9 +894,13 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
                     m["status_emoji"] = info["status_emoji"]
                     m["current_game"] = info["current_game"]
                     m["voice_channel"] = info["voice_channel"]
+                    m["_on_server"] = True
             except Exception:
                 pass
-        # Сортировка: online → idle → dnd → offline
+        if bot_running:
+            # Бот запущен: info=None значит юзер покинул сервер — убираем из списка
+            active_members = [m for m in active_members if m.get("_on_server")]
+        # Если бот не запущен — оставляем всех (status останется offline из db-функции)
         active_members.sort(key=lambda m: status_order.get(m.get("status", "offline"), 3))
         active_members = active_members[:22]  # максимум 22
     except Exception:
@@ -1960,6 +1960,14 @@ async def api_create_quote(
     quote_id = await db.g_add_quote(
         guild_id, author, author_user_id, text, recorded_by, author_avatar_url, message_link,
     )
+    # v3.10: журнал активности — новая цитата
+    try:
+        snippet = text if len(text) <= 60 else text[:57] + "…"
+        await db.g_log_activity(guild_id, "quote_added", recorded_by,
+                                actor_name=_user.get("username") or _user.get("display_name"),
+                                target_name=snippet)
+    except Exception:
+        pass
     # Авто-выдача ачивок по триггеру quotes_count (для записавшего)
     new_achievements = []
     try:
@@ -2338,6 +2346,13 @@ async def api_watchlist_add(
         await db.g_check_and_grant_auto(guild_id, user_discord_id, "watchlist_count")
     except Exception:
         pass
+    # v3.10: журнал активности — фильм в вишлист
+    try:
+        await db.g_log_activity(guild_id, "watchlist_added", user_discord_id,
+                                actor_name=_user.get("username") or _user.get("display_name"),
+                                target_name=name)
+    except Exception:
+        pass
     return JSONResponse({"ok": True, "id": watchlist_id, "title": name})
 
 
@@ -2448,6 +2463,15 @@ async def api_set_steam_profile(
         validation["steam_persona"],
         validation["steam_avatar_url"],
     )
+
+    # v3.10: журнал активности — Steam привязан
+    try:
+        guild_id = get_current_guild_id(_user)
+        await db.g_log_activity(guild_id, "steam_linked", user_discord_id,
+                                actor_name=_user.get("username") or _user.get("display_name"),
+                                target_name=validation["steam_persona"])
+    except Exception:
+        pass
 
     return JSONResponse({
         "ok": True,

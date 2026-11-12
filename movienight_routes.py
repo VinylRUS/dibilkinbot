@@ -131,6 +131,13 @@ async def api_collection_start(
 
     collection = await db.g_start_collection(guild_id, user_discord_id, max_per_user)
 
+    # v3.10: журнал активности — запуск сбора на киновечер
+    try:
+        await db.g_log_activity(guild_id, "collection_started", user_discord_id,
+                                actor_name=_user.get("username") or _user.get("display_name"))
+    except Exception:
+        pass
+
     # Постим анонс в Discord-канал
     panel_url = await db.get_setting("panel_base_url")
     announce_channel_id_str = await db.get_setting("channel_announce_id")
