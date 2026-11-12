@@ -3866,7 +3866,68 @@ async def list_active_members_with_discord(limit: int = 22) -> list[dict]:
     return members
 
 
-async def g_get_voice_time(guild_id: int, user_discord_id: int, solo_only: bool = False, with_others_only: bool = False) -> int:
+async def g_log_activity(guild_id: int, event_type: str, actor_discord_id: int,
+                         actor_name: str | None = None, target_name: str | None = None) -> None:
+    """v3.10: Записать событие в guild activity_log (персистентно, не сбрасывается при рестарте).
+
+    event_type: achievement_granted | collection_started | wheel_spun | quote_added |
+                steam_linked | watchlist_added | watched | login
+    """
+    from datetime import datetime
+    table = _guild.guild_table(guild_id, "activity_log")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (event_type, actor_discord_id, actor_name, target_name, created_at) "
+            f"VALUES (?, ?, ?, ?, ?)",
+            (event_type, actor_discord_id, actor_name, target_name, now),
+        )
+        await db.commit()
+
+
+async def g_list_activity(guild_id: int, limit: int = 15, days: int = 7) -> list[dict]:
+    """v3.10: Последние события активности сервера.
+
+    Возвращает [{event_type, actor_discord_id, actor_name, target_name, created_at, time_ago}, ...]
+    """
+    from datetime import datetime, timedelta
+    table = _guild.guild_table(guild_id, "activity_log")
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT a.event_type, a.actor_discord_id, "
+            f"COALESCE(a.actor_name, u.display_name, u.username, 'Unknown') AS actor_name, "
+            f"a.target_name, a.created_at "
+            f"FROM {table} a LEFT JOIN users u ON u.discord_id = a.actor_discord_id "
+            f"WHERE a.created_at > ? ORDER BY a.created_at DESC LIMIT ?",
+            (cutoff, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+    now = datetime.utcnow()
+    out = []
+    for r in rows:
+        created = r[4]
+        time_ago = "недавно"
+        try:
+            dt = datetime.fromisoformat(created)
+            diff = now - dt
+            if diff.days > 0:
+                time_ago = f"{diff.days} дн назад"
+            elif diff.seconds > 3600:
+                time_ago = f"{diff.seconds // 3600} ч назад"
+            else:
+                time_ago = f"{max(diff.seconds // 60, 1)} мин назад"
+        except Exception:
+            pass
+        out.append({
+            "event_type": r[0],
+            "actor_discord_id": r[1],
+            "actor_name": r[2] or "Unknown",
+            "target_name": r[3],
+            "created_at": created,
+            "time_ago": time_ago,
+        })
+    return out
     """Получить общее время в войсе (секунды). Для триггеров ачивок.
 
     solo_only: только одиночные сессии

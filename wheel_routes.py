@@ -627,6 +627,13 @@ async def api_spin_wheel(_user: dict = Depends(require_user), duration: int = Fo
             "physics": physics,
         }
 
+        # v3.10: журнал активности — запуск колеса
+        try:
+            await db.g_log_activity(guild_id, "wheel_spun", _user.get("discord_id", 0),
+                                    actor_name=_user.get("username") or _user.get("display_name"))
+        except Exception:
+            pass
+
         if is_test:
             wheel_test_log.log_event("spin_started", {
                 "mode": "classic",

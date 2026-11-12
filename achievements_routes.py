@@ -310,6 +310,13 @@ async def api_grant_achievement(
     ok = await db.g_grant_achievement(guild_id, ach_id, user_discord_id, granted_by=admin_id)
     if not ok:
         return JSONResponse({"error": "failed to grant"}, status_code=500)
+    # v3.10: журнал активности — только новая выдача (не idempotent-повтор)
+    if not already_active:
+        try:
+            await db.g_log_activity(guild_id, "achievement_granted", user_discord_id,
+                                    target_name=ach["name"])
+        except Exception:
+            pass
     # Выдаём Discord роль если есть
     role_assigned = False
     if ach["discord_role_id"]:
