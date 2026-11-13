@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Турнир · DeeBeelkin</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
+  <style>
+    .match-card {
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 10px;
+      background: var(--content-bg); border: 1px solid var(--content-border);
+      border-radius: var(--content-radius); padding: 14px; margin-bottom: 12px;
+      box-shadow: var(--glass-shadow), var(--glass-inset);
+    }
+    .match-side {
+      display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+      border: 1px solid transparent; border-radius: 12px; padding: 10px; text-align: center;
+    }
+    .match-side.win { border-color: var(--accent); background: var(--accent-soft); }
+    .match-name { font-weight: 700; color: var(--text); }
+    .match-votes { font-size: 0.82rem; color: var(--text-muted); }
+    .match-vs { display: flex; align-items: center; color: var(--text-soft); font-weight: 800; }
+    .match-bye { grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+    .champion {
+      text-align: center; padding: 24px; font-size: 1.4rem; font-weight: 800; color: var(--accent);
+    }
+    .tour-create textarea { min-height: 120px; }
+  </style>
+</head>
+<body>
+  {% include "sidebar.html" %}
+
+  <main class="container">
+    <h2>🏆 Турнир фильмов</h2>
+
+    {% if not tournament %}
+      <article class="card">
+        <p style="color:var(--text-muted);">Сейчас турнир не идёт.</p>
+        {% if is_admin %}
+        <form class="tour-create" onsubmit="return createTournament(event)">
+          <label>Название</label>
+          <input type="text" name="title" value="Турнир фильмов">
+          <label>Фильмы (по одному на строку, минимум 2)</label>
+          <textarea name="items" placeholder="Матрица&#10;Начало&#10;Интерстеллар&#10;Бегущий по лезвию"></textarea>
+          <button type="submit" class="btn-primary" style="margin-top:12px;">Создать турнир</button>
+        </form>
+        {% endif %}
+      </article>
+
+    {% elif tournament.status == 'completed' %}
+      <article class="card">
+        <div class="champion">👑 {{ tournament.winner_name }}</div>
+        <p style="text-align:center;color:var(--text-muted);">Победитель турнира «{{ tournament.title }}»</p>
+      </article>
+
+    {% else %}
+      <p style="color:var(--text-muted);">«{{ tournament.title }}» — раунд {{ tournament.current_round }}. Голосуйте за фильм в каждой паре.</p>
+      {% for m in matches %}
+        {% if m.right_name %}
+        <div class="match-card" data-match="{{ m.id }}">
+          <button class="match-side left" onclick="voteMatch({{ m.id }}, 'left', this)">
+            <span class="match-name">{{ m.left_name }}</span>
+            <span class="match-votes"><span class="lv">{{ m.left_votes }}</span> голосов</span>
+          </button>
+          <div class="match-vs">VS</div>
+          <button class="match-side right" onclick="voteMatch({{ m.id }}, 'right', this)">
+            <span class="match-name">{{ m.right_name }}</span>
+            <span class="match-votes"><span class="rv">{{ m.right_votes }}</span> голосов</span>
+          </button>
+        </div>
+        {% else %}
+        <div class="match-card"><div class="match-bye">🎟 {{ m.left_name }} — проходит дальше (без пары)</div></div>
+        {% endif %}
+      {% endfor %}
+
+      {% if is_admin %}
+      <button class="btn-primary" onclick="advanceTournament(this)" style="margin-top:12px;">
+        Завершить раунд → следующий
+      </button>
+      {% endif %}
+    {% endif %}
+  </main>
+
+  <script>
+    function createTournament(e) {
+      e.preventDefault();
+      const f = e.target;
+      const body = new FormData(f);
+      fetch('/api/tournament/create', { method: 'POST', body: body })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) { location.reload(); }
+          else { window.showToast(d.error === 'need >= 2 films' ? '❌ Нужно минимум 2 фильма' : '❌ ' + (d.error || 'Ошибка'), 'error'); }
+        })
+        .catch(() => window.showToast('❌ Ошибка', 'error'));
+      return false;
+    }
+    function voteMatch(matchId, choice, btn) {
+      const body = new FormData(); body.append('choice', choice);
+      fetch('/api/tournament/vote/' + matchId, { method: 'POST', body: body })
+        .then(r => r.json())
+        .then(d => {
+          if (!d.ok) { window.showToast('❌ ' + (d.error || 'Ошибка'), 'error'); return; }
+          const card = btn.closest('.match-card');
+          card.querySelector('.lv').textContent = d.left_votes;
+          card.querySelector('.rv').textContent = d.right_votes;
+          card.querySelectorAll('.match-side').forEach(s => s.classList.remove('win'));
+          btn.classList.add('win');
+          window.showToast('✓ Голос учтён', 'success');
+        })
+        .catch(() => window.showToast('❌ Ошибка', 'error'));
+    }
+    function advanceTournament(btn) {
+      btn.disabled = true;
+      fetch('/api/tournament/advance', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) { location.reload(); }
+          else { window.showToast('❌ ' + (d.error || 'Ошибка'), 'error'); btn.disabled = false; }
+        })
+        .catch(() => { window.showToast('❌ Ошибка', 'error'); btn.disabled = false; });
+    }
+  </script>
+{% include "_footer.html" %}
+</body>
+</html>

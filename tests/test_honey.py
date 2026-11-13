@@ -279,6 +279,67 @@ async def test_cosmetic_buy(client):
     assert await db.g_honey_balance(TEST_GUILD_ID, HONEY_USER) == bal2
 
 
+@pytest.mark.asyncio
+async def test_tournament_flow(client):
+    """Полный цикл: создание 4-фильмового турнира → голосование → продвижение → чемпион."""
+    import db
+    from config import settings
+    from guild import guild_table
+
+    # Чистим турнирные таблицы (autouse-фикстура их не трогает)
+    async with aiosqlite.connect(settings.database_path) as c:
+        for base in ("tournaments", "tournament_matches", "tournament_votes"):
+            await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, base)}")
+        await c.commit()
+
+    tid = await db.g_create_tournament(TEST_GUILD_ID, "Кубок", ["A", "B", "C", "D"], 1001)
+    assert tid is not None
+    r1 = await db.g_get_tournament_matches(TEST_GUILD_ID, tid, 1)
+    assert len(r1) == 2  # (A vs B), (C vs D)
+
+    m_ab, m_cd = r1[0], r1[1]
+    # В паре A/B: B (right) получает 2 голоса, A (left) — 1
+    for u in (70001, 70002):
+        assert (await db.g_vote_match(TEST_GUILD_ID, m_ab["id"], u, "right"))["ok"]
+    assert (await db.g_vote_match(TEST_GUILD_ID, m_ab["id"], 70003, "left"))["ok"]
+    # В паре C/D: C (left) получает 2 голоса
+    for u in (70001, 70002):
+        assert (await db.g_vote_match(TEST_GUILD_ID, m_cd["id"], u, "left"))["ok"]
+
+    # Перезапись своего голоса не увеличивает счётчик
+    res = await db.g_vote_match(TEST_GUILD_ID, m_ab["id"], 70001, "right")
+    assert res["right_votes"] == 2
+
+    adv = await db.g_advance_tournament(TEST_GUILD_ID, tid)
+    assert adv["ok"] and adv["status"] == "voting" and adv["round"] == 2
+    r2 = await db.g_get_tournament_matches(TEST_GUILD_ID, tid, 2)
+    assert len(r2) == 1
+    final = r2[0]
+    assert {final["left_name"], final["right_name"]} == {"B", "C"}  # победители раунда 1
+
+    # В финале побеждает C
+    c_side = "left" if final["left_name"] == "C" else "right"
+    assert (await db.g_vote_match(TEST_GUILD_ID, final["id"], 70001, c_side))["ok"]
+    adv2 = await db.g_advance_tournament(TEST_GUILD_ID, tid)
+    assert adv2["ok"] and adv2["status"] == "completed" and adv2["winner"] == "C"
+
+    tour = await db.g_get_tournament(TEST_GUILD_ID, tid)
+    assert tour["status"] == "completed" and tour["winner_name"] == "C"
+
+
+@pytest.mark.asyncio
+async def test_tournament_needs_two(client):
+    """Турнир из < 2 уникальных фильмов не создаётся."""
+    import db
+    assert await db.g_create_tournament(TEST_GUILD_ID, "T", ["A", "A", "  "], 1001) is None
+
+
+def test_tournament_page_renders(client):
+    r = client.get("/tournament")
+    assert r.status_code == 200
+    assert "Турнир" in r.text
+
+
 def test_pwa_routes(client):
     """PWA: /sw.js из корня с правильным scope-заголовком и /manifest.webmanifest."""
     sw = client.get("/sw.js")

@@ -2475,6 +2475,66 @@ async def api_set_accent(accent: str, _user: dict = Depends(require_user)):
     return resp
 
 
+# === Турнир фильмов (bracket, v3.11) ===
+
+@app.get("/tournament", response_class=HTMLResponse)
+async def tournament_page(request: Request, _user: dict = Depends(require_user)):
+    guild_id = get_current_guild_id(_user)
+    tour = await db.g_get_active_tournament(guild_id)
+    matches = []
+    my_votes = {}
+    if tour:
+        matches = await db.g_get_tournament_matches(guild_id, tour["id"], tour["current_round"])
+    return templates.TemplateResponse(request, "tournament.html", {
+        "user": _user,
+        "current_guild_id": guild_id,
+        "is_admin": _user.get("is_admin", False),
+        "tournament": tour,
+        "matches": matches,
+        "active": "tournament",
+    })
+
+
+@app.post("/api/tournament/create")
+async def api_tournament_create(
+    _user: dict = Depends(require_admin),
+    title: str = Form("Турнир фильмов"),
+    items: str = Form(...),
+):
+    """Создать турнир (только админ). items — список фильмов, по одному на строку."""
+    guild_id = get_current_guild_id(_user)
+    existing = await db.g_get_active_tournament(guild_id)
+    if existing:
+        return JSONResponse({"error": "already active"}, status_code=400)
+    names = [ln.strip() for ln in items.splitlines() if ln.strip()]
+    tid = await db.g_create_tournament(guild_id, title.strip() or "Турнир фильмов", names,
+                                       _user.get("discord_id", 0))
+    if not tid:
+        return JSONResponse({"error": "need >= 2 films"}, status_code=400)
+    return JSONResponse({"ok": True, "tournament_id": tid})
+
+
+@app.post("/api/tournament/vote/{match_id}")
+async def api_tournament_vote(
+    match_id: int,
+    _user: dict = Depends(require_user),
+    choice: str = Form(...),
+):
+    guild_id = get_current_guild_id(_user)
+    res = await db.g_vote_match(guild_id, match_id, _user.get("discord_id", 0), choice)
+    return JSONResponse(res, status_code=200 if res.get("ok") else 400)
+
+
+@app.post("/api/tournament/advance")
+async def api_tournament_advance(_user: dict = Depends(require_admin)):
+    guild_id = get_current_guild_id(_user)
+    tour = await db.g_get_active_tournament(guild_id)
+    if not tour:
+        return JSONResponse({"error": "no active tournament"}, status_code=400)
+    res = await db.g_advance_tournament(guild_id, tour["id"])
+    return JSONResponse(res, status_code=200 if res.get("ok") else 400)
+
+
 # === Watchlist API ===
 
 @app.post("/api/watchlist/add")

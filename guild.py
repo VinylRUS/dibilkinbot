@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -484,6 +484,46 @@ GUILD_SCHEMA_TEMPLATES = {
             UNIQUE(user_discord_id, cosmetic_type, cosmetic_value)
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id, cosmetic_type);
+    """,
+    # v3.11: Турнир фильмов (bracket) — single-elimination голосование.
+    "tournaments": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'voting',
+            current_round INTEGER NOT NULL DEFAULT 1,
+            winner_name TEXT,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
+    """,
+    "tournament_matches": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id INTEGER NOT NULL,
+            round INTEGER NOT NULL,
+            slot INTEGER NOT NULL,
+            left_name TEXT,
+            right_name TEXT,
+            left_votes INTEGER DEFAULT 0,
+            right_votes INTEGER DEFAULT 0,
+            winner_name TEXT,
+            status TEXT NOT NULL DEFAULT 'open'
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_tournament ON {table}(tournament_id, round);
+    """,
+    "tournament_votes": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            choice TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(match_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_match ON {table}(match_id);
     """,
 }
 

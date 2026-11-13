@@ -5770,3 +5770,185 @@ async def g_cosmetic_buy(guild_id: int, user_discord_id: int, cosmetic_type: str
         )
         await db.commit()
     return {"ok": True, "owned": True, "balance": await g_honey_balance(guild_id, uid)}
+
+
+# ============================================================
+# v3.11: Турнир фильмов (bracket, single-elimination)
+# ============================================================
+
+async def _seed_round_matches(db, table_m: str, tournament_id: int, round_no: int,
+                              names: list[str]) -> None:
+    """Создать матчи раунда из списка имён (по парам; нечётный → бай)."""
+    slot = 0
+    i = 0
+    now = datetime.utcnow().isoformat()
+    while i < len(names):
+        left = names[i]
+        right = names[i + 1] if i + 1 < len(names) else None
+        if right is None:
+            # Бай: проходит дальше автоматически
+            await db.execute(
+                f"INSERT INTO {table_m} (tournament_id, round, slot, left_name, right_name, "
+                f"winner_name, status) VALUES (?, ?, ?, ?, NULL, ?, 'done')",
+                (tournament_id, round_no, slot, left, left))
+        else:
+            await db.execute(
+                f"INSERT INTO {table_m} (tournament_id, round, slot, left_name, right_name, status) "
+                f"VALUES (?, ?, ?, ?, ?, 'open')",
+                (tournament_id, round_no, slot, left, right))
+        slot += 1
+        i += 2
+
+
+async def g_create_tournament(guild_id: int, title: str, items: list[str],
+                              created_by: int) -> int | None:
+    """Создать турнир из списка фильмов. Нужно >= 2 уникальных. Возвращает id или None."""
+    # Дедуп с сохранением порядка
+    seen = set()
+    names = []
+    for it in items:
+        it = (it or "").strip()
+        if it and it not in seen:
+            seen.add(it)
+            names.append(it)
+    if len(names) < 2:
+        return None
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {t_t} (title, status, current_round, created_by, created_at) "
+            f"VALUES (?, 'voting', 1, ?, ?)", (title, int(created_by), now))
+        tid = cur.lastrowid
+        await _seed_round_matches(db, t_m, tid, 1, names)
+        await db.commit()
+    return tid
+
+
+async def g_get_active_tournament(guild_id: int) -> dict | None:
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, status, current_round, winner_name, created_by, created_at, completed_at "
+            f"FROM {t_t} WHERE status != 'completed' ORDER BY id DESC LIMIT 1") as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {"id": r[0], "title": r[1], "status": r[2], "current_round": r[3],
+            "winner_name": r[4], "created_by": r[5], "created_at": r[6], "completed_at": r[7]}
+
+
+async def g_get_tournament(guild_id: int, tournament_id: int) -> dict | None:
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, status, current_round, winner_name, created_by, created_at, completed_at "
+            f"FROM {t_t} WHERE id = ?", (int(tournament_id),)) as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {"id": r[0], "title": r[1], "status": r[2], "current_round": r[3],
+            "winner_name": r[4], "created_by": r[5], "created_at": r[6], "completed_at": r[7]}
+
+
+async def g_get_tournament_matches(guild_id: int, tournament_id: int,
+                                   round_no: int | None = None) -> list[dict]:
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    sql = (f"SELECT id, round, slot, left_name, right_name, left_votes, right_votes, "
+           f"winner_name, status FROM {t_m} WHERE tournament_id = ?")
+    params: tuple = (int(tournament_id),)
+    if round_no is not None:
+        sql += " AND round = ?"
+        params = (int(tournament_id), int(round_no))
+    sql += " ORDER BY round, slot"
+    async with _connect() as db:
+        async with db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "round": r[1], "slot": r[2], "left_name": r[3], "right_name": r[4],
+             "left_votes": r[5], "right_votes": r[6], "winner_name": r[7], "status": r[8]}
+            for r in rows]
+
+
+async def g_vote_match(guild_id: int, match_id: int, user_discord_id: int, choice: str) -> dict:
+    """Проголосовать за сторону матча ('left'|'right'). Перезапись своего голоса.
+
+    Возвращает {ok, left_votes, right_votes} или {ok: False, error}.
+    """
+    if choice not in ("left", "right"):
+        return {"ok": False, "error": "bad choice"}
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    t_v = _guild.guild_table(guild_id, "tournament_votes")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT left_name, right_name, status FROM {t_m} WHERE id = ?", (int(match_id),)) as cur:
+            m = await cur.fetchone()
+        if not m or m[2] != "open" or m[1] is None:
+            return {"ok": False, "error": "match not open"}
+        await db.execute(
+            f"INSERT INTO {t_v} (match_id, user_discord_id, choice, created_at) VALUES (?, ?, ?, ?) "
+            f"ON CONFLICT(match_id, user_discord_id) DO UPDATE SET choice = excluded.choice, "
+            f"created_at = excluded.created_at",
+            (int(match_id), int(user_discord_id), choice, now))
+        # Пересчёт из таблицы голосов
+        async with db.execute(
+            f"SELECT choice, COUNT(*) FROM {t_v} WHERE match_id = ? GROUP BY choice",
+            (int(match_id),)) as cur:
+            counts = {row[0]: row[1] for row in await cur.fetchall()}
+        lv, rv = int(counts.get("left", 0)), int(counts.get("right", 0))
+        await db.execute(
+            f"UPDATE {t_m} SET left_votes = ?, right_votes = ? WHERE id = ?",
+            (lv, rv, int(match_id)))
+        await db.commit()
+    return {"ok": True, "left_votes": lv, "right_votes": rv}
+
+
+async def g_advance_tournament(guild_id: int, tournament_id: int) -> dict:
+    """Закрыть текущий раунд: определить победителей (больше голосов, ничья → левый),
+    создать следующий раунд или завершить турнир.
+
+    Возвращает {ok, status, round|winner}.
+    """
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    tour = await g_get_tournament(guild_id, tournament_id)
+    if not tour or tour["status"] == "completed":
+        return {"ok": False, "error": "not active"}
+    rnd = tour["current_round"]
+    matches = await g_get_tournament_matches(guild_id, tournament_id, rnd)
+    if not matches:
+        return {"ok": False, "error": "no matches"}
+    winners: list[str] = []
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        for m in matches:
+            if m["status"] == "done" and m["winner_name"]:
+                winners.append(m["winner_name"])
+                continue
+            # Победитель по голосам, ничья → левый
+            if m["right_name"] is None:
+                win = m["left_name"]
+            elif m["right_votes"] > m["left_votes"]:
+                win = m["right_name"]
+            else:
+                win = m["left_name"]
+            winners.append(win)
+            await db.execute(
+                f"UPDATE {t_m} SET winner_name = ?, status = 'done' WHERE id = ?",
+                (win, m["id"]))
+        if len(winners) <= 1:
+            champion = winners[0] if winners else None
+            await db.execute(
+                f"UPDATE {t_t} SET status = 'completed', winner_name = ?, completed_at = ? WHERE id = ?",
+                (champion, now, int(tournament_id)))
+            await db.commit()
+            result = {"ok": True, "status": "completed", "winner": champion}
+        else:
+            next_round = rnd + 1
+            await _seed_round_matches(db, t_m, int(tournament_id), next_round, winners)
+            await db.execute(
+                f"UPDATE {t_t} SET current_round = ? WHERE id = ?", (next_round, int(tournament_id)))
+            await db.commit()
+            result = {"ok": True, "status": "voting", "round": next_round}
+    return result
