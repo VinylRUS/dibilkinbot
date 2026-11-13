@@ -170,7 +170,7 @@
       display: flex; gap: 10px; flex-wrap: wrap;
       padding: 14px 16px; margin-bottom: 12px;
       background: var(--bg); border: 1px dashed var(--border-strong); border-radius: 10px;
-      min-height: 70px; align-items: center;
+      min-height: 92px; align-items: center;  /* фикс высоты: пусто и с превью — одинаково, без прыжка панели */
     }
     .pin-preview-empty { color: var(--text-muted); font-size: 0.8rem; width: 100%; text-align: center; }
     .pin-preview-slot {
@@ -244,7 +244,12 @@
         <h2><img src="/static/icons/user.png" alt="" width="16" height="16" class="ui-icon"> Профиль</h2>
       </div>
       {% if user.discord_id %}
-      <a href="/u/{{ user.discord_id }}" class="btn-outline btn-public-link"><img src="/static/icons/eye.png" alt="" width="14" height="14" class="ui-icon"> Публичный профиль</a>
+      {# v3.11: «Назад» вместо forward-ссылки — не плодит историю и не создаёт петлю
+         настройки→публичный→back→настройки. Фолбэк на публичный профиль. #}
+      <button type="button" class="btn-outline btn-public-link"
+              onclick="if(history.length>1){history.back()}else{location.href='/u/{{ user.discord_id }}'}">
+        <img src="/static/icons/chevron-left.png" alt="" width="14" height="14" class="ui-icon"> Назад
+      </button>
       {% endif %}
       <article class="card">
         <div class="field-row">

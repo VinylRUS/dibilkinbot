@@ -374,32 +374,25 @@ function ensureAudio() {
 function playTick(speedRatio = 1) {
   if (!soundEnabled || tickVolume <= 0 || !audioCtx) return;
   try {
+    // v3.11: мягкий деревянный «ток» вместо резкого square-щелчка.
+    // triangle + lowpass + короткий exp-спад — округло и не раздражает.
     const now = audioCtx.currentTime;
-    const baseFreq = 600 + 1200 * Math.max(0, Math.min(1, speedRatio));
-    const sineOsc = audioCtx.createOscillator();
-    sineOsc.type = 'sine';
-    sineOsc.frequency.setValueAtTime(baseFreq, now);
-    sineOsc.frequency.exponentialRampToValueAtTime(baseFreq * 0.6, now + 0.04);
-    const squareOsc = audioCtx.createOscillator();
-    squareOsc.type = 'square';
-    squareOsc.frequency.setValueAtTime(baseFreq * 1.5, now);
-    squareOsc.frequency.exponentialRampToValueAtTime(baseFreq, now + 0.01);
+    const r = Math.max(0, Math.min(1, speedRatio));
+    const baseFreq = 360 + 420 * r;  // ниже прежнего (было 600..1800)
+    const osc = audioCtx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(baseFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.5, now + 0.05);
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(baseFreq * 3, now);
-    filter.Q.value = 1.0;
+    filter.frequency.setValueAtTime(1500, now);
+    filter.Q.value = 0.5;
     const gain = audioCtx.createGain();
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(tickVolume * 0.35, now + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
-    const squareGain = audioCtx.createGain();
-    squareGain.gain.setValueAtTime(0, now);
-    squareGain.gain.linearRampToValueAtTime(tickVolume * 0.12, now + 0.002);
-    squareGain.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
-    sineOsc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
-    squareOsc.connect(squareGain); squareGain.connect(audioCtx.destination);
-    sineOsc.start(now); squareOsc.start(now);
-    sineOsc.stop(now + 0.05); squareOsc.stop(now + 0.02);
+    gain.gain.linearRampToValueAtTime(tickVolume * 0.26, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.06);
+    osc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(now); osc.stop(now + 0.07);
   } catch (e) { /* swallow */ }
 }
 

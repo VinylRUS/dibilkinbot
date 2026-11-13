@@ -555,6 +555,9 @@ document.addEventListener('keydown', (e) => {
   document.addEventListener('pointerdown', (e) => {
     const host = e.target.closest(RIPPLE_SEL);
     if (!host || host.disabled) return;
+    // Декоративные кнопки (кружки акцентов, звёзды рейтинга, степпер) — без ripple
+    if (host.classList.contains('accent-swatch') || host.classList.contains('star-half') ||
+        host.closest('.stepper')) return;
     const rect = host.getBoundingClientRect();
     const size = Math.max(rect.width, rect.height);
     const wave = document.createElement('span');

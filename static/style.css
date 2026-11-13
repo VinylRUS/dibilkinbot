@@ -2168,6 +2168,18 @@ article.card .stat-box-label,
 }
 h2 .ui-icon, h3 .ui-icon, .section-title .ui-icon { width: 18px; height: 18px; }
 
+/* v3.11: PNG-иконки на АКЦЕНТНЫХ (жёлтых) кнопках — делаем тёмными под цвет текста
+   (--accent-text), иначе белая иконка на амбре в тёмной теме почти не видна (#2, #6).
+   В светлой теме .ui-icon и так brightness(0). */
+[data-theme="dark"] .btn-primary .ui-icon,
+[data-theme="dark"] .search-form button .ui-icon,
+[data-theme="dark"] .watchlist-add-form button .ui-icon,
+[data-theme="dark"] .santa-btn .ui-icon,
+[data-theme="dark"] .mobile-menu-btn .ui-icon,
+[data-theme="dark"] .page-btn.active .ui-icon {
+  filter: brightness(0);
+}
+
 /* ===== v2.4.1: UX-правки ===== */
 /* Футер прижат к низу страницы */
 body { min-height: 100vh; display: flex; flex-direction: column; }
@@ -2262,11 +2274,13 @@ footer { margin-top: auto; flex-shrink: 0; }
    Волна от точки клика. JS (sidebar.html) добавляет .ripple-wave внутрь кнопки.
    Хост-элементы должны обрезать волну по своим границам. */
 .btn-primary, .btn-outline, .btn-danger, .btn-ghost,
-button:not(.custom-select-trigger),
+button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.stepper button),
 .page-btn, .quick-link {
   position: relative;
   overflow: hidden;
 }
+/* Декоративные кнопки-кружки/звёзды не обрезаем (их тени/кольца должны быть видны) */
+.accent-swatch, .star-rating .star-half, .stepper button { overflow: visible; }
 .ripple-wave {
   position: absolute;
   border-radius: 50%;
