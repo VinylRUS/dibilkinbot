@@ -2477,20 +2477,48 @@ async def api_set_accent(accent: str, _user: dict = Depends(require_user)):
 
 # === Турнир фильмов (bracket, v3.11) ===
 
+def _round_label(n_matches: int) -> str:
+    return {1: "Финал", 2: "1/2 финала", 4: "1/4 финала", 8: "1/8 финала"}.get(
+        n_matches, f"{n_matches} пар")
+
+
 @app.get("/tournament", response_class=HTMLResponse)
 async def tournament_page(request: Request, _user: dict = Depends(require_user)):
     guild_id = get_current_guild_id(_user)
     tour = await db.g_get_active_tournament(guild_id)
-    matches = []
-    my_votes = {}
+    bracket = []            # [{round, label, is_current, matches:[...]}]
+    current_matches = []    # матчи текущего раунда (для голосования)
     if tour:
-        matches = await db.g_get_tournament_matches(guild_id, tour["id"], tour["current_round"])
+        import math
+        all_matches = await db.g_get_tournament_matches(guild_id, tour["id"])
+        by_round: dict[int, list] = {}
+        for m in all_matches:
+            by_round.setdefault(m["round"], []).append(m)
+        # Кол-во участников round 1 → сколько всего раундов в сетке
+        r1 = by_round.get(1, [])
+        participants = sum((1 if m["left_name"] else 0) + (1 if m["right_name"] else 0) for m in r1)
+        total_rounds = max(1, math.ceil(math.log2(participants))) if participants > 1 else 1
+        for r in range(1, total_rounds + 1):
+            matches = sorted(by_round.get(r, []), key=lambda x: x["slot"])
+            n_expected = max(1, len(r1) // (2 ** (r - 1))) if r1 else 1
+            if not matches:
+                # Будущий раунд — плейсхолдеры
+                matches = [{"placeholder": True} for _ in range(n_expected)]
+            bracket.append({
+                "round": r,
+                "label": _round_label(n_expected),
+                "is_current": (r == tour["current_round"] and tour["status"] != "completed"),
+                "matches": matches,
+            })
+        if tour["status"] != "completed":
+            current_matches = sorted(by_round.get(tour["current_round"], []), key=lambda x: x["slot"])
     return templates.TemplateResponse(request, "tournament.html", {
         "user": _user,
         "current_guild_id": guild_id,
         "is_admin": _user.get("is_admin", False),
         "tournament": tour,
-        "matches": matches,
+        "bracket": bracket,
+        "current_matches": current_matches,
         "active": "tournament",
     })
 

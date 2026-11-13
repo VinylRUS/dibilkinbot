@@ -374,6 +374,24 @@ def test_tournament_page_renders(client):
     assert "Турнир" in r.text
 
 
+def test_tournament_bracket_renders(client):
+    """Сетка рендерится с активным турниром (прошлые раунды + плейсхолдеры будущих)."""
+    import db
+    from config import settings
+    from guild import guild_table
+    async def _setup():
+        async with aiosqlite.connect(settings.database_path) as c:
+            for base in ("tournaments", "tournament_matches", "tournament_votes"):
+                await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, base)}")
+            await c.commit()
+        return await db.g_create_tournament(TEST_GUILD_ID, "Кубок", ["A", "B", "C", "D"], 1001)
+    run_async(_setup())
+    r = client.get("/tournament")
+    assert r.status_code == 200
+    assert "Сетка" in r.text
+    assert "bracket" in r.text
+
+
 def test_pwa_routes(client):
     """PWA: /sw.js из корня с правильным scope-заголовком и /manifest.webmanifest."""
     sw = client.get("/sw.js")
