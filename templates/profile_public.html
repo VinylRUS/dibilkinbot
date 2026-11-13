@@ -466,6 +466,21 @@
       {% endif %}
     </div>
 
+    {# v3.11: «Вам может понравиться» — только на своём профиле #}
+    {% if recommendations %}
+    <h3 class="section-title">✨ Вам может понравиться</h3>
+    <article class="card" style="margin-bottom:16px;">
+      <ol class="honey-board">
+        {% for rec in recommendations %}
+        <li>
+          <a href="#" onclick='showRatingsModal({{ rec.winner_id }}, {{ rec.lot_name|tojson }}); return false;'>{{ rec.lot_name }}</a>
+          <span class="honey-board-amount" title="Прогноз оценки по похожим вкусам">★ {{ rec.score }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </article>
+    {% endif %}
+
     {# Discord live info #}
     {% if discord_info %}
     <div style="background: var(--content-bg); border: 1px solid var(--content-border); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; box-shadow: var(--glass-shadow), var(--glass-inset);">

@@ -168,6 +168,48 @@ async def test_controversial_films(client):
     assert rows[0]["count"] == 4
 
 
+@pytest.mark.asyncio
+async def test_recommendations(client):
+    """«Вам может понравиться»: фильм, высоко оценённый пользователем с похожим
+    вкусом, рекомендуется; низкий порог оценок у цели → пусто."""
+    import db
+    from config import settings
+    from guild import guild_table
+
+    t_win = guild_table(TEST_GUILD_ID, "winners")
+    t_rat = guild_table(TEST_GUILD_ID, "ratings")
+    now = datetime.utcnow().isoformat()
+    T = 82001   # цель
+    S = 82002   # похожий вкус
+
+    async with aiosqlite.connect(settings.database_path) as c:
+        wids = []
+        for name in ("A", "B", "C", "D"):
+            cur = await c.execute(
+                f"INSERT INTO {t_win} (lot_name, confidence, detected_at) VALUES (?, ?, ?)",
+                (name, "high", now))
+            wids.append(cur.lastrowid)
+        wa, wb, wc, wd = wids
+        # T оценил A,B,C (>= 3 — хватает затравки), не видел D
+        for w, r in ((wa, 9.0), (wb, 8.0), (wc, 9.0)):
+            await c.execute(f"INSERT INTO {t_rat} (winner_id, user_discord_id, rating, created_at) "
+                            f"VALUES (?, ?, ?, ?)", (w, T, r, now))
+        # S — почти идентичные оценки на общих + высоко оценил D
+        for w, r in ((wa, 9.0), (wb, 8.0), (wd, 10.0)):
+            await c.execute(f"INSERT INTO {t_rat} (winner_id, user_discord_id, rating, created_at) "
+                            f"VALUES (?, ?, ?, ?)", (w, S, r, now))
+        await c.commit()
+
+    recs = await db.g_recommend_films(TEST_GUILD_ID, T, limit=5)
+    rec_ids = [r["winner_id"] for r in recs]
+    assert wd in rec_ids  # D рекомендован (похожий вкус оценил высоко)
+    top = next(r for r in recs if r["winner_id"] == wd)
+    assert top["score"] >= 9.0
+
+    # Пользователь без затравки (< 3 оценок) — рекомендаций нет
+    assert await db.g_recommend_films(TEST_GUILD_ID, 999999, limit=5) == []
+
+
 def test_profile_renders_honey(client):
     """Публичный профиль отдаёт 200 и показывает карточку «Мёд»."""
     r = client.get("/u/1001")  # TEST_ADMIN_DISCORD_ID из conftest

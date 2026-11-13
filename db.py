@@ -5550,3 +5550,73 @@ async def g_controversial_films(guild_id: int, min_ratings: int = 3, limit: int 
             "stddev": round(math.sqrt(variance), 2),
         })
     return out
+
+
+async def g_recommend_films(guild_id: int, user_discord_id: int,
+                            limit: int = 5, min_user_ratings: int = 3) -> list[dict]:
+    """v3.11: «Вам может понравиться» — рекомендации на основе совпадения вкусов.
+
+    User-based collaborative filtering без ML:
+      1. вес другого пользователя = 1 - avg_diff/5 по общим фильмам (>= 2 общих);
+      2. для каждого непросмотренного пользователем фильма — взвешенное среднее
+         оценок остальных; требуется суммарная поддержка >= 1.0.
+    Нужна «затравка»: если у пользователя < min_user_ratings оценок — вернёт [].
+
+    Возвращает [{winner_id, lot_name, score, support}, ...] по убыванию score.
+    """
+    uid = int(user_discord_id)
+    t_win = _guild.guild_table(guild_id, "winners")
+    t_rat = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT r.winner_id, r.user_discord_id, r.rating, w.lot_name "
+            f"FROM {t_rat} r JOIN {t_win} w ON w.id = r.winner_id "
+            f"WHERE COALESCE(w.is_test, 0) = 0"
+        ) as cur:
+            rows = await cur.fetchall()
+
+    # by_user[user] = {winner_id: rating}; names[winner_id] = lot_name
+    by_user: dict[int, dict[int, float]] = {}
+    names: dict[int, str] = {}
+    for winner_id, u, rating, lot_name in rows:
+        by_user.setdefault(int(u), {})[int(winner_id)] = float(rating)
+        names[int(winner_id)] = lot_name
+
+    mine = by_user.get(uid, {})
+    if len(mine) < min_user_ratings:
+        return []
+
+    # Веса остальных пользователей по совпадению вкусов
+    weights: dict[int, float] = {}
+    for other, ratings in by_user.items():
+        if other == uid:
+            continue
+        common = [(mine[w], ratings[w]) for w in ratings if w in mine]
+        if len(common) < 2:
+            continue
+        avg_diff = sum(abs(a - b) for a, b in common) / len(common)
+        weight = max(0.0, 1.0 - avg_diff / 5.0)
+        if weight > 0:
+            weights[other] = weight
+
+    # Кандидаты: фильмы, которые пользователь ещё не оценил
+    agg: dict[int, tuple[float, float]] = {}  # winner_id -> (sum(w*rating), sum(w))
+    for other, weight in weights.items():
+        for winner_id, rating in by_user[other].items():
+            if winner_id in mine:
+                continue
+            s_wr, s_w = agg.get(winner_id, (0.0, 0.0))
+            agg[winner_id] = (s_wr + weight * rating, s_w + weight)
+
+    out = []
+    for winner_id, (s_wr, s_w) in agg.items():
+        if s_w < 1.0:
+            continue
+        out.append({
+            "winner_id": winner_id,
+            "lot_name": names.get(winner_id, f"#{winner_id}"),
+            "score": round(s_wr / s_w, 2),
+            "support": round(s_w, 2),
+        })
+    out.sort(key=lambda r: (r["score"], r["support"]), reverse=True)
+    return out[:limit]

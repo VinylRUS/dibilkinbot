@@ -2272,9 +2272,19 @@ async def public_profile_page(
         import logging
         logging.getLogger("profile").warning("honey profile failed: %s", e)
 
+    # v3.11: «Вам может понравиться» — только на своём профиле
+    recommendations = []
+    if is_self:
+        try:
+            recommendations = await db.g_recommend_films(guild_id, target_discord_id, limit=5)
+        except Exception as e:
+            import logging
+            logging.getLogger("profile").warning("recommendations failed: %s", e)
+
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
         "honey": honey,
+        "recommendations": recommendations,
         "target": {
             "discord_id": target_discord_id,
             "username": username,
