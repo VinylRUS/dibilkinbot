@@ -373,7 +373,7 @@ def _theme(request: Request) -> str:
 
 # Регистрируем глобально для всех шаблонов, чтобы не передавать явно
 from timezone_utils import format_msk, format_msk_short
-templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "light")
+templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "auto")
 templates.env.globals["format_msk"] = format_msk
 templates.env.globals["format_msk_short"] = format_msk_short
 

@@ -1,5 +1,29 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.11.0 (0000000) — Полировка дизайна: ripple, авто-тема, плавные переходы
+
+#НОВЫЕ_ФИЧИ#
+- **Ripple-эффект** на кнопках (`.btn-primary/outline/danger/ghost`, `button`, `.page-btn`, `.quick-link`) — волна от точки клика, как описано в `DESIGN_SYSTEM §5` (раньше был задокументирован, но не реализован). Отключается при `prefers-reduced-motion`.
+- **Авто-тема**: при первом визите панель уважает системную тему пользователя (`prefers-color-scheme`) вместо жёсткого light. Кнопка переключения темы корректно отражает реальную тему при `auto`.
+- **Плавные переходы между страницами** через cross-document View Transitions API (прогрессивное улучшение; браузеры без поддержки игнорируют).
+- **Прогресс-бар авто-закрытия** у toast-уведомлений.
+- **Повышенный контраст** (`prefers-contrast: more`) — усиленные границы и текст для доступности.
+
+#ИСПРАВЛЕНО#
+- **Сломанные «пружинные» переходы**: CSS-переменные `--spring`/`--smooth` использовались в 10 местах (карточки, сайдбар, `profile_public.html`), но НИГДЕ не были определены — из-за чего shorthand-переходы были невалидны и «жидкая» анимация откатывалась к дефолту. Определены в `:root`.
+- **`.ping-card`**: дублирующийся `box-shadow` перекрывал первый и терял inset-блик стекла.
+- **Видимое кольцо фокуса** (`:focus-visible`) — было в `DESIGN_SYSTEM §5`, но отсутствовало в CSS. Добавлено (только для клавиатурного фокуса).
+- **`.badge.admin`**: хардкод-розовый цвет вне пчелиной палитры → переведён на `--accent`.
+- **Скроллбар**: был стилизован только для WebKit в тёмной теме; добавлены Firefox (`scrollbar-color`) и светлая тема.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- `static/style.css`: добавлены motion-токены `--spring`/`--smooth`; `[data-theme="auto"]` с зеркалом dark-палитры под `@media (prefers-color-scheme: dark)`; `color-scheme` по темам; глобальный `:focus-visible`; `scroll-behavior: smooth` (с откатом при reduced-motion); ripple (`.ripple-wave`), `@view-transition`, `.toast-progress`; `transition: all` заменён на явные свойства (11 мест); press-отклик (`:active` scale + spring) для вторичных кнопок.
+- `web.py`, `deps.py`: дефолт `theme_from_request` → `"auto"` (был `"light"`).
+- `templates/sidebar.html`: JS генерации ripple (`pointerdown`, с учётом reduced-motion); прогресс-бар в `showToast`; скрипт корректной иконки темы при `auto`.
+- `README.md`: добавлен раздел «Модули сверх ядра» и актуализировано дерево структуры.
+- Палитра, философия стекла и расположение элементов не менялись — только консистентность и микро-взаимодействия.
+- **«Мёд» 🍯 (фундамент геймификации, backend)**: новая per-guild таблица `honey_ledger`; функции в `db.py` — `g_honey_breakdown`, `g_honey_balance`, `g_honey_spend`, `g_honey_grant`, `g_honey_leaderboard`, `g_activity_streak`. Баланс = заработано (выводится SQL из `watched`/`ratings`/`quotes`/`user_achievements`, ставки `HONEY_PER_*`) + `SUM(ledger.delta)`; траты/бонусы — строки леджера, баланс клампится в ≥0. Тесты: `tests/test_honey.py` (5 шт). UI (профиль, лидерборд, траты на косметику) — в следующей фазе.
+
 ## v3.10.2 (0000000) — Чистка дашборда
 
 #ИСПРАВЛЕНО#

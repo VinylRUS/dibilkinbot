@@ -141,7 +141,7 @@ def _setup_templates_globals():
     templates.env.globals['bot_version'] = _get_bot_version()
     templates.env.globals['commit_id'] = _get_git_commit_id()
     templates.env.globals['bot_version_with_commit'] = f"{_get_bot_version()}({_get_git_commit_id()})"
-    templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "light")
+    templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "auto")
     templates.env.globals["format_msk"] = None  # set by web.py after import
     templates.env.globals["format_msk_short"] = None
     templates.env.globals["santa_enabled"] = None
