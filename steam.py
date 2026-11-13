@@ -321,57 +321,77 @@ async def is_multiplayer_game(appid: int) -> bool | None:
     return is_mp
 
 
-async def get_wishlist(steam_id64: str) -> list[dict] | None:
+# v3.11: кеш названий/капсул игр вишлиста (appid → (name, release, ts))
+_WISHLIST_APP_CACHE: dict[int, tuple[str, str, float]] = {}
+_WISHLIST_APP_TTL = 24 * 3600
+
+
+def _capsule_url(appid: int) -> str:
+    """URL капсулы игры по appid (без обращения к API)."""
+    return f"https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/capsule_231x87.jpg"
+
+
+async def get_wishlist(steam_id64: str, limit: int = 12) -> list[dict] | None:
     """Получить wishlist игр Steam-профиля.
 
-    Steam не имеет официального API для wishlist, но есть неофициальный endpoint:
-    https://store.steampowered.com/api/wishlist/wishlist/{steam_id64}/
+    v3.11: старый endpoint store.steampowered.com/api/wishlist/... Steam ЗАДЕПРЕКЕЙТИЛ
+    (отдаёт пусто/404). Используем официальный публичный Web API:
+      https://api.steampowered.com/IWishlistService/GetWishlist/v1/?steamid=...
+    Он возвращает только appid + priority, поэтому названия/дату добираем через
+    appdetails (с суточным кешем), капсулу строим по appid.
 
-    Возвращает list of dicts: {appid, name, capsule_filename, ...} или None если приватный/ошибка.
-    Возвращает [] если вишлист пустой.
+    Возвращает list[{appid, name, capsule, release_date, review_percent, review_total}]
+    или None (приватный/ошибка), [] если пусто.
     """
-    url = f"{STEAM_STORE_BASE}/wishlist/wishlist/{steam_id64}/"
+    import time as _time
+    url = f"{STEAM_API_BASE}/IWishlistService/GetWishlist/v1/"
     try:
-        # Steam отдаёт JSON, но иногда может потребовать cookies/headers
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; DeeBeelkinBot/1.0)",
-            "Accept": "application/json",
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; DeeBeelkinBot/1.0)",
+                   "Accept": "application/json"}
         async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
-            r = await client.get(url)
-        if r.status_code == 401 or r.status_code == 403:
-            # v3.0.3: логируем INFO только первый раз для этого steam_id64,
-            # потом DEBUG — иначе при авто-рефрешше /u/{id} спамит каждые 30s.
+            r = await client.get(url, params={"steamid": steam_id64})
+        if r.status_code in (401, 403):
             if steam_id64 not in _private_wishlist_already_logged:
                 log.info("Steam wishlist for %s is private (HTTP %s)", steam_id64, r.status_code)
                 _private_wishlist_already_logged.add(steam_id64)
-            else:
-                log.debug("Steam wishlist for %s still private (HTTP %s)", steam_id64, r.status_code)
             return None
         if r.status_code != 200:
             log.warning("Steam wishlist HTTP %s: %s", r.status_code, r.text[:200])
             return None
         data = r.json()
-        if not isinstance(data, dict):
+        items = ((data or {}).get("response") or {}).get("items") or []
+        if not items:
             return []
-        # data — dict где ключи — appid (строки), значения — dict с инфо об игре
+        # priority: 0 = верх списка; при равенстве — позже добавленные выше
+        items.sort(key=lambda it: (it.get("priority", 10 ** 9),
+                                   -int(it.get("date_added", 0) or 0)))
+        now = _time.time()
         games = []
-        for appid_str, info in data.items():
-            if not isinstance(info, dict):
+        for it in items[:limit]:
+            try:
+                appid = int(it.get("appid"))
+            except (TypeError, ValueError):
                 continue
+            cached = _WISHLIST_APP_CACHE.get(appid)
+            if cached and (now - cached[2]) < _WISHLIST_APP_TTL:
+                name, release = cached[0], cached[1]
+            else:
+                details = await get_app_details(appid)
+                name = (details or {}).get("name") or f"App {appid}"
+                rd = (details or {}).get("release_date") or {}
+                release = rd.get("date", "") if isinstance(rd, dict) else ""
+                _WISHLIST_APP_CACHE[appid] = (name, release, now)
             games.append({
-                "appid": int(appid_str),
-                "name": info.get("name", f"App {appid_str}"),
-                "capsule": info.get("capsule"),
-                "review_desc": info.get("review_desc", ""),
-                "review_total": info.get("reviews_total", 0),
-                "review_percent": info.get("reviews_percent", 0),
-                "type": info.get("type", ""),
-                "release_date": info.get("release_string", ""),
-                "subtitle": info.get("subtitle", ""),
+                "appid": appid,
+                "name": name,
+                "capsule": _capsule_url(appid),
+                "review_desc": "",
+                "review_total": 0,
+                "review_percent": 0,
+                "type": "",
+                "release_date": release,
+                "subtitle": "",
             })
-        # Сортируем по рейтингу (самые популярные первыми)
-        games.sort(key=lambda g: g.get("review_total", 0), reverse=True)
         return games
     except Exception as e:
         log.warning("Steam get_wishlist failed for %s: %s", steam_id64, e)
