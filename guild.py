@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages", "movie_night_rsvp"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -124,7 +124,10 @@ GUILD_SCHEMA_TEMPLATES = {
             scheduled_at TEXT NOT NULL,
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL,
-            event_id INTEGER
+            event_id INTEGER,
+            countdown_sent INTEGER DEFAULT 0,
+            rate_prompt_sent INTEGER DEFAULT 0,
+            is_marathon INTEGER DEFAULT 0
         );
     """,
     "settings": """
@@ -539,6 +542,17 @@ GUILD_SCHEMA_TEMPLATES = {
         CREATE INDEX IF NOT EXISTS idx_{table}_thread
             ON {table}(event_id, santa_discord_id, recipient_discord_id);
     """,
+    # v3.11: RSVP «Интересно» к киновечеру (из Discord Scheduled Event).
+    "movie_night_rsvp": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(event_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_event ON {table}(event_id);
+    """,
 }
 
 
@@ -557,6 +571,12 @@ async def init_guild_tables(guild_id: int | str) -> None:
             await db.executescript(schema)
         # v3.7.0: миграция wheel_items для существующих гильдий
         await _migrate_wheel_items_add_gif_columns(db, gid)
+        # v3.11: миграция movie_nights (countdown_sent / rate_prompt_sent / is_marathon)
+        await _migrate_add_columns(db, gid, "movie_nights", {
+            "countdown_sent": "INTEGER DEFAULT 0",
+            "rate_prompt_sent": "INTEGER DEFAULT 0",
+            "is_marathon": "INTEGER DEFAULT 0",
+        })
         await db.commit()
     log.info("Initialized guild tables for guild_id=%s", gid)
 
@@ -579,6 +599,18 @@ async def _migrate_wheel_items_add_gif_columns(db_conn, gid: int) -> None:
     for col_name, col_type in new_cols.items():
         if col_name not in existing_cols:
             log.info("v3.7.0 migration: adding column %s to %s", col_name, table)
+            await db_conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+
+
+async def _migrate_add_columns(db_conn, gid: int, base: str, new_cols: dict[str, str]) -> None:
+    """v3.11: идемпотентный ALTER TABLE ADD COLUMN для существующих гильдий."""
+    table = guild_table(gid, base)
+    async with db_conn.execute(f"PRAGMA table_info({table})") as cur:
+        rows = await cur.fetchall()
+    existing_cols = {r[1] for r in rows}
+    for col_name, col_type in new_cols.items():
+        if col_name not in existing_cols:
+            log.info("v3.11 migration: adding column %s to %s", col_name, table)
             await db_conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
 
 

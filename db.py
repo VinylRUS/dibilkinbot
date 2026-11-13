@@ -4237,13 +4237,15 @@ async def g_get_test_stats(guild_id: int) -> dict:
 # --- g_movie_nights ---
 
 async def g_add_movie_night(guild_id: int, title: str | None, scheduled_at: datetime,
-                           created_by: int, event_id: int | None = None) -> int:
+                           created_by: int, event_id: int | None = None,
+                           is_marathon: bool = False) -> int:
     table = _guild.guild_table(guild_id, "movie_nights")
     async with _connect() as db:
         cur = await db.execute(
-            f"INSERT INTO {table} (title, scheduled_at, created_by, created_at, event_id) VALUES (?, ?, ?, ?, ?)",
+            f"INSERT INTO {table} (title, scheduled_at, created_by, created_at, event_id, is_marathon) "
+            f"VALUES (?, ?, ?, ?, ?, ?)",
             (title, scheduled_at.isoformat(), created_by,
-             datetime.utcnow().isoformat(), event_id),
+             datetime.utcnow().isoformat(), event_id, 1 if is_marathon else 0),
         )
         await db.commit()
         return cur.lastrowid
@@ -6011,3 +6013,81 @@ async def g_santa_get_messages(guild_id: int, event_id: int, santa_discord_id: i
         ) as cur:
             rows = await cur.fetchall()
     return [{"sender": r[0], "text": r[1], "created_at": r[2]} for r in rows]
+
+
+# ============================================================
+# v3.11: RSVP киновечера + авто-промпт/countdown (Discord-runtime)
+# ============================================================
+
+async def g_add_movie_night_rsvp(guild_id: int, event_id: int, user_discord_id: int) -> None:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table} (event_id, user_discord_id, created_at) VALUES (?, ?, ?)",
+            (int(event_id), int(user_discord_id), datetime.utcnow().isoformat()))
+        await db.commit()
+
+
+async def g_remove_movie_night_rsvp(guild_id: int, event_id: int, user_discord_id: int) -> None:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        await db.execute(
+            f"DELETE FROM {table} WHERE event_id = ? AND user_discord_id = ?",
+            (int(event_id), int(user_discord_id)))
+        await db.commit()
+
+
+async def g_count_movie_night_rsvp(guild_id: int, event_id: int) -> int:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE event_id = ?", (int(event_id),)) as cur:
+            return int((await cur.fetchone())[0])
+
+
+async def g_list_movie_night_rsvp(guild_id: int, event_id: int) -> list[int]:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT user_discord_id FROM {table} WHERE event_id = ? ORDER BY created_at",
+            (int(event_id),)) as cur:
+            return [int(r[0]) for r in await cur.fetchall()]
+
+
+_MOVIE_NIGHT_FLAGS = {"countdown_sent", "rate_prompt_sent"}
+
+
+async def g_mark_movie_night_flag(guild_id: int, movie_night_id: int, flag: str) -> None:
+    """Пометить флаг киновечера (countdown_sent | rate_prompt_sent). Колонка из белого списка."""
+    if flag not in _MOVIE_NIGHT_FLAGS:
+        raise ValueError(f"bad flag: {flag}")
+    table = _guild.guild_table(guild_id, "movie_nights")
+    async with _connect() as db:
+        await db.execute(f"UPDATE {table} SET {flag} = 1 WHERE id = ?", (int(movie_night_id),))
+        await db.commit()
+
+
+async def g_movie_nights_due_countdown(guild_id: int, now_iso: str, window_start_iso: str) -> list[dict]:
+    """Киновечера, которые стартуют (scheduled_at в [window_start, now]) и ещё без countdown."""
+    table = _guild.guild_table(guild_id, "movie_nights")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, scheduled_at, event_id FROM {table} "
+            f"WHERE scheduled_at <= ? AND scheduled_at >= ? "
+            f"AND COALESCE(countdown_sent, 0) = 0",
+            (now_iso, window_start_iso)) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "title": r[1], "scheduled_at": r[2], "event_id": r[3]} for r in rows]
+
+
+async def g_movie_nights_due_rate(guild_id: int, cutoff_iso: str, floor_iso: str) -> list[dict]:
+    """Киновечера, прошедшие (scheduled_at в [floor, cutoff]) и без промпта оценок."""
+    table = _guild.guild_table(guild_id, "movie_nights")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, scheduled_at, event_id FROM {table} "
+            f"WHERE scheduled_at <= ? AND scheduled_at >= ? "
+            f"AND COALESCE(rate_prompt_sent, 0) = 0",
+            (cutoff_iso, floor_iso)) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "title": r[1], "scheduled_at": r[2], "event_id": r[3]} for r in rows]

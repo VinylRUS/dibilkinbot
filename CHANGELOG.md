@@ -17,6 +17,11 @@
 - **Прогресс-бар авто-закрытия** у toast-уведомлений.
 - **Повышенный контраст** (`prefers-contrast: more`) — усиленные границы и текст для доступности.
 
+- **Киномарафон** 🎞️ — команда `/marathon` для анонса нескольких фильмов за вечер (Scheduled Event + embed со списком).
+- **Watch-party «3-2-1»** ⏱️ — в момент старта киновечера бот постит в канал анонсов «начинаем!».
+- **Авто-напоминание оценить** ⭐ — через 3 часа после старта бот просит оценить фильм на панели.
+- **RSVP «Интересно»** 👋 — нажатия «Интересно» на Discord-событии киновечера сохраняются (кто собирается).
+
 #ИСПРАВЛЕНО#
 - **Сломанные «пружинные» переходы**: CSS-переменные `--spring`/`--smooth` использовались в 10 местах (карточки, сайдбар, `profile_public.html`), но НИГДЕ не были определены — из-за чего shorthand-переходы были невалидны и «жидкая» анимация откатывалась к дефолту. Определены в `:root`.
 - **`.ping-card`**: дублирующийся `box-shadow` перекрывал первый и терял inset-блик стекла.
@@ -30,6 +35,7 @@
 - `templates/sidebar.html`: JS генерации ripple (`pointerdown`, с учётом reduced-motion); прогресс-бар в `showToast`; скрипт корректной иконки темы при `auto`.
 - `README.md`: добавлен раздел «Модули сверх ядра» и актуализировано дерево структуры.
 - Палитра, философия стекла и расположение элементов не менялись — только консистентность и микро-взаимодействия.
+- **Discord-рантайм (ветка feature/v3.11-discord-runtime)**: `bot.py` — интент `guild_scheduled_events`, хендлеры `on_scheduled_event_user_add/remove` (RSVP), команда `/marathon`; новый `movienight_monitor.py` (цикл countdown + промпт оценок, стартует в `on_ready`); `guild.py` — таблица `movie_night_rsvp`, колонки `movie_nights.countdown_sent/rate_prompt_sent/is_marathon` + миграция; `db.py` — g_*_movie_night_rsvp, g_movie_nights_due_countdown/rate, g_mark_movie_night_flag. Realtime role-sync Discord↔панель уже был реализован ранее (on_guild_role_*). DB-слой покрыт тестами; Discord-хендлеры/цикл/команда требуют проверки на живом боте.
 - **«Мёд» 🍯 (фундамент геймификации, backend)**: новая per-guild таблица `honey_ledger`; функции в `db.py` — `g_honey_breakdown`, `g_honey_balance`, `g_honey_spend`, `g_honey_grant`, `g_honey_leaderboard`, `g_activity_streak`. Баланс = заработано (выводится SQL из `watched`/`ratings`/`quotes`/`user_achievements`, ставки `HONEY_PER_*`) + `SUM(ledger.delta)`; траты/бонусы — строки леджера, баланс клампится в ≥0. Тесты: `tests/test_honey.py` (5 шт). UI (профиль, лидерборд, траты на косметику) — в следующей фазе.
 
 ## v3.10.2 (0000000) — Чистка дашборда
