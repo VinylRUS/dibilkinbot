@@ -914,6 +914,16 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         import logging
         logging.getLogger("dashboard").warning("joint_play_sessions failed: %s", e)
 
+    # v3.10.1: «Тайный Санта» в быстрых кнопках — админам всегда,
+    # Пчёлам только во время активного события.
+    has_active_santa = False
+    if not _user.get("is_admin"):
+        try:
+            has_active_santa = bool(await db.g_get_active_santa_event(int(guild_id)))
+        except Exception as e:
+            import logging
+            logging.getLogger("dashboard").warning("active santa check failed: %s", e)
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
         "current_guild_id": guild_id,
@@ -934,6 +944,7 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         "stats": stats,
         "active_members": active_members,
         "joint_sessions": joint_sessions,
+        "has_active_santa": has_active_santa,
     })
 
 
