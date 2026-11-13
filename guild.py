@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -446,6 +446,20 @@ GUILD_SCHEMA_TEMPLATES = {
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_created ON {table}(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_{table}_actor ON {table}(actor_discord_id);
+    """,
+    # v3.11: «Мёд» 🍯 — корректировки баланса (траты = отрицательные, бонусы = положительные).
+    # Заработок НЕ хранится здесь — он выводится SQL'ом из существующих таблиц
+    # (watched/ratings/quotes/user_achievements). Баланс = заработано + SUM(delta).
+    "honey_ledger": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_discord_id INTEGER NOT NULL,
+            delta INTEGER NOT NULL,
+            reason TEXT,
+            created_by INTEGER,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
     """,
 }
 

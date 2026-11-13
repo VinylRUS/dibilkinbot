@@ -5301,3 +5301,215 @@ async def g_find_modrinth_sub_by_slug(guild_id: int, slug: str) -> dict | None:
         "project_type": r[4], "last_version_id": r[5], "last_version_date": r[6],
         "last_checked_at": r[7], "added_by": r[8], "added_at": r[9],
     }
+
+
+# ============================================================
+# v3.11: «Мёд» 🍯 — геймификационная валюта
+# ============================================================
+# Баланс = «заработано» (выводится из существующих таблиц) + SUM(ledger.delta).
+# Заработок не инструментирует места записи — считается на лету, поэтому
+# нет двойного начисления и пропущенных хуков. Траты/бонусы — строки в
+# honey_ledger (траты отрицательные, ручные бонусы положительные).
+
+# Сколько «мёда» даёт каждое действие (заработок).
+HONEY_PER_WATCHED = 5       # фильм отмечен просмотренным
+HONEY_PER_RATING = 3        # поставлена оценка
+HONEY_PER_QUOTE = 2         # сохранена цитата
+HONEY_PER_ACHIEVEMENT = 25  # получена ачивка
+
+
+async def g_honey_breakdown(guild_id: int, user_discord_id: int) -> dict:
+    """Разбивка заработка «мёда» по источникам + ручные корректировки.
+
+    Возвращает {watched, ratings, quotes, achievements, earned, adjustments, balance}.
+    balance клампится в >= 0 (на случай если админ списал больше заработанного).
+    """
+    uid = int(user_discord_id)
+    t_watched = _guild.guild_table(guild_id, "watched")
+    t_ratings = _guild.guild_table(guild_id, "ratings")
+    t_quotes = _guild.guild_table(guild_id, "quotes")
+    t_uach = _guild.guild_table(guild_id, "user_achievements")
+    t_ledger = _guild.guild_table(guild_id, "honey_ledger")
+
+    async with _connect() as db:
+        async def _scalar(sql: str, params: tuple) -> int:
+            async with db.execute(sql, params) as cur:
+                row = await cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
+        n_watched = await _scalar(
+            f"SELECT COUNT(*) FROM {t_watched} WHERE watcher_user_id = ?", (uid,))
+        n_ratings = await _scalar(
+            f"SELECT COUNT(*) FROM {t_ratings} WHERE user_discord_id = ?", (uid,))
+        n_quotes = await _scalar(
+            f"SELECT COUNT(*) FROM {t_quotes} WHERE recorded_by = ?", (uid,))
+        n_ach = await _scalar(
+            f"SELECT COUNT(*) FROM {t_uach} WHERE user_discord_id = ? AND is_active = 1", (uid,))
+        adjustments = await _scalar(
+            f"SELECT COALESCE(SUM(delta), 0) FROM {t_ledger} WHERE user_discord_id = ?", (uid,))
+
+    earned = (n_watched * HONEY_PER_WATCHED + n_ratings * HONEY_PER_RATING
+              + n_quotes * HONEY_PER_QUOTE + n_ach * HONEY_PER_ACHIEVEMENT)
+    balance = max(0, earned + adjustments)
+    return {
+        "watched": n_watched,
+        "ratings": n_ratings,
+        "quotes": n_quotes,
+        "achievements": n_ach,
+        "earned": earned,
+        "adjustments": adjustments,
+        "balance": balance,
+    }
+
+
+async def g_honey_balance(guild_id: int, user_discord_id: int) -> int:
+    """Текущий баланс «мёда» пользователя (>= 0)."""
+    bd = await g_honey_breakdown(guild_id, user_discord_id)
+    return bd["balance"]
+
+
+async def g_honey_spend(guild_id: int, user_discord_id: int, amount: int,
+                        reason: str | None = None) -> bool:
+    """Списать `amount` мёда. Возвращает False, если недостаточно баланса или amount<=0.
+
+    Атомарность: баланс перечитывается и строка вставляется в одном соединении.
+    """
+    amount = int(amount)
+    if amount <= 0:
+        return False
+    bal = await g_honey_balance(guild_id, user_discord_id)
+    if bal < amount:
+        return False
+    table = _guild.guild_table(guild_id, "honey_ledger")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (user_discord_id, delta, reason, created_by, created_at) "
+            f"VALUES (?, ?, ?, ?, ?)",
+            (int(user_discord_id), -amount, reason, int(user_discord_id),
+             datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+    return True
+
+
+async def g_honey_grant(guild_id: int, user_discord_id: int, amount: int,
+                        reason: str | None = None, granted_by: int | None = None) -> None:
+    """Начислить ручной бонус (или штраф при отрицательном amount) в леджер."""
+    amount = int(amount)
+    if amount == 0:
+        return
+    table = _guild.guild_table(guild_id, "honey_ledger")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (user_discord_id, delta, reason, created_by, created_at) "
+            f"VALUES (?, ?, ?, ?, ?)",
+            (int(user_discord_id), amount, reason,
+             int(granted_by) if granted_by is not None else None,
+             datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+
+
+async def g_honey_leaderboard(guild_id: int, limit: int = 10) -> list[dict]:
+    """Топ пользователей по балансу «мёда».
+
+    Заработок агрегируется по каждому пользователю из 4 таблиц, затем
+    прибавляется SUM(ledger.delta). Для небольшого комьюнити считаем в Python.
+    Возвращает [{user_discord_id, balance, username, display_name}, ...] по убыванию.
+    """
+    t_watched = _guild.guild_table(guild_id, "watched")
+    t_ratings = _guild.guild_table(guild_id, "ratings")
+    t_quotes = _guild.guild_table(guild_id, "quotes")
+    t_uach = _guild.guild_table(guild_id, "user_achievements")
+    t_ledger = _guild.guild_table(guild_id, "honey_ledger")
+
+    totals: dict[int, int] = {}
+
+    async def _accumulate(db, sql: str, weight: int):
+        async with db.execute(sql) as cur:
+            async for uid, cnt in cur:
+                if uid is None:
+                    continue
+                totals[int(uid)] = totals.get(int(uid), 0) + int(cnt) * weight
+
+    async with _connect() as db:
+        await _accumulate(
+            db, f"SELECT watcher_user_id, COUNT(*) FROM {t_watched} GROUP BY watcher_user_id",
+            HONEY_PER_WATCHED)
+        await _accumulate(
+            db, f"SELECT user_discord_id, COUNT(*) FROM {t_ratings} GROUP BY user_discord_id",
+            HONEY_PER_RATING)
+        await _accumulate(
+            db, f"SELECT recorded_by, COUNT(*) FROM {t_quotes} GROUP BY recorded_by",
+            HONEY_PER_QUOTE)
+        await _accumulate(
+            db, f"SELECT user_discord_id, COUNT(*) FROM {t_uach} WHERE is_active = 1 "
+                f"GROUP BY user_discord_id",
+            HONEY_PER_ACHIEVEMENT)
+        # Корректировки из леджера (weight = 1, delta уже со знаком)
+        async with db.execute(
+            f"SELECT user_discord_id, COALESCE(SUM(delta), 0) FROM {t_ledger} "
+            f"GROUP BY user_discord_id"
+        ) as cur:
+            async for uid, s in cur:
+                if uid is None:
+                    continue
+                totals[int(uid)] = totals.get(int(uid), 0) + int(s)
+
+        # Имена одним запросом
+        names: dict[int, tuple] = {}
+        if totals:
+            async with db.execute("SELECT discord_id, username, display_name FROM users") as cur:
+                async for did, un, dn in cur:
+                    names[int(did)] = (un, dn)
+
+    rows = [
+        {
+            "user_discord_id": uid,
+            "balance": max(0, bal),
+            "username": names.get(uid, (None, None))[0],
+            "display_name": names.get(uid, (None, None))[1],
+        }
+        for uid, bal in totals.items()
+        if max(0, bal) > 0
+    ]
+    rows.sort(key=lambda r: r["balance"], reverse=True)
+    return rows[:limit]
+
+
+async def g_activity_streak(guild_id: int, user_discord_id: int) -> int:
+    """Стрик активности: сколько дней подряд (заканчивая сегодня или вчера по UTC)
+    у пользователя есть хотя бы одно событие в activity_log.
+
+    Разрыв «вчера» допускается, чтобы стрик не обнулялся до первого действия дня.
+    """
+    from datetime import date, timedelta
+    table = _guild.guild_table(guild_id, "activity_log")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT DISTINCT substr(created_at, 1, 10) AS d FROM {table} "
+            f"WHERE actor_discord_id = ? ORDER BY d DESC",
+            (int(user_discord_id),),
+        ) as cur:
+            rows = await cur.fetchall()
+    days = set()
+    for r in rows:
+        try:
+            days.add(date.fromisoformat(r[0]))
+        except (ValueError, TypeError):
+            continue
+    if not days:
+        return 0
+    today = datetime.utcnow().date()
+    # Старт стрика — сегодня (если было событие) иначе вчера, иначе 0.
+    if today in days:
+        cursor = today
+    elif (today - timedelta(days=1)) in days:
+        cursor = today - timedelta(days=1)
+    else:
+        return 0
+    streak = 0
+    while cursor in days:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return streak
