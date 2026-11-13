@@ -2279,8 +2279,10 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
   position: relative;
   overflow: hidden;
 }
-/* Декоративные кнопки-кружки/звёзды не обрезаем (их тени/кольца должны быть видны) */
-.accent-swatch, .star-rating .star-half, .stepper button { overflow: visible; }
+/* Декоративные кнопки-кружки не обрезаем (их тени/кольца должны быть видны).
+   ВНИМАНИЕ: .star-half сюда НЕ входит — половинки звёзд работают за счёт
+   overflow:hidden (обрезают символ ★ до половины), visible их ломает. */
+.accent-swatch, .stepper button { overflow: visible; }
 .ripple-wave {
   position: absolute;
   border-radius: 50%;

@@ -7,25 +7,69 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
   <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
-    .match-card {
+    /* ===== Турнирная сетка ===== */
+    .bracket {
+      display: flex; gap: 20px; overflow-x: auto; padding: 8px 4px 16px;
+      align-items: stretch;
+    }
+    .bracket-round {
+      display: flex; flex-direction: column; justify-content: space-around;
+      gap: 12px; min-width: 190px; flex-shrink: 0;
+    }
+    .bracket-round-label {
+      font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-soft); font-weight: 700; text-align: center; margin-bottom: 2px;
+    }
+    .bracket-round.current .bracket-round-label { color: var(--accent); }
+    .bm {
+      background: var(--content-bg); border: 1px solid var(--content-border);
+      border-radius: 12px; padding: 6px; box-shadow: var(--glass-shadow), var(--glass-inset);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .bracket-round.current .bm { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft), var(--glass-shadow); }
+    .bm-side {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 7px 10px; border-radius: 8px; font-size: 0.82rem; color: var(--text);
+      background: var(--card-alt);
+    }
+    .bm-side.win { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+    .bm-side.lose { opacity: 0.5; }
+    .bm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bm-votes { font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0; }
+    .bm-side.win .bm-votes { color: var(--accent); }
+    .bm-vs { text-align: center; font-size: 0.6rem; color: var(--text-soft); font-weight: 800; }
+    .bm-placeholder { opacity: 0.4; }
+    .bm-placeholder .bm-side { color: var(--text-soft); }
+
+    /* ===== Голосование текущего раунда ===== */
+    .vote-match {
       display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 10px;
       background: var(--content-bg); border: 1px solid var(--content-border);
       border-radius: var(--content-radius); padding: 14px; margin-bottom: 12px;
       box-shadow: var(--glass-shadow), var(--glass-inset);
     }
-    .match-side {
-      display: flex; flex-direction: column; gap: 8px; align-items: stretch;
-      border: 1px solid transparent; border-radius: 12px; padding: 10px; text-align: center;
+    .vote-side {
+      display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center;
+      border: 1px solid transparent; border-radius: 12px; padding: 12px; cursor: pointer;
+      background: var(--card-alt); transition: border-color .15s, transform .15s var(--spring);
+      color: var(--text); font-weight: 700;
     }
-    .match-side.win { border-color: var(--accent); background: var(--accent-soft); }
-    .match-name { font-weight: 700; color: var(--text); }
-    .match-votes { font-size: 0.82rem; color: var(--text-muted); }
-    .match-vs { display: flex; align-items: center; color: var(--text-soft); font-weight: 800; }
-    .match-bye { grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
-    .champion {
-      text-align: center; padding: 24px; font-size: 1.4rem; font-weight: 800; color: var(--accent);
+    .vote-side:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .vote-side.win { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .vote-votes { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
+    .vote-vs { display: flex; align-items: center; color: var(--text-soft); font-weight: 800; }
+    .vote-bye { grid-column: 1/-1; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+
+    /* ===== Чемпион ===== */
+    .champion-wrap { text-align: center; padding: 20px; }
+    .champion-crown { font-size: 2.6rem; line-height: 1; animation: champ-pop .5s var(--spring); }
+    .champion-name {
+      font-size: 1.8rem; font-weight: 800; color: var(--accent); margin: 8px 0 4px;
+      text-shadow: 0 0 24px var(--accent-soft); animation: champ-pop .5s var(--spring) .1s both;
     }
-    .tour-create textarea { min-height: 120px; }
+    .champion-sub { color: var(--text-muted); font-size: 0.9rem; }
+    @keyframes champ-pop { from { opacity:0; transform: scale(.8); } to { opacity:1; transform: scale(1); } }
+    @media (max-width:480px){ .bracket-round{min-width:160px;} }
   </style>
 </head>
 <body>
@@ -38,46 +82,99 @@
       <article class="card">
         <p style="color:var(--text-muted);">Сейчас турнир не идёт.</p>
         {% if is_admin %}
-        <form class="tour-create" onsubmit="return createTournament(event)">
+        <form onsubmit="return createTournament(event)">
           <label>Название</label>
           <input type="text" name="title" value="Турнир фильмов">
           <label>Фильмы (по одному на строку, минимум 2)</label>
-          <textarea name="items" placeholder="Матрица&#10;Начало&#10;Интерстеллар&#10;Бегущий по лезвию"></textarea>
+          <textarea name="items" style="min-height:120px;" placeholder="Матрица&#10;Начало&#10;Интерстеллар&#10;Бегущий по лезвию"></textarea>
           <button type="submit" class="btn-primary" style="margin-top:12px;">Создать турнир</button>
         </form>
         {% endif %}
       </article>
 
-    {% elif tournament.status == 'completed' %}
-      <article class="card">
-        <div class="champion">👑 {{ tournament.winner_name }}</div>
-        <p style="text-align:center;color:var(--text-muted);">Победитель турнира «{{ tournament.title }}»</p>
+    {% else %}
+      {# ===== Общая сетка ===== #}
+      <h3 class="section-title" style="margin-top:0;">Сетка — «{{ tournament.title }}»</h3>
+      <article class="card" style="padding:12px;">
+        <div class="bracket">
+          {% for rnd in bracket %}
+          <div class="bracket-round {% if rnd.is_current %}current{% endif %}">
+            <div class="bracket-round-label">{{ rnd.label }}</div>
+            {% for m in rnd.matches %}
+              {% if m.placeholder %}
+              <div class="bm bm-placeholder">
+                <div class="bm-side"><span class="bm-name">—</span></div>
+                <div class="bm-vs">VS</div>
+                <div class="bm-side"><span class="bm-name">—</span></div>
+              </div>
+              {% else %}
+              <div class="bm">
+                <div class="bm-side {% if m.winner_name and m.winner_name == m.left_name %}win{% elif m.winner_name %}lose{% endif %}">
+                  <span class="bm-name" title="{{ m.left_name }}">{{ m.left_name or '—' }}</span>
+                  <span class="bm-votes">{{ m.left_votes }}</span>
+                </div>
+                {% if m.right_name %}
+                <div class="bm-vs">VS</div>
+                <div class="bm-side {% if m.winner_name and m.winner_name == m.right_name %}win{% elif m.winner_name %}lose{% endif %}">
+                  <span class="bm-name" title="{{ m.right_name }}">{{ m.right_name }}</span>
+                  <span class="bm-votes">{{ m.right_votes }}</span>
+                </div>
+                {% else %}
+                <div class="bm-vs" style="color:var(--green);">🎟 проходит</div>
+                {% endif %}
+              </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+          {% endfor %}
+
+          {# Финальная колонка с чемпионом #}
+          {% if tournament.status == 'completed' %}
+          <div class="bracket-round" style="justify-content:center;">
+            <div class="bracket-round-label">Чемпион</div>
+            <div class="bm" style="border-color:var(--accent);">
+              <div class="bm-side win"><span class="bm-name">👑 {{ tournament.winner_name }}</span></div>
+            </div>
+          </div>
+          {% endif %}
+        </div>
       </article>
 
-    {% else %}
-      <p style="color:var(--text-muted);">«{{ tournament.title }}» — раунд {{ tournament.current_round }}. Голосуйте за фильм в каждой паре.</p>
-      {% for m in matches %}
-        {% if m.right_name %}
-        <div class="match-card" data-match="{{ m.id }}">
-          <button class="match-side left" onclick="voteMatch({{ m.id }}, 'left', this)">
-            <span class="match-name">{{ m.left_name }}</span>
-            <span class="match-votes"><span class="lv">{{ m.left_votes }}</span> голосов</span>
-          </button>
-          <div class="match-vs">VS</div>
-          <button class="match-side right" onclick="voteMatch({{ m.id }}, 'right', this)">
-            <span class="match-name">{{ m.right_name }}</span>
-            <span class="match-votes"><span class="rv">{{ m.right_votes }}</span> голосов</span>
-          </button>
-        </div>
-        {% else %}
-        <div class="match-card"><div class="match-bye">🎟 {{ m.left_name }} — проходит дальше (без пары)</div></div>
-        {% endif %}
-      {% endfor %}
+      {% if tournament.status == 'completed' %}
+        {# ===== Объявление победителя ===== #}
+        <article class="card champion-wrap" style="margin-top:16px;">
+          <div class="champion-crown">👑</div>
+          <div class="champion-name">{{ tournament.winner_name }}</div>
+          <div class="champion-sub">Победитель турнира «{{ tournament.title }}» — объявляется чемпионом киноаукциона! 🎬</div>
+        </article>
 
-      {% if is_admin %}
-      <button class="btn-primary" onclick="advanceTournament(this)" style="margin-top:12px;">
-        Завершить раунд → следующий
-      </button>
+      {% else %}
+        {# ===== Голосование текущего раунда ===== #}
+        <h3 class="section-title">Голосование — раунд {{ tournament.current_round }}</h3>
+        <p style="color:var(--text-muted);margin-top:-4px;">Выберите фильм в каждой паре.</p>
+        {% for m in current_matches %}
+          {% if m.right_name %}
+          <div class="vote-match" data-match="{{ m.id }}">
+            <button class="vote-side left" onclick="voteMatch({{ m.id }}, 'left', this)">
+              <span>{{ m.left_name }}</span>
+              <span class="vote-votes"><span class="lv">{{ m.left_votes }}</span> голосов</span>
+            </button>
+            <div class="vote-vs">VS</div>
+            <button class="vote-side right" onclick="voteMatch({{ m.id }}, 'right', this)">
+              <span>{{ m.right_name }}</span>
+              <span class="vote-votes"><span class="rv">{{ m.right_votes }}</span> голосов</span>
+            </button>
+          </div>
+          {% else %}
+          <div class="vote-match"><div class="vote-bye">🎟 {{ m.left_name }} — проходит дальше (без пары)</div></div>
+          {% endif %}
+        {% endfor %}
+
+        {% if is_admin %}
+        <button class="btn-primary" onclick="advanceTournament(this)" style="margin-top:12px;">
+          Завершить раунд → следующий
+        </button>
+        {% endif %}
       {% endif %}
     {% endif %}
   </main>
@@ -85,14 +182,10 @@
   <script>
     function createTournament(e) {
       e.preventDefault();
-      const f = e.target;
-      const body = new FormData(f);
-      fetch('/api/tournament/create', { method: 'POST', body: body })
+      fetch('/api/tournament/create', { method: 'POST', body: new FormData(e.target) })
         .then(r => r.json())
-        .then(d => {
-          if (d.ok) { location.reload(); }
-          else { window.showToast(d.error === 'need >= 2 films' ? '❌ Нужно минимум 2 фильма' : '❌ ' + (d.error || 'Ошибка'), 'error'); }
-        })
+        .then(d => { if (d.ok) location.reload();
+          else window.showToast(d.error === 'need >= 2 films' ? '❌ Нужно минимум 2 фильма' : '❌ ' + (d.error || 'Ошибка'), 'error'); })
         .catch(() => window.showToast('❌ Ошибка', 'error'));
       return false;
     }
@@ -102,10 +195,10 @@
         .then(r => r.json())
         .then(d => {
           if (!d.ok) { window.showToast('❌ ' + (d.error || 'Ошибка'), 'error'); return; }
-          const card = btn.closest('.match-card');
+          const card = btn.closest('.vote-match');
           card.querySelector('.lv').textContent = d.left_votes;
           card.querySelector('.rv').textContent = d.right_votes;
-          card.querySelectorAll('.match-side').forEach(s => s.classList.remove('win'));
+          card.querySelectorAll('.vote-side').forEach(s => s.classList.remove('win'));
           btn.classList.add('win');
           window.showToast('✓ Голос учтён', 'success');
         })
@@ -115,10 +208,8 @@
       btn.disabled = true;
       fetch('/api/tournament/advance', { method: 'POST' })
         .then(r => r.json())
-        .then(d => {
-          if (d.ok) { location.reload(); }
-          else { window.showToast('❌ ' + (d.error || 'Ошибка'), 'error'); btn.disabled = false; }
-        })
+        .then(d => { if (d.ok) location.reload();
+          else { window.showToast('❌ ' + (d.error || 'Ошибка'), 'error'); btn.disabled = false; } })
         .catch(() => { window.showToast('❌ Ошибка', 'error'); btn.disabled = false; });
     }
   </script>
