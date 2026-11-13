@@ -2367,6 +2367,46 @@ button:not(.custom-select-trigger),
   white-space: nowrap;
 }
 
+/* ===== v3.11: Косметические accent-цвета (покупаются за «мёд») =====
+   Переопределяют accent-семейство токенов; работают в обеих темах. */
+[data-accent="rose"] {
+  --accent: #FF4D83; --accent-2: #FF6F9C; --accent-hover: #FF679A; --accent-text: #FFFFFF;
+  --accent-soft: rgba(255, 77, 131, 0.16); --accent-glow: 0 0 22px rgba(255, 77, 131, 0.4);
+  --icon-glow: rgba(255, 77, 131, 0.45); --icon-glow-strong: rgba(255, 77, 131, 0.65);
+}
+[data-accent="violet"] {
+  --accent: #8B5CF6; --accent-2: #A78BFA; --accent-hover: #9D74F7; --accent-text: #FFFFFF;
+  --accent-soft: rgba(139, 92, 246, 0.16); --accent-glow: 0 0 22px rgba(139, 92, 246, 0.4);
+  --icon-glow: rgba(139, 92, 246, 0.45); --icon-glow-strong: rgba(139, 92, 246, 0.65);
+}
+[data-accent="teal"] {
+  --accent: #14B8A6; --accent-2: #2DD4BF; --accent-hover: #0FA396; --accent-text: #08201D;
+  --accent-soft: rgba(20, 184, 166, 0.16); --accent-glow: 0 0 22px rgba(20, 184, 166, 0.4);
+  --icon-glow: rgba(20, 184, 166, 0.45); --icon-glow-strong: rgba(20, 184, 166, 0.65);
+}
+[data-accent="lime"] {
+  --accent: #84CC16; --accent-2: #A3E635; --accent-hover: #74B513; --accent-text: #1A2605;
+  --accent-soft: rgba(132, 204, 22, 0.16); --accent-glow: 0 0 22px rgba(132, 204, 22, 0.4);
+  --icon-glow: rgba(132, 204, 22, 0.45); --icon-glow-strong: rgba(132, 204, 22, 0.65);
+}
+
+/* Витрина акцентов на профиле */
+.accent-shop { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 4px; }
+.accent-swatch {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: transparent; border: none; cursor: pointer; padding: 0; margin: 0;
+}
+.accent-swatch .accent-dot {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid var(--content-border);
+  box-shadow: var(--glass-inset);
+  transition: transform 0.15s var(--spring), box-shadow 0.15s;
+}
+.accent-swatch:hover .accent-dot { transform: scale(1.1); }
+.accent-swatch.equipped .accent-dot { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
+.accent-swatch .accent-label { font-size: 0.68rem; color: var(--text-muted); }
+.accent-swatch.locked .accent-dot { opacity: 0.55; }
+
 /* ===== v3.11: Follow на профиле ===== */
 .profile-follow {
   display: flex;

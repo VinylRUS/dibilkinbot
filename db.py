@@ -5714,3 +5714,59 @@ async def g_following_feed(guild_id: int, follower: int, limit: int = 20, days: 
             "target_name": r[3], "created_at": created, "time_ago": time_ago,
         })
     return out
+
+
+# ============================================================
+# v3.11: Косметика за «мёд» (accent-цвета)
+# ============================================================
+
+async def g_cosmetics_owned(guild_id: int, user_discord_id: int, cosmetic_type: str) -> list[str]:
+    """Список купленных косметик данного типа у пользователя."""
+    table = _guild.guild_table(guild_id, "user_cosmetics")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT cosmetic_value FROM {table} "
+            f"WHERE user_discord_id = ? AND cosmetic_type = ?",
+            (int(user_discord_id), cosmetic_type),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [r[0] for r in rows]
+
+
+async def g_cosmetic_is_owned(guild_id: int, user_discord_id: int,
+                              cosmetic_type: str, value: str) -> bool:
+    table = _guild.guild_table(guild_id, "user_cosmetics")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT 1 FROM {table} WHERE user_discord_id = ? AND cosmetic_type = ? "
+            f"AND cosmetic_value = ? LIMIT 1",
+            (int(user_discord_id), cosmetic_type, value),
+        ) as cur:
+            return (await cur.fetchone()) is not None
+
+
+async def g_cosmetic_buy(guild_id: int, user_discord_id: int, cosmetic_type: str,
+                         value: str, cost: int) -> dict:
+    """Купить косметику за «мёд». Идемпотентно: если уже куплено — повторно не списывает.
+
+    Возвращает {ok, owned, balance, error?}.
+    """
+    uid = int(user_discord_id)
+    if await g_cosmetic_is_owned(guild_id, uid, cosmetic_type, value):
+        return {"ok": True, "owned": True,
+                "balance": await g_honey_balance(guild_id, uid)}
+    # Списываем мёд
+    spent = await g_honey_spend(guild_id, uid, cost, reason=f"cosmetic:{cosmetic_type}:{value}")
+    if not spent:
+        return {"ok": False, "owned": False,
+                "balance": await g_honey_balance(guild_id, uid),
+                "error": "insufficient"}
+    table = _guild.guild_table(guild_id, "user_cosmetics")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table} (user_discord_id, cosmetic_type, cosmetic_value, acquired_at) "
+            f"VALUES (?, ?, ?, ?)",
+            (uid, cosmetic_type, value, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+    return {"ok": True, "owned": True, "balance": await g_honey_balance(guild_id, uid)}

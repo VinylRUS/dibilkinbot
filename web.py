@@ -2331,6 +2331,22 @@ async def public_profile_page(
             import logging
             logging.getLogger("profile").warning("recommendations failed: %s", e)
 
+    # v3.11: витрина accent-цветов — только на своём профиле
+    accent_shop = None
+    if is_self:
+        try:
+            owned = await db.g_cosmetics_owned(guild_id, target_discord_id, "accent")
+            accent_shop = {
+                "accents": HONEY_ACCENTS,
+                "owned": owned,
+                "cost": HONEY_ACCENT_COST,
+                "current": request.cookies.get("accent", "amber"),
+                "balance": honey["balance"],
+            }
+        except Exception as e:
+            import logging
+            logging.getLogger("profile").warning("accent shop failed: %s", e)
+
     # v3.11: Follow — счётчики подписчиков/подписок и подписан ли текущий юзер
     follow_counts = {"followers": 0, "following": 0}
     is_following = False
@@ -2368,6 +2384,7 @@ async def public_profile_page(
         "watched_together": watched_together,
         "follow_counts": follow_counts,
         "is_following": is_following,
+        "accent_shop": accent_shop,
         "is_self": is_self,
         "not_found": False,
         "discord_info": discord_info,
@@ -2424,6 +2441,38 @@ async def api_unfollow(discord_id: int, _user: dict = Depends(require_user)):
     await db.g_unfollow(guild_id, viewer_id, discord_id)
     counts = await db.g_follow_counts(guild_id, discord_id)
     return JSONResponse({"following": False, "followers": counts["followers"]})
+
+
+# === Косметика за «мёд»: accent-цвета (v3.11) ===
+# value → человекочитаемое имя. "amber" — дефолт (бесплатно).
+HONEY_ACCENTS = {
+    "amber": "Янтарь",
+    "rose": "Роза",
+    "violet": "Фиалка",
+    "teal": "Бирюза",
+    "lime": "Лайм",
+}
+HONEY_ACCENT_COST = 150  # мёда за один не-дефолтный акцент (разовая покупка)
+
+
+@app.post("/api/honey/accent/{accent}")
+async def api_set_accent(accent: str, _user: dict = Depends(require_user)):
+    """Купить (если ещё не куплен) и применить accent-цвет. amber — бесплатно."""
+    if accent not in HONEY_ACCENTS:
+        return JSONResponse({"error": "unknown accent"}, status_code=400)
+    guild_id = get_current_guild_id(_user)
+    uid = _user.get("discord_id", 0)
+    if not uid:
+        return JSONResponse({"error": "no user"}, status_code=400)
+    if accent == "amber":
+        data = {"ok": True, "owned": True, "balance": await db.g_honey_balance(guild_id, uid)}
+    else:
+        data = await db.g_cosmetic_buy(guild_id, uid, "accent", accent, HONEY_ACCENT_COST)
+    resp = JSONResponse(data, status_code=200 if data.get("ok") else 402)
+    if data.get("ok"):
+        # Кука читается клиентским JS (sidebar.html) — httponly выключен намеренно.
+        resp.set_cookie("accent", accent, max_age=31536000, samesite="lax")
+    return resp
 
 
 # === Watchlist API ===

@@ -252,6 +252,33 @@ def test_profile_renders_honey(client):
     assert "Мёд" in r.text
 
 
+@pytest.mark.asyncio
+async def test_cosmetic_buy(client):
+    """Покупка accent-цвета списывает мёд один раз; повторно — бесплатно; без мёда — отказ."""
+    import db
+    earned = await _seed()  # 46 мёда, чистит леджер пользователя
+
+    # Недостаточно (стоимость 150 > 46)
+    res = await db.g_cosmetic_buy(TEST_GUILD_ID, HONEY_USER, "accent", "rose", 150)
+    assert res["ok"] is False and res["error"] == "insufficient"
+    assert await db.g_cosmetic_is_owned(TEST_GUILD_ID, HONEY_USER, "accent", "rose") is False
+
+    # Дарим мёда и покупаем
+    await db.g_honey_grant(TEST_GUILD_ID, HONEY_USER, 200, "test top-up")
+    bal_before = await db.g_honey_balance(TEST_GUILD_ID, HONEY_USER)
+    res = await db.g_cosmetic_buy(TEST_GUILD_ID, HONEY_USER, "accent", "rose", 150)
+    assert res["ok"] is True and res["owned"] is True
+    assert res["balance"] == bal_before - 150
+    assert await db.g_cosmetic_is_owned(TEST_GUILD_ID, HONEY_USER, "accent", "rose") is True
+    assert "rose" in await db.g_cosmetics_owned(TEST_GUILD_ID, HONEY_USER, "accent")
+
+    # Повторная покупка того же — бесплатно (баланс не меняется)
+    bal2 = await db.g_honey_balance(TEST_GUILD_ID, HONEY_USER)
+    res = await db.g_cosmetic_buy(TEST_GUILD_ID, HONEY_USER, "accent", "rose", 150)
+    assert res["ok"] is True
+    assert await db.g_honey_balance(TEST_GUILD_ID, HONEY_USER) == bal2
+
+
 def test_pwa_routes(client):
     """PWA: /sw.js из корня с правильным scope-заголовком и /manifest.webmanifest."""
     sw = client.get("/sw.js")

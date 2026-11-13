@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -472,6 +472,18 @@ GUILD_SCHEMA_TEMPLATES = {
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_follower ON {table}(follower_discord_id);
         CREATE INDEX IF NOT EXISTS idx_{table}_following ON {table}(following_discord_id);
+    """,
+    # v3.11: купленная за «мёд» косметика (например, accent-цвета).
+    "user_cosmetics": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_discord_id INTEGER NOT NULL,
+            cosmetic_type TEXT NOT NULL,
+            cosmetic_value TEXT NOT NULL,
+            acquired_at TEXT NOT NULL,
+            UNIQUE(user_discord_id, cosmetic_type, cosmetic_value)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id, cosmetic_type);
     """,
 }
 

@@ -34,6 +34,14 @@
   // Устанавливаем класс на body
   document.body.classList.add('has-sidebar');
 
+  // v3.11: косметический accent-цвет из куки
+  (function () {
+    var m = document.cookie.match(/(?:^|;\s*)accent=([a-z]+)/);
+    if (m && m[1] && m[1] !== 'amber') {
+      document.documentElement.setAttribute('data-accent', m[1]);
+    }
+  })();
+
   // v3.11: PWA — manifest, theme-color и регистрация service worker.
   (function () {
     if (!document.querySelector('link[rel="manifest"]')) {
