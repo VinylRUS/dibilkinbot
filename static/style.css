@@ -2301,6 +2301,72 @@ button:not(.custom-select-trigger),
   to   { transform: scaleX(0); }
 }
 
+/* ===== v3.11: Мёд 🍯 ===== */
+.honey-card { align-items: flex-start; gap: 4px; }
+.honey-balance {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1.1;
+}
+.honey-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.honey-streak {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.honey-streak strong { color: var(--accent); }
+.honey-board {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  counter-reset: honey;
+}
+.honey-board li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.honey-board li:last-child { border-bottom: none; }
+.honey-board li::before {
+  counter-increment: honey;
+  content: counter(honey);
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.honey-board li a {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.honey-board li a:hover { color: var(--accent); }
+.honey-board-amount {
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 /* ===== Плавные переходы между страницами (cross-document View Transitions) =====
    Прогрессивное улучшение: браузеры без поддержки просто игнорируют. MPA-навигация. */
 @view-transition { navigation: auto; }

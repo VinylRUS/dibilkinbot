@@ -121,6 +121,21 @@ async def test_honey_leaderboard(client):
     assert entry["balance"] == earned
 
 
+def test_dashboard_renders_honey(client):
+    """Дашборд отдаёт 200 и содержит блок «Мёд» (контекст honey прокинут в шаблон)."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "Мёд" in r.text
+    assert "honey-board" in r.text
+
+
+def test_profile_renders_honey(client):
+    """Публичный профиль отдаёт 200 и показывает карточку «Мёд»."""
+    r = client.get("/u/1001")  # TEST_ADMIN_DISCORD_ID из conftest
+    assert r.status_code == 200
+    assert "Мёд" in r.text
+
+
 @pytest.mark.asyncio
 async def test_activity_streak(client):
     import db

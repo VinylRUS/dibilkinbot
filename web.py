@@ -903,10 +903,22 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
             import logging
             logging.getLogger("dashboard").warning("active santa check failed: %s", e)
 
+    # v3.11: «Мёд» 🍯 — баланс/стрик текущего пользователя + топ-5 лидерборда
+    honey = {"balance": 0, "streak": 0, "leaderboard": []}
+    if user_discord_id:
+        try:
+            honey["balance"] = await db.g_honey_balance(guild_id, user_discord_id)
+            honey["streak"] = await db.g_activity_streak(guild_id, user_discord_id)
+            honey["leaderboard"] = await db.g_honey_leaderboard(guild_id, limit=5)
+        except Exception as e:
+            import logging
+            logging.getLogger("dashboard").warning("honey dashboard failed: %s", e)
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
         "current_guild_id": guild_id,
         "bot_version": bot_version,
+        "honey": honey,
         "saved_kp": saved_kp,
         "saved_tg": saved_tg,
         "active_collection": active_collection,
@@ -2242,8 +2254,18 @@ async def public_profile_page(
             "VQ player fetch failed for %s: %s", target_discord_id, e
         )
 
+    # v3.11: «Мёд» 🍯 целевого пользователя
+    honey = {"balance": 0, "streak": 0}
+    try:
+        honey["balance"] = await db.g_honey_balance(guild_id, target_discord_id)
+        honey["streak"] = await db.g_activity_streak(guild_id, target_discord_id)
+    except Exception as e:
+        import logging
+        logging.getLogger("profile").warning("honey profile failed: %s", e)
+
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
+        "honey": honey,
         "target": {
             "discord_id": target_discord_id,
             "username": username,

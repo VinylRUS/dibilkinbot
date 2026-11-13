@@ -460,6 +460,10 @@
       <div class="stat-card"><div class="stat-value">{{ stats.avg_rating if stats.ratings_count > 0 else '—' }}</div><div class="stat-label">Средняя</div></div>
       <div class="stat-card"><div class="stat-value">{{ stats.quotes_count }}</div><div class="stat-label">Цитат</div></div>
       <div class="stat-card"><div class="stat-value">{{ stats.watchlist_count }}</div><div class="stat-label">Вишлист</div></div>
+      {% if honey %}
+      <div class="stat-card"><div class="stat-value">🍯 {{ honey.balance }}</div><div class="stat-label">Мёд</div></div>
+      <div class="stat-card"><div class="stat-value">🔥 {{ honey.streak }}</div><div class="stat-label">Стрик, дн</div></div>
+      {% endif %}
     </div>
 
     {# Discord live info #}
