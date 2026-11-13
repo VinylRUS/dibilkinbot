@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -460,6 +460,18 @@ GUILD_SCHEMA_TEMPLATES = {
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+    """,
+    # v3.11: подписки (follow) — лента активности тех, на кого подписан.
+    "follows": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            follower_discord_id INTEGER NOT NULL,
+            following_discord_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(follower_discord_id, following_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_follower ON {table}(follower_discord_id);
+        CREATE INDEX IF NOT EXISTS idx_{table}_following ON {table}(following_discord_id);
     """,
 }
 

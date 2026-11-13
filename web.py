@@ -914,11 +914,39 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
             import logging
             logging.getLogger("dashboard").warning("honey dashboard failed: %s", e)
 
+    # v3.11: Лента подписок — активность тех, на кого подписан текущий пользователь
+    _FEED_LABELS = {
+        "achievement_granted": "получил(а) ачивку",
+        "collection_started": "запустил(а) сбор на киновечер",
+        "wheel_spun": "крутнул(а) колесо",
+        "quote_added": "добавил(а) цитату",
+        "steam_linked": "привязал(а) Steam",
+        "watchlist_added": "добавил(а) в вишлист",
+        "watched": "посмотрел(а) фильм",
+        "login": "заходил(а) в панель",
+    }
+    following_feed = []
+    if user_discord_id:
+        try:
+            for ev in await db.g_following_feed(guild_id, user_discord_id, limit=10):
+                label = _FEED_LABELS.get(ev["event_type"], ev["event_type"])
+                action = f"{label} «{ev['target_name']}»" if ev.get("target_name") else label
+                following_feed.append({
+                    "discord_id": ev["actor_discord_id"],
+                    "username": ev["actor_name"],
+                    "action": action,
+                    "time_ago": ev["time_ago"],
+                })
+        except Exception as e:
+            import logging
+            logging.getLogger("dashboard").warning("following feed failed: %s", e)
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
         "current_guild_id": guild_id,
         "bot_version": bot_version,
         "honey": honey,
+        "following_feed": following_feed,
         "saved_kp": saved_kp,
         "saved_tg": saved_tg,
         "active_collection": active_collection,
@@ -2281,6 +2309,18 @@ async def public_profile_page(
             import logging
             logging.getLogger("profile").warning("recommendations failed: %s", e)
 
+    # v3.11: Follow — счётчики подписчиков/подписок и подписан ли текущий юзер
+    follow_counts = {"followers": 0, "following": 0}
+    is_following = False
+    try:
+        follow_counts = await db.g_follow_counts(guild_id, target_discord_id)
+        viewer_id = _user.get("discord_id", 0)
+        if viewer_id and not is_self:
+            is_following = await db.g_is_following(guild_id, viewer_id, target_discord_id)
+    except Exception as e:
+        import logging
+        logging.getLogger("profile").warning("follow info failed: %s", e)
+
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
         "honey": honey,
@@ -2304,6 +2344,8 @@ async def public_profile_page(
         "user_achievements": user_achievements,
         "taste_match": taste_match,
         "watched_together": watched_together,
+        "follow_counts": follow_counts,
+        "is_following": is_following,
         "is_self": is_self,
         "not_found": False,
         "discord_info": discord_info,
@@ -2334,6 +2376,32 @@ async def api_get_ratings_list(
     guild_id = get_current_guild_id(_user)
     ratings = await db.g_get_ratings_for_winner(guild_id, winner_id)
     return JSONResponse({"ratings": ratings, "count": len(ratings)})
+
+
+# === Follow API (v3.11) ===
+
+@app.post("/api/follow/{discord_id}")
+async def api_follow(discord_id: int, _user: dict = Depends(require_user)):
+    """Подписаться на пользователя. Нельзя на себя."""
+    guild_id = get_current_guild_id(_user)
+    viewer_id = _user.get("discord_id", 0)
+    if not viewer_id or viewer_id == discord_id:
+        return JSONResponse({"error": "cannot follow self"}, status_code=400)
+    await db.g_follow(guild_id, viewer_id, discord_id)
+    counts = await db.g_follow_counts(guild_id, discord_id)
+    return JSONResponse({"following": True, "followers": counts["followers"]})
+
+
+@app.post("/api/unfollow/{discord_id}")
+async def api_unfollow(discord_id: int, _user: dict = Depends(require_user)):
+    """Отписаться от пользователя."""
+    guild_id = get_current_guild_id(_user)
+    viewer_id = _user.get("discord_id", 0)
+    if not viewer_id:
+        return JSONResponse({"error": "no user"}, status_code=400)
+    await db.g_unfollow(guild_id, viewer_id, discord_id)
+    counts = await db.g_follow_counts(guild_id, discord_id)
+    return JSONResponse({"following": False, "followers": counts["followers"]})
 
 
 # === Watchlist API ===

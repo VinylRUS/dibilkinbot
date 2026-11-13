@@ -210,6 +210,41 @@ async def test_recommendations(client):
     assert await db.g_recommend_films(TEST_GUILD_ID, 999999, limit=5) == []
 
 
+@pytest.mark.asyncio
+async def test_follow_and_feed(client):
+    """Follow/unfollow, счётчики и лента активности подписок."""
+    import db
+    from config import settings
+    from guild import guild_table
+
+    A, B = 83001, 83002  # A подписывается на B
+    # follow
+    assert await db.g_follow(TEST_GUILD_ID, A, A) is False  # нельзя на себя
+    assert await db.g_follow(TEST_GUILD_ID, A, B) is True
+    assert await db.g_is_following(TEST_GUILD_ID, A, B) is True
+    counts_b = await db.g_follow_counts(TEST_GUILD_ID, B)
+    assert counts_b["followers"] == 1
+    counts_a = await db.g_follow_counts(TEST_GUILD_ID, A)
+    assert counts_a["following"] == 1
+
+    # B совершает действие → появляется в ленте A
+    await db.g_log_activity(TEST_GUILD_ID, "quote_added", B, actor_name="Bee", target_name="цитата")
+    feed = await db.g_following_feed(TEST_GUILD_ID, A, limit=10)
+    assert any(ev["actor_discord_id"] == B for ev in feed)
+
+    # unfollow
+    await db.g_unfollow(TEST_GUILD_ID, A, B)
+    assert await db.g_is_following(TEST_GUILD_ID, A, B) is False
+    assert (await db.g_following_feed(TEST_GUILD_ID, A, limit=10)) == []
+
+    # Чистим activity_log B, чтобы не влиять на другие тесты
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(
+            f"DELETE FROM {guild_table(TEST_GUILD_ID, 'activity_log')} WHERE actor_discord_id = ?",
+            (B,))
+        await c.commit()
+
+
 def test_profile_renders_honey(client):
     """Публичный профиль отдаёт 200 и показывает карточку «Мёд»."""
     r = client.get("/u/1001")  # TEST_ADMIN_DISCORD_ID из conftest

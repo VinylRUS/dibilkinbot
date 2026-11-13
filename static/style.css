@@ -2367,6 +2367,21 @@ button:not(.custom-select-trigger),
   white-space: nowrap;
 }
 
+/* ===== v3.11: Follow на профиле ===== */
+.profile-follow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.profile-follow .follow-stat {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.profile-follow .follow-stat strong { color: var(--text); }
+.profile-follow #follow-btn { margin: 0; }
+
 /* ===== Плавные переходы между страницами (cross-document View Transitions) =====
    Прогрессивное улучшение: браузеры без поддержки просто игнорируют. MPA-навигация. */
 @view-transition { navigation: auto; }

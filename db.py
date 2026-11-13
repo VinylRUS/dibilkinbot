@@ -5620,3 +5620,97 @@ async def g_recommend_films(guild_id: int, user_discord_id: int,
         })
     out.sort(key=lambda r: (r["score"], r["support"]), reverse=True)
     return out[:limit]
+
+
+# ============================================================
+# v3.11: Follow / подписки
+# ============================================================
+
+async def g_follow(guild_id: int, follower: int, following: int) -> bool:
+    """Подписаться. Нельзя подписаться на себя. Идемпотентно (INSERT OR IGNORE)."""
+    follower, following = int(follower), int(following)
+    if follower == following:
+        return False
+    table = _guild.guild_table(guild_id, "follows")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table} (follower_discord_id, following_discord_id, created_at) "
+            f"VALUES (?, ?, ?)", (follower, following, datetime.utcnow().isoformat()))
+        await db.commit()
+    return True
+
+
+async def g_unfollow(guild_id: int, follower: int, following: int) -> None:
+    table = _guild.guild_table(guild_id, "follows")
+    async with _connect() as db:
+        await db.execute(
+            f"DELETE FROM {table} WHERE follower_discord_id = ? AND following_discord_id = ?",
+            (int(follower), int(following)))
+        await db.commit()
+
+
+async def g_is_following(guild_id: int, follower: int, following: int) -> bool:
+    table = _guild.guild_table(guild_id, "follows")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT 1 FROM {table} WHERE follower_discord_id = ? AND following_discord_id = ? LIMIT 1",
+            (int(follower), int(following))) as cur:
+            return (await cur.fetchone()) is not None
+
+
+async def g_follow_counts(guild_id: int, user_discord_id: int) -> dict:
+    """{followers, following} — сколько подписчиков и на скольких подписан."""
+    table = _guild.guild_table(guild_id, "follows")
+    uid = int(user_discord_id)
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE following_discord_id = ?", (uid,)) as cur:
+            followers = (await cur.fetchone())[0]
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE follower_discord_id = ?", (uid,)) as cur:
+            following = (await cur.fetchone())[0]
+    return {"followers": int(followers), "following": int(following)}
+
+
+async def g_following_feed(guild_id: int, follower: int, limit: int = 20, days: int = 14) -> list[dict]:
+    """Лента активности тех, на кого подписан `follower`.
+
+    Берёт activity_log за `days` по авторам из follows. Формат как g_list_activity.
+    """
+    from datetime import datetime, timedelta
+    t_act = _guild.guild_table(guild_id, "activity_log")
+    t_fol = _guild.guild_table(guild_id, "follows")
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT a.event_type, a.actor_discord_id, "
+            f"COALESCE(a.actor_name, u.display_name, u.username, 'Unknown') AS actor_name, "
+            f"a.target_name, a.created_at "
+            f"FROM {t_act} a LEFT JOIN users u ON u.discord_id = a.actor_discord_id "
+            f"WHERE a.created_at > ? AND a.actor_discord_id IN "
+            f"(SELECT following_discord_id FROM {t_fol} WHERE follower_discord_id = ?) "
+            f"ORDER BY a.created_at DESC LIMIT ?",
+            (cutoff, int(follower), limit),
+        ) as cur:
+            rows = await cur.fetchall()
+    now = datetime.utcnow()
+    out = []
+    for r in rows:
+        created = r[4]
+        time_ago = "недавно"
+        try:
+            dt = datetime.fromisoformat(created)
+            diff = now - dt
+            if diff.days > 0:
+                time_ago = f"{diff.days} дн назад"
+            elif diff.seconds > 3600:
+                time_ago = f"{diff.seconds // 3600} ч назад"
+            else:
+                time_ago = f"{max(diff.seconds // 60, 1)} мин назад"
+        except Exception:
+            pass
+        out.append({
+            "event_type": r[0], "actor_discord_id": r[1], "actor_name": r[2] or "Unknown",
+            "target_name": r[3], "created_at": created, "time_ago": time_ago,
+        })
+    return out
