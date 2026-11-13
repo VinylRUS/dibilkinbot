@@ -263,6 +263,28 @@ async def _serve_wheel_gif(filename: str):
     )
 
 
+# v3.11: PWA — service worker должен отдаваться из корня, иначе его scope
+# ограничится /static/ и он не сможет перехватывать навигации по всему сайту.
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    sw_path = _STATIC_DIR / "sw.js"
+    if not sw_path.exists():
+        return Response(status_code=404)
+    return FileResponse(
+        sw_path,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def web_manifest():
+    man_path = _STATIC_DIR / "manifest.webmanifest"
+    if not man_path.exists():
+        return Response(status_code=404)
+    return FileResponse(man_path, media_type="application/manifest+json")
+
+
 # v3.9.1: mount /static ПОСЛЕ персистентных fallback-роутов выше.
 # Starlette проверяет маршруты по порядку регистрации — Mount('/static')
 # перехватывает все /static/* запросы. Если mount стоит раньше — routes

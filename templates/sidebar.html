@@ -33,6 +33,27 @@
 <script>
   // Устанавливаем класс на body
   document.body.classList.add('has-sidebar');
+
+  // v3.11: PWA — manifest, theme-color и регистрация service worker.
+  (function () {
+    if (!document.querySelector('link[rel="manifest"]')) {
+      var l = document.createElement('link');
+      l.rel = 'manifest';
+      l.href = '/manifest.webmanifest';
+      document.head.appendChild(l);
+    }
+    if (!document.querySelector('meta[name="theme-color"]')) {
+      var m = document.createElement('meta');
+      m.name = 'theme-color';
+      m.content = '#FFB703';
+      document.head.appendChild(m);
+    }
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function () {});
+      });
+    }
+  })();
 </script>
 
 <!-- Overlay для мобильных -->

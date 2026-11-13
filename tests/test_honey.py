@@ -252,6 +252,22 @@ def test_profile_renders_honey(client):
     assert "Мёд" in r.text
 
 
+def test_pwa_routes(client):
+    """PWA: /sw.js из корня с правильным scope-заголовком и /manifest.webmanifest."""
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200
+    assert "javascript" in sw.headers.get("content-type", "")
+    assert sw.headers.get("Service-Worker-Allowed") == "/"
+    assert "serviceWorker" not in sw.text  # это сам воркер, не регистрация
+
+    man = client.get("/manifest.webmanifest")
+    assert man.status_code == 200
+    data = man.json()
+    assert data["name"] == "DeeBeelkin"
+    assert data["display"] == "standalone"
+    assert any(i["sizes"] == "512x512" for i in data["icons"])
+
+
 @pytest.mark.asyncio
 async def test_activity_streak(client):
     import db
