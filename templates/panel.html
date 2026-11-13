@@ -117,15 +117,17 @@
             <a href="/movienight" class="btn-outline">Новый сбор</a>
           </div>
         {% else %}
-          <div class="now-status">
-            <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
-            <div class="now-text">
-              <div class="now-title">Нет активного киновечера</div>
-              <div class="now-subtitle">Начните сбор, чтобы крутить колесо</div>
+          {# v3.10.2: компактная плашка — иконка + текст + кнопка в одну строку #}
+          <div class="now-compact">
+            <div class="now-status">
+              <div class="now-icon"><img src="/static/icons/movie.png" alt="" width="16" height="16" class="ui-icon"></div>
+              <div class="now-text">
+                <div class="now-title">Нет активного киновечера</div>
+              </div>
             </div>
-          </div>
-          <div class="now-actions">
-            <a href="/movienight" class="btn-primary">Начать сбор →</a>
+            <div class="now-actions">
+              <a href="/movienight" class="btn-primary btn-sm" title="Начните сбор, чтобы крутить колесо">Начать сбор →</a>
+            </div>
           </div>
         {% endif %}
       </div>
@@ -207,34 +209,26 @@
     </div>
     {% endif %}
 
-    {# ===== Чек-лист настроек ===== #}
+    {# ===== Чек-лист настроек (v3.10.2: только неподключённые сервисы) ===== #}
+    {% if not is_tg_linked or not is_steam_set %}
     <h2>Ваш профиль</h2>
     <article class="card">
+      {% if not is_tg_linked %}
       <div class="checklist-item">
-        <div class="checklist-icon done"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"></div>
-        <div class="checklist-text">Discord ID привязан</div>
-      </div>
-      <div class="checklist-item">
-        {% if is_tg_linked %}
-        <div class="checklist-icon done"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"></div>
-        <div class="checklist-text">Telegram привязан: @{{ tg_username }}</div>
-        {% else %}
         <div class="checklist-icon pending">!</div>
         <div class="checklist-text pending">Telegram не привязан</div>
         <a href="/profile" class="checklist-link">Привязать →</a>
-        {% endif %}
       </div>
+      {% endif %}
+      {% if not is_steam_set %}
       <div class="checklist-item">
-        {% if is_steam_set %}
-        <div class="checklist-icon done"><img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"></div>
-        <div class="checklist-text">Steam-профиль указан</div>
-        {% else %}
         <div class="checklist-icon pending">!</div>
         <div class="checklist-text pending">Steam-профиль не указан</div>
         <a href="/profile" class="checklist-link">Указать →</a>
-        {% endif %}
       </div>
+      {% endif %}
     </article>
+    {% endif %}
 
     {# ===== Участники комьюнити (виден всем) ===== #}
     {% if active_members %}
@@ -290,7 +284,8 @@
       {% endfor %}
     </article>
 
-    {# ===== Админ: требуют оценок ===== #}
+    {# ===== Админ: требуют оценок (v3.10.2: блок скрыт, если неоценённых нет) ===== #}
+    {% if unrated_winners %}
     <h2>Требуют оценок</h2>
     <article class="card">
       {% for w in unrated_winners %}
@@ -300,41 +295,10 @@
           <div class="rate-badge">{{ w.ratings_count }} из {{ w.total_count }} оценок</div>
           <a href="/winners" class="checklist-link">Оценить →</a>
         </div>
-      {% else %}
-        <div class="empty">Все победители оценены. <img src="/static/icons/popcorn.png" alt="" width="16" height="16" class="ui-icon"></div>
       {% endfor %}
     </article>
+    {% endif %}
 
-    {# ===== Админ: статистика сервера ===== #}
-    <h2>Статистика сервера</h2>
-    <article class="card">
-      <div class="stats-grid">
-        <div class="stat-box">
-          <div class="stat-box-value">{{ stats.total_users }}</div>
-          <div class="stat-box-label">Участников</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-box-value">{{ stats.total_watched }}</div>
-          <div class="stat-box-label">Просмотрено</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-box-value">{{ stats.total_ratings }}</div>
-          <div class="stat-box-label">Оценок</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-box-value">{{ stats.total_quotes }}</div>
-          <div class="stat-box-label">Цитат</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-box-value">{{ stats.total_winners }}</div>
-          <div class="stat-box-label">Победителей</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-box-value">{{ stats.active_week }}</div>
-          <div class="stat-box-label">Активных за неделю</div>
-        </div>
-      </div>
-    </article>
     {% endif %}
   </main>
 

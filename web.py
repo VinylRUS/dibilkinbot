@@ -806,16 +806,15 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
     recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
 
     # === Чек-лист настроек ===
+    # v3.10.2: блок «Ваш профиль» показывает только неподключённые сервисы.
+    # tg_username больше не нужен — текст «Telegram привязан: @…» убран из шаблона.
     user_discord_id = _user.get("discord_id", 0)
     is_tg_linked = await db.is_tg_linked(user_discord_id) if user_discord_id else False
     is_steam_set = await db.is_steam_profile_set(user_discord_id) if user_discord_id else False
-    tg_link = await db.get_tg_link(user_discord_id) if user_discord_id else None
-    tg_username = tg_link[2] if tg_link and tg_link[2] else ""
 
     # === Админ данные ===
     admin_activity = []
     unrated_winners = []
-    stats = {}
     if _user.get("is_admin"):
         # v3.10: активность из guild_activity_log (персистентные события:
         # ачивки, сборы, колесо, цитаты, steam, вишлист). Убрано «заходил(а) в панель»
@@ -853,26 +852,6 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
                     "ratings_count": w["ratings_count"],
                     "total_count": 4,  # примерный максимум участников
                 })
-
-        # Статистика сервера
-        all_users = await db.list_users()
-        all_watched = await db.g_list_watched(guild_id, limit=10000)
-        all_winners_count = len(all_winners)
-        all_quotes = await db.g_count_quotes(guild_id)
-        total_ratings = 0
-        for w in all_winners:
-            total_ratings += w["ratings_count"]
-        # Активные за неделю
-        active_week = len(admin_activity)
-
-        stats = {
-            "total_users": len(all_users),
-            "total_watched": len(all_watched),
-            "total_ratings": total_ratings,
-            "total_quotes": all_quotes,
-            "total_winners": all_winners_count,
-            "active_week": active_week,
-        }
 
     # Активные участники (виден всем юзерам, не только админ)
     # v2.0.1: берём 22, enriched Discord статусами, сортировка online→idle→dnd→offline
@@ -938,10 +917,8 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         "recent_winner": recent_winner,
         "is_tg_linked": is_tg_linked,
         "is_steam_set": is_steam_set,
-        "tg_username": tg_username,
         "admin_activity": admin_activity,
         "unrated_winners": unrated_winners,
-        "stats": stats,
         "active_members": active_members,
         "joint_sessions": joint_sessions,
         "has_active_santa": has_active_santa,
