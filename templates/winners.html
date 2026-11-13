@@ -137,6 +137,20 @@
       {% endif %}
     </form>
 
+    {% if controversial %}
+    <article class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">🔥 Спорные фильмы <span class="hint" style="font-weight:400;">— наибольший разброс оценок</span></h3>
+      <ol class="honey-board">
+        {% for c in controversial %}
+        <li>
+          <a href="#" onclick='showRatingsModal({{ c.winner_id }}, {{ c.lot_name|tojson }}); return false;'>{{ c.lot_name }}</a>
+          <span class="honey-board-amount" title="Средняя {{ c.avg }} · {{ c.count }} оценок">σ {{ c.stddev }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </article>
+    {% endif %}
+
     {% if winners|length == 0 %}
       <article class="card" style="text-align:center;padding:32px 20px;">
         {% if search %}

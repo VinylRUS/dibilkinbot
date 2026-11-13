@@ -11,6 +11,7 @@
   'movie': 'movie',
   'wheel': 'wheel',
   'trophy': 'trophy',
+  'tournament': 'crown',
   'backlog': 'checkmark',
   'quote': 'chat',
   'santa': 'santa',
@@ -33,6 +34,35 @@
 <script>
   // Устанавливаем класс на body
   document.body.classList.add('has-sidebar');
+
+  // v3.11: косметический accent-цвет из куки
+  (function () {
+    var m = document.cookie.match(/(?:^|;\s*)accent=([a-z]+)/);
+    if (m && m[1] && m[1] !== 'amber') {
+      document.documentElement.setAttribute('data-accent', m[1]);
+    }
+  })();
+
+  // v3.11: PWA — manifest, theme-color и регистрация service worker.
+  (function () {
+    if (!document.querySelector('link[rel="manifest"]')) {
+      var l = document.createElement('link');
+      l.rel = 'manifest';
+      l.href = '/manifest.webmanifest';
+      document.head.appendChild(l);
+    }
+    if (!document.querySelector('meta[name="theme-color"]')) {
+      var m = document.createElement('meta');
+      m.name = 'theme-color';
+      m.content = '#FFB703';
+      document.head.appendChild(m);
+    }
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function () {});
+      });
+    }
+  })();
 </script>
 
 <!-- Overlay для мобильных -->
@@ -81,6 +111,10 @@
     <a href="/winners" class="sb-item {% if active == 'winners' %}active{% endif %}" title="Победители">
       {{ sb_icon('trophy') }}
       <span class="sb-item-label">Победители</span>
+    </a>
+    <a href="/tournament" class="sb-item {% if active == 'tournament' %}active{% endif %}" title="Турнир">
+      {{ sb_icon('tournament') }}
+      <span class="sb-item-label">Турнир</span>
     </a>
     <a href="/watched" class="sb-item {% if active == 'watched' %}active{% endif %}" title="Бэклог">
       {{ sb_icon('backlog') }}
@@ -132,10 +166,21 @@
     {% endif %}
     <!-- Смена темы (кнопка) -->
     <form method="post" action="/theme" style="margin:0;">
-      <button type="submit" name="theme" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="sb-theme-toggle" title="Сменить тему">
+      <button type="submit" name="theme" id="sb-theme-btn" value="{{ 'light' if theme_from_request(request) == 'dark' else 'dark' }}" class="sb-theme-toggle" title="Сменить тему">
         {{ '☀️' if theme_from_request(request) == 'dark' else '🌙' }}
       </button>
     </form>
+    <script>
+      // При теме "auto" кнопка должна отражать РЕАЛЬНУЮ (системную) тему.
+      (function () {
+        if (document.documentElement.getAttribute('data-theme') !== 'auto') return;
+        var btn = document.getElementById('sb-theme-btn');
+        if (!btn) return;
+        var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        btn.value = sysDark ? 'light' : 'dark';
+        btn.textContent = sysDark ? '☀️' : '🌙';
+      })();
+    </script>
     <!-- Выход (кнопка) -->
     <a href="/logout" class="sb-theme-toggle" title="Выйти" style="text-decoration:none; background: var(--red-soft); color: var(--red); border: 1px solid var(--red);">
       {{ sb_icon('logout') }}
@@ -311,6 +356,11 @@ window.showToast = function(message, type = 'info', duration = 3500) {
   const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : 'ℹ';
   toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-text"></span>`;
   toast.querySelector('.toast-text').textContent = message;
+  // Прогресс-бар авто-закрытия
+  const prog = document.createElement('div');
+  prog.className = 'toast-progress';
+  prog.style.animationDuration = duration + 'ms';
+  toast.appendChild(prog);
   container.appendChild(toast);
   setTimeout(() => {
     toast.classList.add('removing');
@@ -496,4 +546,24 @@ window.closeRatingsModal = function() {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeRatingsModal();
 });
+
+// === Ripple-эффект (DESIGN_SYSTEM §5) ===
+// Волна от точки клика на кнопках/ссылках-кнопках. Пропускаем при reduced-motion.
+(function () {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const RIPPLE_SEL = '.btn-primary, .btn-outline, .btn-danger, .btn-ghost, button:not(.custom-select-trigger), .page-btn, .quick-link';
+  document.addEventListener('pointerdown', (e) => {
+    const host = e.target.closest(RIPPLE_SEL);
+    if (!host || host.disabled) return;
+    const rect = host.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const wave = document.createElement('span');
+    wave.className = 'ripple-wave';
+    wave.style.width = wave.style.height = size + 'px';
+    wave.style.left = (e.clientX - rect.left - size / 2) + 'px';
+    wave.style.top = (e.clientY - rect.top - size / 2) + 'px';
+    host.appendChild(wave);
+    wave.addEventListener('animationend', () => wave.remove());
+  }, { passive: true });
+})();
 </script>

@@ -4237,13 +4237,15 @@ async def g_get_test_stats(guild_id: int) -> dict:
 # --- g_movie_nights ---
 
 async def g_add_movie_night(guild_id: int, title: str | None, scheduled_at: datetime,
-                           created_by: int, event_id: int | None = None) -> int:
+                           created_by: int, event_id: int | None = None,
+                           is_marathon: bool = False) -> int:
     table = _guild.guild_table(guild_id, "movie_nights")
     async with _connect() as db:
         cur = await db.execute(
-            f"INSERT INTO {table} (title, scheduled_at, created_by, created_at, event_id) VALUES (?, ?, ?, ?, ?)",
+            f"INSERT INTO {table} (title, scheduled_at, created_by, created_at, event_id, is_marathon) "
+            f"VALUES (?, ?, ?, ?, ?, ?)",
             (title, scheduled_at.isoformat(), created_by,
-             datetime.utcnow().isoformat(), event_id),
+             datetime.utcnow().isoformat(), event_id, 1 if is_marathon else 0),
         )
         await db.commit()
         return cur.lastrowid
@@ -5301,3 +5303,791 @@ async def g_find_modrinth_sub_by_slug(guild_id: int, slug: str) -> dict | None:
         "project_type": r[4], "last_version_id": r[5], "last_version_date": r[6],
         "last_checked_at": r[7], "added_by": r[8], "added_at": r[9],
     }
+
+
+# ============================================================
+# v3.11: «Мёд» 🍯 — геймификационная валюта
+# ============================================================
+# Баланс = «заработано» (выводится из существующих таблиц) + SUM(ledger.delta).
+# Заработок не инструментирует места записи — считается на лету, поэтому
+# нет двойного начисления и пропущенных хуков. Траты/бонусы — строки в
+# honey_ledger (траты отрицательные, ручные бонусы положительные).
+
+# Сколько «мёда» даёт каждое действие (заработок).
+HONEY_PER_WATCHED = 5       # фильм отмечен просмотренным
+HONEY_PER_RATING = 3        # поставлена оценка
+HONEY_PER_QUOTE = 2         # сохранена цитата
+HONEY_PER_ACHIEVEMENT = 25  # получена ачивка
+
+
+async def g_honey_breakdown(guild_id: int, user_discord_id: int) -> dict:
+    """Разбивка заработка «мёда» по источникам + ручные корректировки.
+
+    Возвращает {watched, ratings, quotes, achievements, earned, adjustments, balance}.
+    balance клампится в >= 0 (на случай если админ списал больше заработанного).
+    """
+    uid = int(user_discord_id)
+    t_watched = _guild.guild_table(guild_id, "watched")
+    t_ratings = _guild.guild_table(guild_id, "ratings")
+    t_quotes = _guild.guild_table(guild_id, "quotes")
+    t_uach = _guild.guild_table(guild_id, "user_achievements")
+    t_ledger = _guild.guild_table(guild_id, "honey_ledger")
+
+    async with _connect() as db:
+        async def _scalar(sql: str, params: tuple) -> int:
+            async with db.execute(sql, params) as cur:
+                row = await cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
+        n_watched = await _scalar(
+            f"SELECT COUNT(*) FROM {t_watched} WHERE watcher_user_id = ?", (uid,))
+        n_ratings = await _scalar(
+            f"SELECT COUNT(*) FROM {t_ratings} WHERE user_discord_id = ?", (uid,))
+        n_quotes = await _scalar(
+            f"SELECT COUNT(*) FROM {t_quotes} WHERE recorded_by = ?", (uid,))
+        n_ach = await _scalar(
+            f"SELECT COUNT(*) FROM {t_uach} WHERE user_discord_id = ? AND is_active = 1", (uid,))
+        adjustments = await _scalar(
+            f"SELECT COALESCE(SUM(delta), 0) FROM {t_ledger} WHERE user_discord_id = ?", (uid,))
+
+    earned = (n_watched * HONEY_PER_WATCHED + n_ratings * HONEY_PER_RATING
+              + n_quotes * HONEY_PER_QUOTE + n_ach * HONEY_PER_ACHIEVEMENT)
+    balance = max(0, earned + adjustments)
+    return {
+        "watched": n_watched,
+        "ratings": n_ratings,
+        "quotes": n_quotes,
+        "achievements": n_ach,
+        "earned": earned,
+        "adjustments": adjustments,
+        "balance": balance,
+    }
+
+
+async def g_honey_balance(guild_id: int, user_discord_id: int) -> int:
+    """Текущий баланс «мёда» пользователя (>= 0)."""
+    bd = await g_honey_breakdown(guild_id, user_discord_id)
+    return bd["balance"]
+
+
+async def g_honey_spend(guild_id: int, user_discord_id: int, amount: int,
+                        reason: str | None = None) -> bool:
+    """Списать `amount` мёда. Возвращает False, если недостаточно баланса или amount<=0.
+
+    Атомарность: баланс перечитывается и строка вставляется в одном соединении.
+    """
+    amount = int(amount)
+    if amount <= 0:
+        return False
+    bal = await g_honey_balance(guild_id, user_discord_id)
+    if bal < amount:
+        return False
+    table = _guild.guild_table(guild_id, "honey_ledger")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (user_discord_id, delta, reason, created_by, created_at) "
+            f"VALUES (?, ?, ?, ?, ?)",
+            (int(user_discord_id), -amount, reason, int(user_discord_id),
+             datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+    return True
+
+
+async def g_honey_grant(guild_id: int, user_discord_id: int, amount: int,
+                        reason: str | None = None, granted_by: int | None = None) -> None:
+    """Начислить ручной бонус (или штраф при отрицательном amount) в леджер."""
+    amount = int(amount)
+    if amount == 0:
+        return
+    table = _guild.guild_table(guild_id, "honey_ledger")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (user_discord_id, delta, reason, created_by, created_at) "
+            f"VALUES (?, ?, ?, ?, ?)",
+            (int(user_discord_id), amount, reason,
+             int(granted_by) if granted_by is not None else None,
+             datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+
+
+async def g_honey_leaderboard(guild_id: int, limit: int = 10) -> list[dict]:
+    """Топ пользователей по балансу «мёда».
+
+    Заработок агрегируется по каждому пользователю из 4 таблиц, затем
+    прибавляется SUM(ledger.delta). Для небольшого комьюнити считаем в Python.
+    Возвращает [{user_discord_id, balance, username, display_name}, ...] по убыванию.
+    """
+    t_watched = _guild.guild_table(guild_id, "watched")
+    t_ratings = _guild.guild_table(guild_id, "ratings")
+    t_quotes = _guild.guild_table(guild_id, "quotes")
+    t_uach = _guild.guild_table(guild_id, "user_achievements")
+    t_ledger = _guild.guild_table(guild_id, "honey_ledger")
+
+    totals: dict[int, int] = {}
+
+    async def _accumulate(db, sql: str, weight: int):
+        async with db.execute(sql) as cur:
+            async for uid, cnt in cur:
+                if uid is None:
+                    continue
+                totals[int(uid)] = totals.get(int(uid), 0) + int(cnt) * weight
+
+    async with _connect() as db:
+        await _accumulate(
+            db, f"SELECT watcher_user_id, COUNT(*) FROM {t_watched} GROUP BY watcher_user_id",
+            HONEY_PER_WATCHED)
+        await _accumulate(
+            db, f"SELECT user_discord_id, COUNT(*) FROM {t_ratings} GROUP BY user_discord_id",
+            HONEY_PER_RATING)
+        await _accumulate(
+            db, f"SELECT recorded_by, COUNT(*) FROM {t_quotes} GROUP BY recorded_by",
+            HONEY_PER_QUOTE)
+        await _accumulate(
+            db, f"SELECT user_discord_id, COUNT(*) FROM {t_uach} WHERE is_active = 1 "
+                f"GROUP BY user_discord_id",
+            HONEY_PER_ACHIEVEMENT)
+        # Корректировки из леджера (weight = 1, delta уже со знаком)
+        async with db.execute(
+            f"SELECT user_discord_id, COALESCE(SUM(delta), 0) FROM {t_ledger} "
+            f"GROUP BY user_discord_id"
+        ) as cur:
+            async for uid, s in cur:
+                if uid is None:
+                    continue
+                totals[int(uid)] = totals.get(int(uid), 0) + int(s)
+
+        # Имена одним запросом
+        names: dict[int, tuple] = {}
+        if totals:
+            async with db.execute("SELECT discord_id, username, display_name FROM users") as cur:
+                async for did, un, dn in cur:
+                    names[int(did)] = (un, dn)
+
+    rows = [
+        {
+            "user_discord_id": uid,
+            "balance": max(0, bal),
+            "username": names.get(uid, (None, None))[0],
+            "display_name": names.get(uid, (None, None))[1],
+        }
+        for uid, bal in totals.items()
+        if max(0, bal) > 0
+    ]
+    rows.sort(key=lambda r: r["balance"], reverse=True)
+    return rows[:limit]
+
+
+async def g_activity_streak(guild_id: int, user_discord_id: int) -> int:
+    """Стрик активности: сколько дней подряд (заканчивая сегодня или вчера по UTC)
+    у пользователя есть хотя бы одно событие в activity_log.
+
+    Разрыв «вчера» допускается, чтобы стрик не обнулялся до первого действия дня.
+    """
+    from datetime import date, timedelta
+    table = _guild.guild_table(guild_id, "activity_log")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT DISTINCT substr(created_at, 1, 10) AS d FROM {table} "
+            f"WHERE actor_discord_id = ? ORDER BY d DESC",
+            (int(user_discord_id),),
+        ) as cur:
+            rows = await cur.fetchall()
+    days = set()
+    for r in rows:
+        try:
+            days.add(date.fromisoformat(r[0]))
+        except (ValueError, TypeError):
+            continue
+    if not days:
+        return 0
+    today = datetime.utcnow().date()
+    # Старт стрика — сегодня (если было событие) иначе вчера, иначе 0.
+    if today in days:
+        cursor = today
+    elif (today - timedelta(days=1)) in days:
+        cursor = today - timedelta(days=1)
+    else:
+        return 0
+    streak = 0
+    while cursor in days:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return streak
+
+
+async def g_controversial_films(guild_id: int, min_ratings: int = 3, limit: int = 5) -> list[dict]:
+    """v3.11: «Спорные фильмы» — победители с наибольшим разбросом оценок.
+
+    Дисперсия считается в SQL через AVG(x^2) - AVG(x)^2 (в SQLite нет STDDEV),
+    stddev = sqrt(variance) добавляется в Python. Учитываются только не-тестовые
+    победители с >= min_ratings оценками.
+
+    Возвращает [{winner_id, lot_name, count, avg, stddev}, ...] по убыванию разброса.
+    """
+    import math
+    t_win = _guild.guild_table(guild_id, "winners")
+    t_rat = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT w.id, w.lot_name, COUNT(r.rating) AS cnt, "
+            f"AVG(r.rating) AS mean, "
+            f"(AVG(r.rating * r.rating) - AVG(r.rating) * AVG(r.rating)) AS variance "
+            f"FROM {t_win} w JOIN {t_rat} r ON r.winner_id = w.id "
+            f"WHERE COALESCE(w.is_test, 0) = 0 "
+            f"GROUP BY w.id HAVING cnt >= ? "
+            f"ORDER BY variance DESC, cnt DESC LIMIT ?",
+            (int(min_ratings), int(limit)),
+        ) as cur:
+            rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        variance = max(0.0, float(r[4] or 0.0))  # клампим отриц. из-за float-погрешности
+        out.append({
+            "winner_id": r[0],
+            "lot_name": r[1],
+            "count": int(r[2]),
+            "avg": round(float(r[3] or 0.0), 2),
+            "stddev": round(math.sqrt(variance), 2),
+        })
+    return out
+
+
+async def g_recommend_films(guild_id: int, user_discord_id: int,
+                            limit: int = 5, min_user_ratings: int = 3) -> list[dict]:
+    """v3.11: «Вам может понравиться» — рекомендации на основе совпадения вкусов.
+
+    User-based collaborative filtering без ML:
+      1. вес другого пользователя = 1 - avg_diff/5 по общим фильмам (>= 2 общих);
+      2. для каждого непросмотренного пользователем фильма — взвешенное среднее
+         оценок остальных; требуется суммарная поддержка >= 1.0.
+    Нужна «затравка»: если у пользователя < min_user_ratings оценок — вернёт [].
+
+    Возвращает [{winner_id, lot_name, score, support}, ...] по убыванию score.
+    """
+    uid = int(user_discord_id)
+    t_win = _guild.guild_table(guild_id, "winners")
+    t_rat = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT r.winner_id, r.user_discord_id, r.rating, w.lot_name "
+            f"FROM {t_rat} r JOIN {t_win} w ON w.id = r.winner_id "
+            f"WHERE COALESCE(w.is_test, 0) = 0"
+        ) as cur:
+            rows = await cur.fetchall()
+
+    # by_user[user] = {winner_id: rating}; names[winner_id] = lot_name
+    by_user: dict[int, dict[int, float]] = {}
+    names: dict[int, str] = {}
+    for winner_id, u, rating, lot_name in rows:
+        by_user.setdefault(int(u), {})[int(winner_id)] = float(rating)
+        names[int(winner_id)] = lot_name
+
+    mine = by_user.get(uid, {})
+    if len(mine) < min_user_ratings:
+        return []
+
+    # Веса остальных пользователей по совпадению вкусов
+    weights: dict[int, float] = {}
+    for other, ratings in by_user.items():
+        if other == uid:
+            continue
+        common = [(mine[w], ratings[w]) for w in ratings if w in mine]
+        if len(common) < 2:
+            continue
+        avg_diff = sum(abs(a - b) for a, b in common) / len(common)
+        weight = max(0.0, 1.0 - avg_diff / 5.0)
+        if weight > 0:
+            weights[other] = weight
+
+    # Кандидаты: фильмы, которые пользователь ещё не оценил
+    agg: dict[int, tuple[float, float]] = {}  # winner_id -> (sum(w*rating), sum(w))
+    for other, weight in weights.items():
+        for winner_id, rating in by_user[other].items():
+            if winner_id in mine:
+                continue
+            s_wr, s_w = agg.get(winner_id, (0.0, 0.0))
+            agg[winner_id] = (s_wr + weight * rating, s_w + weight)
+
+    out = []
+    for winner_id, (s_wr, s_w) in agg.items():
+        if s_w < 1.0:
+            continue
+        out.append({
+            "winner_id": winner_id,
+            "lot_name": names.get(winner_id, f"#{winner_id}"),
+            "score": round(s_wr / s_w, 2),
+            "support": round(s_w, 2),
+        })
+    out.sort(key=lambda r: (r["score"], r["support"]), reverse=True)
+    return out[:limit]
+
+
+# ============================================================
+# v3.11: Follow / подписки
+# ============================================================
+
+async def g_follow(guild_id: int, follower: int, following: int) -> bool:
+    """Подписаться. Нельзя подписаться на себя. Идемпотентно (INSERT OR IGNORE)."""
+    follower, following = int(follower), int(following)
+    if follower == following:
+        return False
+    table = _guild.guild_table(guild_id, "follows")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table} (follower_discord_id, following_discord_id, created_at) "
+            f"VALUES (?, ?, ?)", (follower, following, datetime.utcnow().isoformat()))
+        await db.commit()
+    return True
+
+
+async def g_unfollow(guild_id: int, follower: int, following: int) -> None:
+    table = _guild.guild_table(guild_id, "follows")
+    async with _connect() as db:
+        await db.execute(
+            f"DELETE FROM {table} WHERE follower_discord_id = ? AND following_discord_id = ?",
+            (int(follower), int(following)))
+        await db.commit()
+
+
+async def g_is_following(guild_id: int, follower: int, following: int) -> bool:
+    table = _guild.guild_table(guild_id, "follows")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT 1 FROM {table} WHERE follower_discord_id = ? AND following_discord_id = ? LIMIT 1",
+            (int(follower), int(following))) as cur:
+            return (await cur.fetchone()) is not None
+
+
+async def g_follow_counts(guild_id: int, user_discord_id: int) -> dict:
+    """{followers, following} — сколько подписчиков и на скольких подписан."""
+    table = _guild.guild_table(guild_id, "follows")
+    uid = int(user_discord_id)
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE following_discord_id = ?", (uid,)) as cur:
+            followers = (await cur.fetchone())[0]
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE follower_discord_id = ?", (uid,)) as cur:
+            following = (await cur.fetchone())[0]
+    return {"followers": int(followers), "following": int(following)}
+
+
+async def g_following_feed(guild_id: int, follower: int, limit: int = 20, days: int = 14) -> list[dict]:
+    """Лента активности тех, на кого подписан `follower`.
+
+    Берёт activity_log за `days` по авторам из follows. Формат как g_list_activity.
+    """
+    from datetime import datetime, timedelta
+    t_act = _guild.guild_table(guild_id, "activity_log")
+    t_fol = _guild.guild_table(guild_id, "follows")
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT a.event_type, a.actor_discord_id, "
+            f"COALESCE(a.actor_name, u.display_name, u.username, 'Unknown') AS actor_name, "
+            f"a.target_name, a.created_at "
+            f"FROM {t_act} a LEFT JOIN users u ON u.discord_id = a.actor_discord_id "
+            f"WHERE a.created_at > ? AND a.actor_discord_id IN "
+            f"(SELECT following_discord_id FROM {t_fol} WHERE follower_discord_id = ?) "
+            f"ORDER BY a.created_at DESC LIMIT ?",
+            (cutoff, int(follower), limit),
+        ) as cur:
+            rows = await cur.fetchall()
+    now = datetime.utcnow()
+    out = []
+    for r in rows:
+        created = r[4]
+        time_ago = "недавно"
+        try:
+            dt = datetime.fromisoformat(created)
+            diff = now - dt
+            if diff.days > 0:
+                time_ago = f"{diff.days} дн назад"
+            elif diff.seconds > 3600:
+                time_ago = f"{diff.seconds // 3600} ч назад"
+            else:
+                time_ago = f"{max(diff.seconds // 60, 1)} мин назад"
+        except Exception:
+            pass
+        out.append({
+            "event_type": r[0], "actor_discord_id": r[1], "actor_name": r[2] or "Unknown",
+            "target_name": r[3], "created_at": created, "time_ago": time_ago,
+        })
+    return out
+
+
+# ============================================================
+# v3.11: Косметика за «мёд» (accent-цвета)
+# ============================================================
+
+async def g_cosmetics_owned(guild_id: int, user_discord_id: int, cosmetic_type: str) -> list[str]:
+    """Список купленных косметик данного типа у пользователя."""
+    table = _guild.guild_table(guild_id, "user_cosmetics")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT cosmetic_value FROM {table} "
+            f"WHERE user_discord_id = ? AND cosmetic_type = ?",
+            (int(user_discord_id), cosmetic_type),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [r[0] for r in rows]
+
+
+async def g_cosmetic_is_owned(guild_id: int, user_discord_id: int,
+                              cosmetic_type: str, value: str) -> bool:
+    table = _guild.guild_table(guild_id, "user_cosmetics")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT 1 FROM {table} WHERE user_discord_id = ? AND cosmetic_type = ? "
+            f"AND cosmetic_value = ? LIMIT 1",
+            (int(user_discord_id), cosmetic_type, value),
+        ) as cur:
+            return (await cur.fetchone()) is not None
+
+
+async def g_cosmetic_buy(guild_id: int, user_discord_id: int, cosmetic_type: str,
+                         value: str, cost: int) -> dict:
+    """Купить косметику за «мёд». Идемпотентно: если уже куплено — повторно не списывает.
+
+    Возвращает {ok, owned, balance, error?}.
+    """
+    uid = int(user_discord_id)
+    if await g_cosmetic_is_owned(guild_id, uid, cosmetic_type, value):
+        return {"ok": True, "owned": True,
+                "balance": await g_honey_balance(guild_id, uid)}
+    # Списываем мёд
+    spent = await g_honey_spend(guild_id, uid, cost, reason=f"cosmetic:{cosmetic_type}:{value}")
+    if not spent:
+        return {"ok": False, "owned": False,
+                "balance": await g_honey_balance(guild_id, uid),
+                "error": "insufficient"}
+    table = _guild.guild_table(guild_id, "user_cosmetics")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table} (user_discord_id, cosmetic_type, cosmetic_value, acquired_at) "
+            f"VALUES (?, ?, ?, ?)",
+            (uid, cosmetic_type, value, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+    return {"ok": True, "owned": True, "balance": await g_honey_balance(guild_id, uid)}
+
+
+# ============================================================
+# v3.11: Турнир фильмов (bracket, single-elimination)
+# ============================================================
+
+async def _seed_round_matches(db, table_m: str, tournament_id: int, round_no: int,
+                              names: list[str]) -> None:
+    """Создать матчи раунда из списка имён (по парам; нечётный → бай)."""
+    slot = 0
+    i = 0
+    now = datetime.utcnow().isoformat()
+    while i < len(names):
+        left = names[i]
+        right = names[i + 1] if i + 1 < len(names) else None
+        if right is None:
+            # Бай: проходит дальше автоматически
+            await db.execute(
+                f"INSERT INTO {table_m} (tournament_id, round, slot, left_name, right_name, "
+                f"winner_name, status) VALUES (?, ?, ?, ?, NULL, ?, 'done')",
+                (tournament_id, round_no, slot, left, left))
+        else:
+            await db.execute(
+                f"INSERT INTO {table_m} (tournament_id, round, slot, left_name, right_name, status) "
+                f"VALUES (?, ?, ?, ?, ?, 'open')",
+                (tournament_id, round_no, slot, left, right))
+        slot += 1
+        i += 2
+
+
+async def g_create_tournament(guild_id: int, title: str, items: list[str],
+                              created_by: int) -> int | None:
+    """Создать турнир из списка фильмов. Нужно >= 2 уникальных. Возвращает id или None."""
+    # Дедуп с сохранением порядка
+    seen = set()
+    names = []
+    for it in items:
+        it = (it or "").strip()
+        if it and it not in seen:
+            seen.add(it)
+            names.append(it)
+    if len(names) < 2:
+        return None
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {t_t} (title, status, current_round, created_by, created_at) "
+            f"VALUES (?, 'voting', 1, ?, ?)", (title, int(created_by), now))
+        tid = cur.lastrowid
+        await _seed_round_matches(db, t_m, tid, 1, names)
+        await db.commit()
+    return tid
+
+
+async def g_get_active_tournament(guild_id: int) -> dict | None:
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, status, current_round, winner_name, created_by, created_at, completed_at "
+            f"FROM {t_t} WHERE status != 'completed' ORDER BY id DESC LIMIT 1") as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {"id": r[0], "title": r[1], "status": r[2], "current_round": r[3],
+            "winner_name": r[4], "created_by": r[5], "created_at": r[6], "completed_at": r[7]}
+
+
+async def g_get_tournament(guild_id: int, tournament_id: int) -> dict | None:
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, status, current_round, winner_name, created_by, created_at, completed_at "
+            f"FROM {t_t} WHERE id = ?", (int(tournament_id),)) as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {"id": r[0], "title": r[1], "status": r[2], "current_round": r[3],
+            "winner_name": r[4], "created_by": r[5], "created_at": r[6], "completed_at": r[7]}
+
+
+async def g_get_tournament_matches(guild_id: int, tournament_id: int,
+                                   round_no: int | None = None) -> list[dict]:
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    sql = (f"SELECT id, round, slot, left_name, right_name, left_votes, right_votes, "
+           f"winner_name, status FROM {t_m} WHERE tournament_id = ?")
+    params: tuple = (int(tournament_id),)
+    if round_no is not None:
+        sql += " AND round = ?"
+        params = (int(tournament_id), int(round_no))
+    sql += " ORDER BY round, slot"
+    async with _connect() as db:
+        async with db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "round": r[1], "slot": r[2], "left_name": r[3], "right_name": r[4],
+             "left_votes": r[5], "right_votes": r[6], "winner_name": r[7], "status": r[8]}
+            for r in rows]
+
+
+async def g_vote_match(guild_id: int, match_id: int, user_discord_id: int, choice: str) -> dict:
+    """Проголосовать за сторону матча ('left'|'right'). Перезапись своего голоса.
+
+    Возвращает {ok, left_votes, right_votes} или {ok: False, error}.
+    """
+    if choice not in ("left", "right"):
+        return {"ok": False, "error": "bad choice"}
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    t_v = _guild.guild_table(guild_id, "tournament_votes")
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT left_name, right_name, status FROM {t_m} WHERE id = ?", (int(match_id),)) as cur:
+            m = await cur.fetchone()
+        if not m or m[2] != "open" or m[1] is None:
+            return {"ok": False, "error": "match not open"}
+        await db.execute(
+            f"INSERT INTO {t_v} (match_id, user_discord_id, choice, created_at) VALUES (?, ?, ?, ?) "
+            f"ON CONFLICT(match_id, user_discord_id) DO UPDATE SET choice = excluded.choice, "
+            f"created_at = excluded.created_at",
+            (int(match_id), int(user_discord_id), choice, now))
+        # Пересчёт из таблицы голосов
+        async with db.execute(
+            f"SELECT choice, COUNT(*) FROM {t_v} WHERE match_id = ? GROUP BY choice",
+            (int(match_id),)) as cur:
+            counts = {row[0]: row[1] for row in await cur.fetchall()}
+        lv, rv = int(counts.get("left", 0)), int(counts.get("right", 0))
+        await db.execute(
+            f"UPDATE {t_m} SET left_votes = ?, right_votes = ? WHERE id = ?",
+            (lv, rv, int(match_id)))
+        await db.commit()
+    return {"ok": True, "left_votes": lv, "right_votes": rv}
+
+
+async def g_advance_tournament(guild_id: int, tournament_id: int) -> dict:
+    """Закрыть текущий раунд: определить победителей (больше голосов, ничья → левый),
+    создать следующий раунд или завершить турнир.
+
+    Возвращает {ok, status, round|winner}.
+    """
+    t_t = _guild.guild_table(guild_id, "tournaments")
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    tour = await g_get_tournament(guild_id, tournament_id)
+    if not tour or tour["status"] == "completed":
+        return {"ok": False, "error": "not active"}
+    rnd = tour["current_round"]
+    matches = await g_get_tournament_matches(guild_id, tournament_id, rnd)
+    if not matches:
+        return {"ok": False, "error": "no matches"}
+    winners: list[str] = []
+    now = datetime.utcnow().isoformat()
+    async with _connect() as db:
+        for m in matches:
+            if m["status"] == "done" and m["winner_name"]:
+                winners.append(m["winner_name"])
+                continue
+            # Победитель по голосам, ничья → левый
+            if m["right_name"] is None:
+                win = m["left_name"]
+            elif m["right_votes"] > m["left_votes"]:
+                win = m["right_name"]
+            else:
+                win = m["left_name"]
+            winners.append(win)
+            await db.execute(
+                f"UPDATE {t_m} SET winner_name = ?, status = 'done' WHERE id = ?",
+                (win, m["id"]))
+        if len(winners) <= 1:
+            champion = winners[0] if winners else None
+            await db.execute(
+                f"UPDATE {t_t} SET status = 'completed', winner_name = ?, completed_at = ? WHERE id = ?",
+                (champion, now, int(tournament_id)))
+            await db.commit()
+            result = {"ok": True, "status": "completed", "winner": champion}
+        else:
+            next_round = rnd + 1
+            await _seed_round_matches(db, t_m, int(tournament_id), next_round, winners)
+            await db.execute(
+                f"UPDATE {t_t} SET current_round = ? WHERE id = ?", (next_round, int(tournament_id)))
+            await db.commit()
+            result = {"ok": True, "status": "voting", "round": next_round}
+    return result
+
+
+# ============================================================
+# v3.11: Анонимный чат Тайного Санты
+# ============================================================
+
+async def g_santa_recipient_assignment(guild_id: int, event_id: int,
+                                       recipient_discord_id: int) -> dict | None:
+    """Назначение по получателю → кто его Санта (ВНУТРЕННЕЕ, не раскрывать получателю).
+
+    Возвращает {santa_discord_id} или None.
+    """
+    table_a = _guild.guild_table(guild_id, "santa_assignments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT santa_discord_id FROM {table_a} "
+            f"WHERE event_id = ? AND recipient_discord_id = ?",
+            (int(event_id), int(recipient_discord_id)),
+        ) as cur:
+            r = await cur.fetchone()
+    return {"santa_discord_id": r[0]} if r else None
+
+
+async def g_santa_add_message(guild_id: int, event_id: int, santa_discord_id: int,
+                              recipient_discord_id: int, sender: str, text: str) -> bool:
+    """Добавить сообщение в тред (sender: 'santa'|'recipient'). Текст обрезается до 2000."""
+    if sender not in ("santa", "recipient"):
+        return False
+    text = (text or "").strip()[:2000]
+    if not text:
+        return False
+    table = _guild.guild_table(guild_id, "santa_messages")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (event_id, santa_discord_id, recipient_discord_id, sender, text, created_at) "
+            f"VALUES (?, ?, ?, ?, ?, ?)",
+            (int(event_id), int(santa_discord_id), int(recipient_discord_id), sender, text,
+             datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+    return True
+
+
+async def g_santa_get_messages(guild_id: int, event_id: int, santa_discord_id: int,
+                               recipient_discord_id: int) -> list[dict]:
+    """Сообщения треда по порядку. Возвращает [{sender, text, created_at}, ...].
+
+    Личности не раскрываются — только роль отправителя (santa/recipient).
+    """
+    table = _guild.guild_table(guild_id, "santa_messages")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT sender, text, created_at FROM {table} "
+            f"WHERE event_id = ? AND santa_discord_id = ? AND recipient_discord_id = ? "
+            f"ORDER BY id",
+            (int(event_id), int(santa_discord_id), int(recipient_discord_id)),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [{"sender": r[0], "text": r[1], "created_at": r[2]} for r in rows]
+
+
+# ============================================================
+# v3.11: RSVP киновечера + авто-промпт/countdown (Discord-runtime)
+# ============================================================
+
+async def g_add_movie_night_rsvp(guild_id: int, event_id: int, user_discord_id: int) -> None:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table} (event_id, user_discord_id, created_at) VALUES (?, ?, ?)",
+            (int(event_id), int(user_discord_id), datetime.utcnow().isoformat()))
+        await db.commit()
+
+
+async def g_remove_movie_night_rsvp(guild_id: int, event_id: int, user_discord_id: int) -> None:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        await db.execute(
+            f"DELETE FROM {table} WHERE event_id = ? AND user_discord_id = ?",
+            (int(event_id), int(user_discord_id)))
+        await db.commit()
+
+
+async def g_count_movie_night_rsvp(guild_id: int, event_id: int) -> int:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE event_id = ?", (int(event_id),)) as cur:
+            return int((await cur.fetchone())[0])
+
+
+async def g_list_movie_night_rsvp(guild_id: int, event_id: int) -> list[int]:
+    table = _guild.guild_table(guild_id, "movie_night_rsvp")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT user_discord_id FROM {table} WHERE event_id = ? ORDER BY created_at",
+            (int(event_id),)) as cur:
+            return [int(r[0]) for r in await cur.fetchall()]
+
+
+_MOVIE_NIGHT_FLAGS = {"countdown_sent", "rate_prompt_sent"}
+
+
+async def g_mark_movie_night_flag(guild_id: int, movie_night_id: int, flag: str) -> None:
+    """Пометить флаг киновечера (countdown_sent | rate_prompt_sent). Колонка из белого списка."""
+    if flag not in _MOVIE_NIGHT_FLAGS:
+        raise ValueError(f"bad flag: {flag}")
+    table = _guild.guild_table(guild_id, "movie_nights")
+    async with _connect() as db:
+        await db.execute(f"UPDATE {table} SET {flag} = 1 WHERE id = ?", (int(movie_night_id),))
+        await db.commit()
+
+
+async def g_movie_nights_due_countdown(guild_id: int, now_iso: str, window_start_iso: str) -> list[dict]:
+    """Киновечера, которые стартуют (scheduled_at в [window_start, now]) и ещё без countdown."""
+    table = _guild.guild_table(guild_id, "movie_nights")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, scheduled_at, event_id FROM {table} "
+            f"WHERE scheduled_at <= ? AND scheduled_at >= ? "
+            f"AND COALESCE(countdown_sent, 0) = 0",
+            (now_iso, window_start_iso)) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "title": r[1], "scheduled_at": r[2], "event_id": r[3]} for r in rows]
+
+
+async def g_movie_nights_due_rate(guild_id: int, cutoff_iso: str, floor_iso: str) -> list[dict]:
+    """Киновечера, прошедшие (scheduled_at в [floor, cutoff]) и без промпта оценок."""
+    table = _guild.guild_table(guild_id, "movie_nights")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, title, scheduled_at, event_id FROM {table} "
+            f"WHERE scheduled_at <= ? AND scheduled_at >= ? "
+            f"AND COALESCE(rate_prompt_sent, 0) = 0",
+            (cutoff_iso, floor_iso)) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "title": r[1], "scheduled_at": r[2], "event_id": r[3]} for r in rows]

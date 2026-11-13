@@ -401,6 +401,19 @@
             {% if target.guild_name %}<span><img src="/static/icons/database.png" alt="" width="16" height="16" class="ui-icon"> {{ target.guild_name }}</span>{% endif %}
             <span class="mono">@{{ target.username or target.discord_id }}</span>
           </div>
+          {# v3.11: Follow — счётчики + кнопка #}
+          <div class="profile-follow">
+            <span class="follow-stat"><strong id="followers-count">{{ follow_counts.followers }}</strong> подписчиков</span>
+            <span class="follow-stat"><strong>{{ follow_counts.following }}</strong> подписок</span>
+            {% if not is_self %}
+            <button id="follow-btn" class="{{ 'btn-outline' if is_following else 'btn-primary' }} btn-sm"
+                    data-following="{{ '1' if is_following else '0' }}"
+                    data-id="{{ target.discord_id }}"
+                    onclick="toggleFollow(this)">
+              {{ 'Отписаться' if is_following else '＋ Подписаться' }}
+            </button>
+            {% endif %}
+          </div>
         </div>
       </div>
       {# v2.3: Пинн-ачивки (3 шт) справа в хедере — иконка + название + tooltip #}
@@ -460,7 +473,45 @@
       <div class="stat-card"><div class="stat-value">{{ stats.avg_rating if stats.ratings_count > 0 else '—' }}</div><div class="stat-label">Средняя</div></div>
       <div class="stat-card"><div class="stat-value">{{ stats.quotes_count }}</div><div class="stat-label">Цитат</div></div>
       <div class="stat-card"><div class="stat-value">{{ stats.watchlist_count }}</div><div class="stat-label">Вишлист</div></div>
+      {% if honey %}
+      <div class="stat-card"><div class="stat-value">🍯 {{ honey.balance }}</div><div class="stat-label">Мёд</div></div>
+      <div class="stat-card"><div class="stat-value">🔥 {{ honey.streak }}</div><div class="stat-label">Стрик, дн</div></div>
+      {% endif %}
     </div>
+
+    {# v3.11: «Вам может понравиться» — только на своём профиле #}
+    {% if recommendations %}
+    <h3 class="section-title">✨ Вам может понравиться</h3>
+    <article class="card" style="margin-bottom:16px;">
+      <ol class="honey-board">
+        {% for rec in recommendations %}
+        <li>
+          <a href="#" onclick='showRatingsModal({{ rec.winner_id }}, {{ rec.lot_name|tojson }}); return false;'>{{ rec.lot_name }}</a>
+          <span class="honey-board-amount" title="Прогноз оценки по похожим вкусам">★ {{ rec.score }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </article>
+    {% endif %}
+
+    {# v3.11: Витрина accent-цветов (за «мёд») — только на своём профиле #}
+    {% if accent_shop %}
+    <h3 class="section-title">🎨 Цвет акцента <span class="hint" style="font-weight:400;">— 🍯 {{ accent_shop.cost }} за новый</span></h3>
+    <article class="card" style="margin-bottom:16px;">
+      <div class="accent-shop">
+        {% for key, label in accent_shop.accents.items() %}
+        {% set owned = (key == 'amber') or (key in accent_shop.owned) %}
+        <button class="accent-swatch {% if key == accent_shop.current %}equipped{% endif %} {% if not owned %}locked{% endif %}"
+                data-accent-key="{{ key }}" data-owned="{{ '1' if owned else '0' }}"
+                onclick="setAccent(this)"
+                title="{{ label }}{% if not owned %} — 🍯 {{ accent_shop.cost }}{% endif %}">
+          <span class="accent-dot" {% if key != 'amber' %}data-accent="{{ key }}"{% endif %} style="background:var(--accent);"></span>
+          <span class="accent-label">{{ label }}{% if not owned %} 🔒{% endif %}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </article>
+    {% endif %}
 
     {# Discord live info #}
     {% if discord_info %}
@@ -704,6 +755,54 @@
       const config = JSON.parse(el.dataset.iconConfig);
       el.innerHTML = window.renderAchievementSVG ? window.renderAchievementSVG(config) : '';
     });
+
+    // v3.11: Follow / unfollow
+    window.toggleFollow = function (btn) {
+      const id = btn.dataset.id;
+      const following = btn.dataset.following === '1';
+      const url = following ? `/api/unfollow/${id}` : `/api/follow/${id}`;
+      btn.disabled = true;
+      fetch(url, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          const nowFollowing = !!data.following;
+          btn.dataset.following = nowFollowing ? '1' : '0';
+          btn.textContent = nowFollowing ? 'Отписаться' : '＋ Подписаться';
+          btn.classList.toggle('btn-outline', nowFollowing);
+          btn.classList.toggle('btn-primary', !nowFollowing);
+          const fc = document.getElementById('followers-count');
+          if (fc && typeof data.followers === 'number') fc.textContent = data.followers;
+          if (window.showToast) window.showToast(nowFollowing ? '✓ Вы подписались' : 'Вы отписались');
+        })
+        .catch(() => { if (window.showToast) window.showToast('❌ Ошибка', 'error'); })
+        .finally(() => { btn.disabled = false; });
+    };
+
+    // v3.11: покупка/применение accent-цвета
+    window.setAccent = function (btn) {
+      const key = btn.dataset.accentKey;
+      btn.disabled = true;
+      fetch('/api/honey/accent/' + key, { method: 'POST' })
+        .then(r => r.json().then(d => ({ ok: r.ok, d: d })))
+        .then(function (res) {
+          if (!res.ok || !res.d.ok) {
+            const msg = res.d && res.d.error === 'insufficient' ? '❌ Недостаточно мёда' : '❌ Ошибка';
+            if (window.showToast) window.showToast(msg, 'error');
+            return;
+          }
+          if (key === 'amber') document.documentElement.removeAttribute('data-accent');
+          else document.documentElement.setAttribute('data-accent', key);
+          document.querySelectorAll('.accent-swatch').forEach(s => s.classList.remove('equipped'));
+          btn.classList.add('equipped');
+          btn.classList.remove('locked');
+          btn.dataset.owned = '1';
+          const lbl = btn.querySelector('.accent-label');
+          if (lbl) lbl.textContent = lbl.textContent.replace(' 🔒', '');
+          if (window.showToast) window.showToast('✓ Акцент применён', 'success');
+        })
+        .catch(() => { if (window.showToast) window.showToast('❌ Ошибка', 'error'); })
+        .finally(() => { btn.disabled = false; });
+    };
   </script>
 {% include "_footer.html" %}
 </body>

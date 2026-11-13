@@ -11,9 +11,12 @@
    - Плавные hover-переходы
 */
 
-/* ===== Тема: light (кремовый градиент) ===== */
+/* ===== Тема: light (кремовый градиент) =====
+   data-theme="auto" использует light-значения по умолчанию, но переключается
+   на dark при системной тёмной теме (см. @media prefers-color-scheme ниже). */
 :root,
-[data-theme="light"] {
+[data-theme="light"],
+[data-theme="auto"] {
   --bg-base: #F4EAD3;
   --bg-gradient: linear-gradient(135deg, #F4EAD3 0%, #FDF6E3 30%, #FAF0DC 60%, #F4EAD3 100%);
   --blob-1: rgba(255, 183, 3, 0.4);
@@ -151,8 +154,109 @@
   --shadow: var(--glass-shadow);
 }
 
+/* ===== Тема: auto → dark при системной тёмной теме =====
+   Зеркало [data-theme="dark"] выше. При правке dark-палитры синхронизировать и здесь. */
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --bg-base: #0F0F1A;
+    --bg-gradient: linear-gradient(135deg, #0F0F1A 0%, #1A1A2E 50%, #16213E 100%);
+    --blob-1: rgba(255, 183, 3, 0.18);
+    --blob-2: rgba(251, 133, 0, 0.12);
+    --blob-3: rgba(79, 121, 66, 0.08);
+
+    --glass-bg: rgba(255, 255, 255, 0.06);
+    --glass-bg-hover: rgba(255, 255, 255, 0.12);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --glass-border-strong: rgba(255, 183, 3, 0.25);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --glass-shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.5);
+    --glass-blur: blur(20px) saturate(180%);
+    --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+
+    --content-bg: rgba(255, 255, 255, 0.04);
+    --content-bg-hover: rgba(255, 255, 255, 0.08);
+    --content-border: rgba(255, 255, 255, 0.08);
+    --content-radius: 16px;
+
+    --nav-glass-bg: rgba(255, 255, 255, 0.06);
+    --nav-glass-border: rgba(255, 255, 255, 0.08);
+    --nav-text: rgba(255, 255, 255, 0.85);
+
+    --card-solid: rgba(30, 30, 45, 0.6);
+    --card-alt: rgba(40, 40, 60, 0.4);
+    --input-bg: rgba(255, 255, 255, 0.06);
+    --input-bg-focus: rgba(255, 255, 255, 0.1);
+
+    --text: #FFFFFF;
+    --text-muted: rgba(255, 255, 255, 0.6);
+    --text-soft: rgba(255, 255, 255, 0.4);
+
+    --accent: #FFB703;
+    --accent-2: #FFC940;
+    --accent-hover: #FFD060;
+    --accent-text: #1A1A1A;
+    --accent-soft: rgba(255, 183, 3, 0.12);
+    --accent-glow: 0 0 24px rgba(255, 183, 3, 0.4);
+    --icon-glow: rgba(255, 183, 3, 0.35);
+    --icon-glow-strong: rgba(255, 183, 3, 0.55);
+    --gold: #FFD700;
+    --purple: #B57BDC;
+    --blue: #5DADE2;
+
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.15);
+
+    --green: #6FAE5A;
+    --green-soft: rgba(111, 174, 90, 0.12);
+    --red: #E55A4E;
+    --red-soft: rgba(229, 90, 78, 0.12);
+
+    --badge-unconfirmed-bg: rgba(255, 183, 3, 0.15);
+    --badge-unconfirmed-text: #FFB703;
+    --badge-confirmed-bg: rgba(111, 174, 90, 0.15);
+    --badge-confirmed-text: #6FAE5A;
+  }
+}
+
+/* color-scheme — чтобы нативные контролы (скроллбары, date-picker, автозаполнение)
+   совпадали с темой панели. */
+[data-theme="light"] { color-scheme: light; }
+[data-theme="dark"]  { color-scheme: dark; }
+[data-theme="auto"]  { color-scheme: light dark; }
+
+/* Повышенный контраст (prefers-contrast: more) — усиливаем границы и приглушённый текст */
+@media (prefers-contrast: more) {
+  :root, [data-theme] {
+    --content-border: var(--border-strong);
+    --glass-border: var(--border-strong);
+    --text-muted: var(--text);
+  }
+}
+
+/* ===== Motion-токены (общие для обеих тем) =====
+   DESIGN_SYSTEM §3: пружинный возврат и плавный easing.
+   Раньше использовались (var(--spring)/var(--smooth)) в карточках, сайдбаре,
+   profile_public.html, но НИГДЕ не определялись — из-за чего shorthand-переходы
+   были невалидны и «жидкая» анимация откатывалась к дефолту. Определяем глобально. */
+:root {
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --smooth: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* ===== Базовые стили ===== */
 * { box-sizing: border-box; }
+
+/* Плавная прокрутка по якорям (не мешает reduced-motion — см. блок ниже) */
+html { scroll-behavior: smooth; }
+
+/* Доступность: видимое кольцо фокуса с клавиатуры (DESIGN_SYSTEM §5).
+   Было задокументировано, но отсутствовало в CSS. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Мышиный :focus без клавиатуры не рисует кольцо */
+:focus:not(:focus-visible) { outline: none; }
 
 body {
   background: var(--bg-gradient);
@@ -212,7 +316,7 @@ body::after {
   border-radius: 10px;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -337,8 +441,8 @@ td.mono {
   color: var(--badge-confirmed-text);
 }
 .badge.admin {
-  background: rgba(243, 139, 168, 0.15);
-  color: #F5A3B8;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .badge.user {
   background: var(--accent-soft);
@@ -397,7 +501,7 @@ input[type="text"], input[type="password"], input[type="number"], input[type="da
   color: var(--text);
   font-family: ui-monospace, monospace;
   font-size: 0.88rem;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   box-sizing: border-box;
 }
 input[type="text"]:focus, input[type="password"]:focus,
@@ -416,7 +520,7 @@ textarea {
   color: var(--text);
   font-size: 0.88rem;
   font-family: inherit;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   box-sizing: border-box;
   resize: vertical;
 }
@@ -441,7 +545,7 @@ select {
   color: var(--text);
   font-size: 0.88rem;
   font-family: inherit;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   box-sizing: border-box;
   appearance: none;
   -webkit-appearance: none;
@@ -606,7 +710,7 @@ button {
   font-weight: 700;
   cursor: pointer;
   margin-top: 22px;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   box-shadow: 0 4px 16px rgba(255, 183, 3, 0.2);
 }
 button:hover:not(:disabled) {
@@ -615,7 +719,8 @@ button:hover:not(:disabled) {
   box-shadow: 0 6px 24px rgba(255, 183, 3, 0.3);
 }
 button:active:not(:disabled) {
-  transform: translateY(0);
+  transform: scale(0.96);
+  transition: transform 0.08s var(--smooth);
 }
 button:disabled {
   opacity: 0.5;
@@ -642,7 +747,7 @@ button:disabled {
   margin: 0;
   border: none;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: transform 0.2s var(--spring), box-shadow 0.15s, background 0.15s;
   box-shadow: 0 4px 16px rgba(255, 183, 3, 0.2);
 }
 .btn-primary:hover:not(:disabled) {
@@ -651,7 +756,7 @@ button:disabled {
   box-shadow: 0 6px 24px rgba(255, 183, 3, 0.3);
   color: var(--accent-text);
 }
-.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:active:not(:disabled) { transform: scale(0.96); transition: transform 0.08s var(--smooth); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Outline-вариант (для вторичных действий рядом с .btn-primary) */
@@ -670,7 +775,7 @@ button:disabled {
   margin: 0;
   border: 1px solid var(--accent);
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
+  transition: background 0.15s, transform 0.2s var(--spring);
   box-shadow: none;
 }
 .btn-outline:hover:not(:disabled) {
@@ -678,7 +783,7 @@ button:disabled {
   transform: translateY(-2px);
   color: var(--accent);
 }
-.btn-outline:active:not(:disabled) { transform: translateY(0); }
+.btn-outline:active:not(:disabled) { transform: scale(0.96); transition: transform 0.08s var(--smooth); }
 
 /* v3.10.2: компактная кнопка для плашки «Нет активного киновечера» */
 .btn-sm {
@@ -703,12 +808,13 @@ button:disabled {
   margin: 0;
   border: 1px solid var(--red);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, transform 0.2s var(--spring);
 }
 .btn-danger:hover:not(:disabled) {
   background: var(--red);
   color: #fff;
 }
+.btn-danger:active:not(:disabled) { transform: scale(0.95); transition: transform 0.08s var(--smooth); }
 
 /* Ghost-кнопка (минималистичная, для редких действий) */
 .btn-ghost {
@@ -726,13 +832,14 @@ button:disabled {
   margin: 0;
   border: 1px solid var(--border-strong);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s var(--spring);
 }
 .btn-ghost:hover:not(:disabled) {
   background: var(--accent-soft);
   color: var(--accent);
   border-color: var(--accent);
 }
+.btn-ghost:active:not(:disabled) { transform: scale(0.95); transition: transform 0.08s var(--smooth); }
 
 /* Компактная icon-only кнопка (✏️, ×, 🔑) — для действий в списках */
 .btn-icon {
@@ -747,13 +854,14 @@ button:disabled {
   cursor: pointer;
   font-size: 0.8rem;
   margin: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.2s var(--spring);
 }
 .btn-icon:hover:not(:disabled) {
   background: var(--accent-soft);
   color: var(--accent);
   border-color: var(--accent);
 }
+.btn-icon:active:not(:disabled) { transform: scale(0.9); transition: transform 0.08s var(--smooth); }
 .btn-icon.danger {
   color: var(--red);
   border-color: var(--red);
@@ -824,8 +932,7 @@ input:checked + .slider:before {
   align-items: center;
   box-shadow: var(--glass-shadow), var(--glass-inset);
   gap: 14px;
-  box-shadow: var(--glass-shadow);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s var(--spring), box-shadow 0.2s var(--smooth);
 }
 .ping-card:hover {
   transform: translateY(-2px);
@@ -889,7 +996,7 @@ input:checked + .slider:before {
   border-radius: 12px;
   color: var(--text);
   font-size: 0.9rem;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   box-sizing: border-box;
 }
 .search-form input:focus {
@@ -911,7 +1018,7 @@ input:checked + .slider:before {
   white-space: nowrap;
   height: 42px;
   box-sizing: border-box;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   box-shadow: 0 4px 12px rgba(255, 183, 3, 0.2);
 }
 .search-form button:hover {
@@ -954,7 +1061,7 @@ input:checked + .slider:before {
   text-decoration: none;
   font-size: 0.88rem;
   font-weight: 600;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   cursor: pointer;
   box-sizing: border-box;
 }
@@ -1245,7 +1352,11 @@ input:checked + .slider:before {
 
 
 
-/* ===== Скроллбар (для тёмной темы) ===== */
+/* ===== Скроллбар ===== */
+/* Firefox (standard) — обе темы */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+
+/* WebKit — тёмная тема */
 [data-theme="dark"] ::-webkit-scrollbar {
   width: 10px;
 }
@@ -1258,6 +1369,21 @@ input:checked + .slider:before {
 }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 183, 3, 0.3);
+}
+
+/* WebKit — светлая тема (раньше нативный, выбивался из стиля) */
+[data-theme="light"] ::-webkit-scrollbar {
+  width: 10px;
+}
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: rgba(139, 90, 28, 0.04);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(139, 90, 28, 0.2);
+  border-radius: 5px;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(251, 133, 0, 0.45);
 }
 
 /* ===== Выделение текста ===== */
@@ -1424,7 +1550,7 @@ body.has-sidebar.sidebar-open {
   text-decoration: none;
   font-size: 0.85rem;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring);
   white-space: nowrap;
   cursor: pointer;
   border: 1px solid transparent;
@@ -1539,7 +1665,7 @@ body.has-sidebar.sidebar-open {
   width: 36px; height: 36px; border-radius: 10px;
   background: var(--accent-soft); border: 1px solid var(--glass-border);
   color: var(--accent); cursor: pointer; flex-shrink: 0;
-  transition: all 0.2s; font-size: 0.9rem;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--spring); font-size: 0.9rem;
 }
 .sb-theme-toggle:hover { background: var(--accent); color: var(--accent-text); box-shadow: var(--accent-glow); }
 
@@ -1733,7 +1859,8 @@ body.has-sidebar.sidebar-open {
   background: var(--content-bg);
   border: 1px solid var(--content-border); border-radius: 12px; padding: 10px 14px;
   text-decoration: none; color: var(--text); font-size: 0.82rem; font-weight: 600;
-  display: flex; align-items: center; gap: 7px; transition: all 0.25s var(--smooth);
+  display: flex; align-items: center; gap: 7px;
+  transition: background 0.25s var(--smooth), color 0.25s var(--smooth), transform 0.25s var(--spring), box-shadow 0.25s var(--smooth);
   box-shadow: var(--glass-shadow), var(--glass-inset); flex: 1 1 auto; min-width: 0; justify-content: center;
   white-space: nowrap;
 }
@@ -2056,7 +2183,12 @@ footer { margin-top: auto; flex-shrink: 0; }
 .stepper input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* === v3.10.0: Hub GIF thumbnails — общие для колеса и настроек === */
@@ -2124,4 +2256,177 @@ footer { margin-top: auto; flex-shrink: 0; }
 .hub-gif-thumb-remove:hover {
   background: rgba(220, 38, 38, 0.9);
   transform: scale(1.15);
+}
+
+/* ===== Ripple-эффект (DESIGN_SYSTEM §5) =====
+   Волна от точки клика. JS (sidebar.html) добавляет .ripple-wave внутрь кнопки.
+   Хост-элементы должны обрезать волну по своим границам. */
+.btn-primary, .btn-outline, .btn-danger, .btn-ghost,
+button:not(.custom-select-trigger),
+.page-btn, .quick-link {
+  position: relative;
+  overflow: hidden;
+}
+.ripple-wave {
+  position: absolute;
+  border-radius: 50%;
+  transform: scale(0);
+  background: currentColor;
+  opacity: 0.3;
+  pointer-events: none;
+  animation: ripple-anim 0.6s var(--smooth);
+  z-index: 0;
+}
+@keyframes ripple-anim {
+  to { transform: scale(2.4); opacity: 0; }
+}
+
+/* ===== Прогресс-бар авто-закрытия тоста ===== */
+.toast { position: relative; overflow: hidden; }
+.toast-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: left center;
+  background: var(--accent);
+  opacity: 0.5;
+  animation: toast-progress-anim linear forwards;
+}
+.toast.success .toast-progress { background: var(--green); }
+.toast.error   .toast-progress { background: var(--red); }
+@keyframes toast-progress-anim {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+/* ===== v3.11: Мёд 🍯 ===== */
+.honey-card { align-items: flex-start; gap: 4px; }
+.honey-balance {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1.1;
+}
+.honey-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.honey-streak {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.honey-streak strong { color: var(--accent); }
+.honey-board {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  counter-reset: honey;
+}
+.honey-board li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.honey-board li:last-child { border-bottom: none; }
+.honey-board li::before {
+  counter-increment: honey;
+  content: counter(honey);
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.honey-board li a {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.honey-board li a:hover { color: var(--accent); }
+.honey-board-amount {
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* ===== v3.11: Косметические accent-цвета (покупаются за «мёд») =====
+   Переопределяют accent-семейство токенов; работают в обеих темах. */
+[data-accent="rose"] {
+  --accent: #FF4D83; --accent-2: #FF6F9C; --accent-hover: #FF679A; --accent-text: #FFFFFF;
+  --accent-soft: rgba(255, 77, 131, 0.16); --accent-glow: 0 0 22px rgba(255, 77, 131, 0.4);
+  --icon-glow: rgba(255, 77, 131, 0.45); --icon-glow-strong: rgba(255, 77, 131, 0.65);
+}
+[data-accent="violet"] {
+  --accent: #8B5CF6; --accent-2: #A78BFA; --accent-hover: #9D74F7; --accent-text: #FFFFFF;
+  --accent-soft: rgba(139, 92, 246, 0.16); --accent-glow: 0 0 22px rgba(139, 92, 246, 0.4);
+  --icon-glow: rgba(139, 92, 246, 0.45); --icon-glow-strong: rgba(139, 92, 246, 0.65);
+}
+[data-accent="teal"] {
+  --accent: #14B8A6; --accent-2: #2DD4BF; --accent-hover: #0FA396; --accent-text: #08201D;
+  --accent-soft: rgba(20, 184, 166, 0.16); --accent-glow: 0 0 22px rgba(20, 184, 166, 0.4);
+  --icon-glow: rgba(20, 184, 166, 0.45); --icon-glow-strong: rgba(20, 184, 166, 0.65);
+}
+[data-accent="lime"] {
+  --accent: #84CC16; --accent-2: #A3E635; --accent-hover: #74B513; --accent-text: #1A2605;
+  --accent-soft: rgba(132, 204, 22, 0.16); --accent-glow: 0 0 22px rgba(132, 204, 22, 0.4);
+  --icon-glow: rgba(132, 204, 22, 0.45); --icon-glow-strong: rgba(132, 204, 22, 0.65);
+}
+
+/* Витрина акцентов на профиле */
+.accent-shop { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 4px; }
+.accent-swatch {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: transparent; border: none; cursor: pointer; padding: 0; margin: 0;
+}
+.accent-swatch .accent-dot {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid var(--content-border);
+  box-shadow: var(--glass-inset);
+  transition: transform 0.15s var(--spring), box-shadow 0.15s;
+}
+.accent-swatch:hover .accent-dot { transform: scale(1.1); }
+.accent-swatch.equipped .accent-dot { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
+.accent-swatch .accent-label { font-size: 0.68rem; color: var(--text-muted); }
+.accent-swatch.locked .accent-dot { opacity: 0.55; }
+
+/* ===== v3.11: Follow на профиле ===== */
+.profile-follow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.profile-follow .follow-stat {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.profile-follow .follow-stat strong { color: var(--text); }
+.profile-follow #follow-btn { margin: 0; }
+
+/* ===== Плавные переходы между страницами (cross-document View Transitions) =====
+   Прогрессивное улучшение: браузеры без поддержки просто игнорируют. MPA-навигация. */
+@view-transition { navigation: auto; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
 }

@@ -429,6 +429,51 @@
         <div class="flash error">Вы не участвуете в этом событии.</div>
       {% endif %}
 
+      {# v3.11: Анонимный чат Санта ↔ получатель #}
+      <div class="recipient-card" id="santa-chat" style="display:none; text-align:left;">
+        <h3 style="margin:0 0 12px;"><img src="/static/icons/chat.png" alt="" width="16" height="16" class="ui-icon"> Анонимный чат <span id="chat-with" class="santa-hint"></span></h3>
+        <div id="chat-messages" style="max-height:260px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+        <div style="display:flex; gap:8px;">
+          <input id="chat-input" type="text" maxlength="2000" placeholder="Сообщение..." style="flex:1;" onkeydown="if(event.key==='Enter')sendChat()">
+          <button type="button" class="santa-btn" onclick="sendChat()" style="margin:0;">→</button>
+        </div>
+      </div>
+      <script>
+        (function () {
+          var myRole = null;
+          function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+          window.loadSantaChat = function () {
+            fetch('/api/santa/chat').then(function(r){return r.ok?r.json():null;}).then(function(d){
+              if(!d||!d.ok)return;
+              myRole = d.role;
+              document.getElementById('santa-chat').style.display='block';
+              document.getElementById('chat-with').textContent = 'c: ' + d.counterpart;
+              var box = document.getElementById('chat-messages');
+              box.innerHTML = d.messages.map(function(m){
+                var mine = m.sender === myRole;
+                return '<div style="align-self:'+(mine?'flex-end':'flex-start')+';max-width:80%;'+
+                  'background:'+(mine?'var(--accent-soft)':'var(--card-alt)')+';padding:8px 12px;'+
+                  'border-radius:12px;font-size:0.85rem;">'+esc(m.text)+'</div>';
+              }).join('') || '<div class="santa-hint">Пока нет сообщений.</div>';
+              box.scrollTop = box.scrollHeight;
+            }).catch(function(){});
+          };
+          window.sendChat = function () {
+            var inp = document.getElementById('chat-input');
+            var text = inp.value.trim();
+            if(!text)return;
+            var body = new FormData(); body.append('text', text);
+            fetch('/api/santa/chat/send', {method:'POST', body:body})
+              .then(function(r){return r.json();})
+              .then(function(d){ if(d.ok){inp.value='';window.loadSantaChat();}
+                else if(window.showToast)window.showToast('❌ '+(d.error||'Ошибка'),'error'); })
+              .catch(function(){ if(window.showToast)window.showToast('❌ Ошибка','error'); });
+          };
+          if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',window.loadSantaChat);
+          else window.loadSantaChat();
+        })();
+      </script>
+
       {% if is_admin %}
         <div class="organizer-controls">
           <h4><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Админ: раскрытие</h4>

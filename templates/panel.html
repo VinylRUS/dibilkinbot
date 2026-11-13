@@ -209,6 +209,47 @@
     </div>
     {% endif %}
 
+    {# ===== v3.11: Мёд 🍯 ===== #}
+    {% if honey %}
+    <h2>🍯 Мёд</h2>
+    <div class="now-grid">
+      <article class="card honey-card">
+        <div class="honey-balance">🍯 {{ honey.balance }}</div>
+        <div class="honey-sub">мёда накоплено</div>
+        <div class="honey-streak" title="Дней активности подряд">🔥 Стрик: <strong>{{ honey.streak }}</strong> дн</div>
+      </article>
+      <article class="card">
+        <h3>Топ по мёду</h3>
+        {% if honey.leaderboard %}
+        <ol class="honey-board">
+          {% for u in honey.leaderboard %}
+          <li>
+            <a href="/u/{{ u.user_discord_id }}">{{ u.display_name or u.username or ('User#' ~ u.user_discord_id) }}</a>
+            <span class="honey-board-amount">🍯 {{ u.balance }}</span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <div class="empty">Пока никто не накопил мёда</div>
+        {% endif %}
+      </article>
+    </div>
+    {% endif %}
+
+    {# ===== v3.11: Лента подписок ===== #}
+    {% if following_feed %}
+    <h2>👀 Подписки</h2>
+    <article class="card">
+      {% for ev in following_feed %}
+      <div class="activity-item">
+        <a href="/u/{{ ev.discord_id }}" class="activity-avatar" style="text-decoration:none;" title="{{ ev.username }}">{{ ev.username[:1]|upper if ev.username else '?' }}</a>
+        <div class="activity-text"><strong>{{ ev.username }}</strong> {{ ev.action }}</div>
+        <div class="activity-time">{{ ev.time_ago }}</div>
+      </div>
+      {% endfor %}
+    </article>
+    {% endif %}
+
     {# ===== Чек-лист настроек (v3.10.2: только неподключённые сервисы) ===== #}
     {% if not is_tg_linked or not is_steam_set %}
     <h2>Ваш профиль</h2>

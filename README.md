@@ -38,6 +38,16 @@ Multi-tenant: каждый Discord-сервер изолирован по `guild
 - `/linktg` — привязка Telegram-аккаунта (для личных уведомлений)
 - `/changelog` — показать текущую версию и что нового
 
+## Модули сверх ядра
+
+Помимо киновечеров/цитат в проекте есть несколько крупных подсистем:
+
+- **Ачивки** (`achievements_routes.py`): конструктор достижений, выдача/отзыв, закреплённые ачивки в профиле, привязка к Discord-ролям, уведомления через колокольчик в сайдбаре.
+- **Тайный Санта** (`santa_routes.py` + `steam.py`): розыгрыш, подтягивание Steam-wishlist для подарков, страница совместного раскрытия `/santa/{id}/reveal`.
+- **Modrinth-мониторинг** (`modrinth*.py`): polling новых версий подписанных модпаков раз в 30 мин, пост embed в Discord.
+- **Village Quest** (`vq_*.py`): интеграция с Minecraft-модом через REST API, два транспорта (A: панель→мод; B: мод опрашивает панель — для хостов без входящих портов).
+- **Мониторинги**: `github_monitor.py` (отставание от main), `perf_monitor.py` (здоровье endpoint'ов/Discord/БД каждые 5 мин), `log_buffer.py` (кольцевой буфер логов для команды `/logs` в TG).
+
 ## Веб-панель
 
 | Страница | Назначение |
@@ -76,8 +86,8 @@ Multi-tenant: каждый Discord-сервер изолирован по `guild
 ## Структура
 
 ```
-kinovecher/
-├── main.py                 # точка входа: uvicorn + discord.py
+dibilkinbot/
+├── main.py                 # точка входа: uvicorn + discord.py + TG long-polling
 ├── config.py               # настройки из env
 ├── db.py                   # aiosqlite + миграции (multi-tenant)
 ├── models.py               # дата-классы для строк
@@ -86,14 +96,22 @@ kinovecher/
 ├── telegram.py             # TG Bot API (sendMessage, sendPhoto, createForumTopic)
 ├── bot.py                  # discord.py Bot + slash commands + on_message/reaction
 ├── web.py                  # FastAPI + Jinja2 (панель + API)
+├── deps.py                 # общие зависимости панели (auth, templates) — без circular import
 ├── guild.py                # управление guild-таблицами
 ├── ws_manager.py           # WebSocket для real-time колеса
+├── wheel_routes.py, wheel_physics.py, wheel_test_log.py   # колесо Pointauc
+├── achievements_routes.py  # ачивки (конструктор, выдача, профиль)
+├── santa_routes.py, steam.py   # Тайный Санта + Steam wishlist
+├── modrinth.py, modrinth_monitor.py, modrinth_routes.py   # мониторинг модпаков
+├── vq_api.py, vq_client.py, vq_gateway.py, vq_data.py, vq_routes.py   # Village Quest (MC mod)
+├── movienight_routes.py    # киновечера (REST + страница)
+├── github_monitor.py, perf_monitor.py, log_buffer.py   # мониторинги/логи
+├── avatar_cache.py         # локальный кеш Discord-аватаров
 ├── changelog_parser.py     # парсер CHANGELOG.md
 ├── timezone_utils.py       # MSK (UTC+3) форматирование
-├── templates/              # HTML: login, panel, _nav, channels, tokens, features,
-│                           #         users, guilds, quotes, wheel, winners,
-│                           #         watched, profile, select_guild
-├── static/                 # style.css, bee.png
+├── templates/              # HTML-страницы панели (см. README раздел «Веб-панель»)
+├── static/                 # style.css, bee.png, icons/, js/, vendor/
+├── tests/                  # pytest
 ├── requirements.txt
 ├── Dockerfile              # uv-based для быстрого деплоя
 └── .env.example
@@ -107,7 +125,7 @@ kinovecher/
 
 ## TODO
 
-- Ачивки за просмотры/оценки/цитаты
+- ✅ ~~Ачивки за просмотры/оценки/цитаты~~ — реализовано (см. «Модули сверх ядра»)
 - Годовая/месячная статистика по оценкам
 - «Цитата дня» — случайная цитата в заданное время
 - Напоминания: `/remind <время> <текст>`

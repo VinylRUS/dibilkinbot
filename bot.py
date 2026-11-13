@@ -36,6 +36,7 @@ intents.members = True
 intents.reactions = True  # нужен для on_raw_reaction_add (захват цитат реакцией)
 intents.presences = True   # v2.0: статус + игры (для профиля и ачивок)
 intents.voice_states = True  # v2.0: трекинг войс-чатов
+intents.guild_scheduled_events = True  # v3.11: RSVP «Интересно» через on_scheduled_event_user_add/remove
 
 
 # === Проверка member сервера ===
@@ -686,6 +687,15 @@ class KinovecherBot(commands.Bot):
         # === v2.3: Первичная проверка всех авто-ачивок при старте ===
         await _check_all_auto_achievements()
 
+        # === v3.11: Монитор киновечеров (countdown + авто-промпт оценок) ===
+        try:
+            import movienight_monitor
+            _spawn_background_task(
+                movienight_monitor.movienight_monitor_loop(), name="movienight_monitor")
+            log.info("MovieNight monitor task spawned")
+        except Exception as e:
+            log.warning("Failed to start movienight_monitor: %s", e)
+
     async def on_voice_state_update(self, member, before, after):
         """v2.0: Трекинг войс-сессий. Записывает join/leave в БД."""
         if member.bot:
@@ -988,6 +998,24 @@ class KinovecherBot(commands.Bot):
             log.info("Role deleted in guild %s, synced to DB", role.guild.id)
         except Exception as e:
             log.warning("on_guild_role_delete sync failed: %s", e)
+
+    async def on_scheduled_event_user_add(self, event, user) -> None:
+        """v3.11: пользователь нажал «Интересно» на Scheduled Event киновечера → RSVP."""
+        try:
+            gid = getattr(event, "guild_id", None) or (event.guild.id if getattr(event, "guild", None) else None)
+            if gid:
+                await db.g_add_movie_night_rsvp(int(gid), int(event.id), int(user.id))
+        except Exception as e:
+            log.warning("on_scheduled_event_user_add failed: %s", e)
+
+    async def on_scheduled_event_user_remove(self, event, user) -> None:
+        """v3.11: пользователь убрал «Интересно» → снять RSVP."""
+        try:
+            gid = getattr(event, "guild_id", None) or (event.guild.id if getattr(event, "guild", None) else None)
+            if gid:
+                await db.g_remove_movie_night_rsvp(int(gid), int(event.id), int(user.id))
+        except Exception as e:
+            log.warning("on_scheduled_event_user_remove failed: %s", e)
 
     async def on_wheel_spin_completed(self, winner: dict, is_test: bool = False) -> None:
         """Вызывается из web.py после завершения спина колеса.
@@ -1673,6 +1701,97 @@ class MovieNightCog(commands.Cog):
                 f"{tg_escape(description) if description else ''}"
             )
             await tg_crosspost(tg_text)
+
+    @app_commands.command(name="marathon", description="Анонс киномарафона из нескольких фильмов")
+    @app_commands.describe(
+        date="Дата в формате ГГГГ-ММ-ДД",
+        time="Время ЧЧ:ММ (по МСК)",
+        films="Фильмы через запятую или перенос строки (2+)",
+    )
+    async def marathon(
+        self,
+        interaction: discord.Interaction,
+        date: str,
+        time: str,
+        films: str,
+    ):
+        from timezone_utils import MSK
+        try:
+            dt_msk = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
+            dt = dt_msk.astimezone(timezone.utc).replace(tzinfo=None)
+            dt_display = dt_msk
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Формат даты/времени неверный. Пример: 2025-12-31 18:00 (по МСК)", ephemeral=True)
+            return
+        if dt < datetime.utcnow():
+            await interaction.response.send_message("❌ Дата в прошлом.", ephemeral=True)
+            return
+
+        # Разбор списка фильмов (запятая или перенос строки)
+        parts = [p.strip() for chunk in films.splitlines() for p in chunk.split(",")]
+        titles = [p for p in parts if p]
+        if len(titles) < 2:
+            await interaction.response.send_message(
+                "❌ Укажите минимум 2 фильма (через запятую или с новой строки).", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False, thinking=False)
+
+        announce_channel_id_str = await db.get_setting("channel_announce_id")
+        role_id_str = await db.get_setting("role_movie_ping_id")
+        films_list = "\n".join(f"{i}. {t}" for i, t in enumerate(titles, 1))
+
+        guild = interaction.guild
+        event = None
+        if guild:
+            try:
+                event = await guild.create_scheduled_event(
+                    name=f"Киномарафон ({len(titles)} фильма)",
+                    description=films_list[:1000],
+                    start_time=dt,
+                    entity_type=discord.EntityType.external,
+                    location="Discord voice channel",
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                )
+            except Exception as e:
+                log.warning("Failed to create marathon scheduled event: %s", e)
+
+        guild_id = interaction.guild_id or 0
+        await db.g_add_movie_night(
+            guild_id, f"Марафон: {', '.join(titles)}", dt, interaction.user.id,
+            event.id if event else None, is_marathon=True)
+
+        role_mention = f"<@&{role_id_str}>" if role_id_str and role_id_str.isdigit() else "@Киновечер"
+        event_link = f"https://discord.com/events/{guild.id}/{event.id}" if event and guild else ""
+
+        embed = discord.Embed(
+            title=f"🎞️ Киномарафон — {dt_display.strftime('%d.%m.%Y %H:%M')} МСК",
+            description=films_list,
+            color=0x9B59B6,
+            timestamp=datetime.utcnow(),
+        )
+        embed.add_field(name="Когда", value=f"<t:{int(dt.timestamp())}:F>", inline=False)
+        embed.add_field(name="Ведущий", value=interaction.user.mention, inline=False)
+        if event_link:
+            embed.add_field(name="Событие", value=f"[Открыть]({event_link})", inline=False)
+        embed.set_footer(text=f"Фильмов: {len(titles)}")
+
+        announce_channel = None
+        if announce_channel_id_str and announce_channel_id_str.isdigit():
+            announce_channel = self.bot.get_channel(int(announce_channel_id_str))
+        if announce_channel:
+            await announce_channel.send(content=role_mention, embed=embed,
+                                        allowed_mentions=discord.AllowedMentions(roles=True))
+            await interaction.followup.send(
+                f"✅ Марафон опубликован в {announce_channel.mention}.", ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, content=role_mention)
+
+        if await db.get_setting("tg_crosspost_announce") == "1":
+            await tg_crosspost(
+                f"🎞️ <b>Киномарафон</b>\nКогда: {dt_display.strftime('%d.%m.%Y %H:%M')} МСК\n"
+                f"{tg_escape(films_list)}")
 
 
 # === COG: Watchlist (список желаемого) ===

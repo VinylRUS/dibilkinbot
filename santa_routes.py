@@ -388,6 +388,78 @@ async def api_santa_mark_gift_sent(
     return JSONResponse({"ok": True})
 
 
+# === Анонимный чат Санта ↔ получатель (v3.11) ===
+
+async def _resolve_santa_thread(guild_id: int, event: dict, viewer_id: int):
+    """Определить тред чата для зрителя. Возвращает (role, santa_id, recipient_id, counterpart)
+    или None, если зритель не участвует в назначении. Личность Санты получателю НЕ раскрывается.
+    """
+    asg = await db.g_get_santa_assignment(guild_id, event["id"], viewer_id)
+    if asg:
+        counterpart = asg.get("recipient_display_name") or asg.get("recipient_username") or "получатель"
+        return ("santa", viewer_id, asg["recipient_discord_id"], counterpart)
+    rec = await db.g_santa_recipient_assignment(guild_id, event["id"], viewer_id)
+    if rec:
+        return ("recipient", rec["santa_discord_id"], viewer_id, "Ваш Тайный Санта")
+    return None
+
+
+@router.get("/api/santa/chat")
+async def api_santa_chat_get(_user: dict = Depends(require_user)):
+    """Сообщения анонимного чата зрителя (как санты или как получателя)."""
+    if not await is_santa_enabled():
+        return JSONResponse({"error": "Santa module disabled"}, status_code=404)
+    guild_id = get_current_guild_id(_user)
+    event = await db.g_get_active_santa_event(guild_id)
+    if not event or event["status"] != "assigned":
+        return JSONResponse({"error": "Чат доступен после распределения."}, status_code=400)
+    thread = await _resolve_santa_thread(guild_id, event, _user.get("discord_id", 0))
+    if not thread:
+        return JSONResponse({"error": "Вы не участвуете в распределении."}, status_code=403)
+    role, santa_id, recipient_id, counterpart = thread
+    messages = await db.g_santa_get_messages(guild_id, event["id"], santa_id, recipient_id)
+    return JSONResponse({"ok": True, "role": role, "counterpart": counterpart, "messages": messages})
+
+
+@router.post("/api/santa/chat/send")
+async def api_santa_chat_send(_user: dict = Depends(require_user), text: str = Form(...)):
+    """Отправить сообщение в анонимный чат. Роль (sender) определяется назначением."""
+    if not await is_santa_enabled():
+        return JSONResponse({"error": "Santa module disabled"}, status_code=404)
+    if not (text or "").strip():
+        return JSONResponse({"error": "Пустое сообщение."}, status_code=400)
+    guild_id = get_current_guild_id(_user)
+    event = await db.g_get_active_santa_event(guild_id)
+    if not event or event["status"] != "assigned":
+        return JSONResponse({"error": "Чат доступен после распределения."}, status_code=400)
+    thread = await _resolve_santa_thread(guild_id, event, _user.get("discord_id", 0))
+    if not thread:
+        return JSONResponse({"error": "Вы не участвуете в распределении."}, status_code=403)
+    role, santa_id, recipient_id, _ = thread
+    ok = await db.g_santa_add_message(guild_id, event["id"], santa_id, recipient_id, role, text)
+    if not ok:
+        return JSONResponse({"error": "Не удалось отправить."}, status_code=400)
+
+    # Анонимное TG-уведомление второй стороне (best-effort, без раскрытия личности)
+    try:
+        other_id = recipient_id if role == "santa" else santa_id
+        if await db.is_tg_linked(other_id):
+            tg_link = await db.get_tg_link(other_id)
+            raw_token = await db.get_setting("telegram_token")
+            if tg_link and tg_link[1] and raw_token:
+                who = "вашего Тайного Санты" if role == "santa" else "вашего получателя"
+                import telegram
+                await telegram.send_message(
+                    crypto.decrypt(raw_token), str(tg_link[1]),
+                    f"💬 Новое анонимное сообщение от {who} в Тайном Санте — загляните в панель.",
+                )
+    except Exception as e:
+        import logging
+        logging.getLogger("web").warning("Santa chat TG notify failed: %s", e)
+
+    return JSONResponse({"ok": True})
+
+
 @router.post("/api/santa/reveal")
 async def api_santa_reveal(
     _user: dict = Depends(require_admin),

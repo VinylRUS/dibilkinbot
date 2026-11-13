@@ -263,6 +263,28 @@ async def _serve_wheel_gif(filename: str):
     )
 
 
+# v3.11: PWA — service worker должен отдаваться из корня, иначе его scope
+# ограничится /static/ и он не сможет перехватывать навигации по всему сайту.
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    sw_path = _STATIC_DIR / "sw.js"
+    if not sw_path.exists():
+        return Response(status_code=404)
+    return FileResponse(
+        sw_path,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def web_manifest():
+    man_path = _STATIC_DIR / "manifest.webmanifest"
+    if not man_path.exists():
+        return Response(status_code=404)
+    return FileResponse(man_path, media_type="application/manifest+json")
+
+
 # v3.9.1: mount /static ПОСЛЕ персистентных fallback-роутов выше.
 # Starlette проверяет маршруты по порядку регистрации — Mount('/static')
 # перехватывает все /static/* запросы. Если mount стоит раньше — routes
@@ -373,7 +395,7 @@ def _theme(request: Request) -> str:
 
 # Регистрируем глобально для всех шаблонов, чтобы не передавать явно
 from timezone_utils import format_msk, format_msk_short
-templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "light")
+templates.env.globals["theme_from_request"] = lambda request: request.cookies.get("theme", "auto")
 templates.env.globals["format_msk"] = format_msk
 templates.env.globals["format_msk_short"] = format_msk_short
 
@@ -903,10 +925,50 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
             import logging
             logging.getLogger("dashboard").warning("active santa check failed: %s", e)
 
+    # v3.11: «Мёд» 🍯 — баланс/стрик текущего пользователя + топ-5 лидерборда
+    honey = {"balance": 0, "streak": 0, "leaderboard": []}
+    if user_discord_id:
+        try:
+            honey["balance"] = await db.g_honey_balance(guild_id, user_discord_id)
+            honey["streak"] = await db.g_activity_streak(guild_id, user_discord_id)
+            honey["leaderboard"] = await db.g_honey_leaderboard(guild_id, limit=5)
+        except Exception as e:
+            import logging
+            logging.getLogger("dashboard").warning("honey dashboard failed: %s", e)
+
+    # v3.11: Лента подписок — активность тех, на кого подписан текущий пользователь
+    _FEED_LABELS = {
+        "achievement_granted": "получил(а) ачивку",
+        "collection_started": "запустил(а) сбор на киновечер",
+        "wheel_spun": "крутнул(а) колесо",
+        "quote_added": "добавил(а) цитату",
+        "steam_linked": "привязал(а) Steam",
+        "watchlist_added": "добавил(а) в вишлист",
+        "watched": "посмотрел(а) фильм",
+        "login": "заходил(а) в панель",
+    }
+    following_feed = []
+    if user_discord_id:
+        try:
+            for ev in await db.g_following_feed(guild_id, user_discord_id, limit=10):
+                label = _FEED_LABELS.get(ev["event_type"], ev["event_type"])
+                action = f"{label} «{ev['target_name']}»" if ev.get("target_name") else label
+                following_feed.append({
+                    "discord_id": ev["actor_discord_id"],
+                    "username": ev["actor_name"],
+                    "action": action,
+                    "time_ago": ev["time_ago"],
+                })
+        except Exception as e:
+            import logging
+            logging.getLogger("dashboard").warning("following feed failed: %s", e)
+
     return templates.TemplateResponse(request, "panel.html", {
         "user": _user,
         "current_guild_id": guild_id,
         "bot_version": bot_version,
+        "honey": honey,
+        "following_feed": following_feed,
         "saved_kp": saved_kp,
         "saved_tg": saved_tg,
         "active_collection": active_collection,
@@ -1381,6 +1443,14 @@ async def winners_page(
     for w in winners:
         w["user_rating"] = await db.g_get_user_rating(guild_id, w["id"], user_discord_id) if user_discord_id else None
     total_pages = max(1, (total + per_page - 1) // per_page)
+    # v3.11: «Спорные фильмы» — показываем только на 1-й странице без поиска
+    controversial = []
+    if page == 1 and not search:
+        try:
+            controversial = await db.g_controversial_films(guild_id, min_ratings=3, limit=5)
+        except Exception as e:
+            import logging
+            logging.getLogger("winners").warning("controversial failed: %s", e)
     return templates.TemplateResponse(request, "winners.html", {
         "user": _user,
         "winners": winners,
@@ -1390,6 +1460,7 @@ async def winners_page(
         "per_page": per_page,
         "total": total,
         "total_pages": total_pages,
+        "controversial": controversial,
     })
 
 
@@ -2242,8 +2313,56 @@ async def public_profile_page(
             "VQ player fetch failed for %s: %s", target_discord_id, e
         )
 
+    # v3.11: «Мёд» 🍯 целевого пользователя
+    honey = {"balance": 0, "streak": 0}
+    try:
+        honey["balance"] = await db.g_honey_balance(guild_id, target_discord_id)
+        honey["streak"] = await db.g_activity_streak(guild_id, target_discord_id)
+    except Exception as e:
+        import logging
+        logging.getLogger("profile").warning("honey profile failed: %s", e)
+
+    # v3.11: «Вам может понравиться» — только на своём профиле
+    recommendations = []
+    if is_self:
+        try:
+            recommendations = await db.g_recommend_films(guild_id, target_discord_id, limit=5)
+        except Exception as e:
+            import logging
+            logging.getLogger("profile").warning("recommendations failed: %s", e)
+
+    # v3.11: витрина accent-цветов — только на своём профиле
+    accent_shop = None
+    if is_self:
+        try:
+            owned = await db.g_cosmetics_owned(guild_id, target_discord_id, "accent")
+            accent_shop = {
+                "accents": HONEY_ACCENTS,
+                "owned": owned,
+                "cost": HONEY_ACCENT_COST,
+                "current": request.cookies.get("accent", "amber"),
+                "balance": honey["balance"],
+            }
+        except Exception as e:
+            import logging
+            logging.getLogger("profile").warning("accent shop failed: %s", e)
+
+    # v3.11: Follow — счётчики подписчиков/подписок и подписан ли текущий юзер
+    follow_counts = {"followers": 0, "following": 0}
+    is_following = False
+    try:
+        follow_counts = await db.g_follow_counts(guild_id, target_discord_id)
+        viewer_id = _user.get("discord_id", 0)
+        if viewer_id and not is_self:
+            is_following = await db.g_is_following(guild_id, viewer_id, target_discord_id)
+    except Exception as e:
+        import logging
+        logging.getLogger("profile").warning("follow info failed: %s", e)
+
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
+        "honey": honey,
+        "recommendations": recommendations,
         "target": {
             "discord_id": target_discord_id,
             "username": username,
@@ -2263,6 +2382,9 @@ async def public_profile_page(
         "user_achievements": user_achievements,
         "taste_match": taste_match,
         "watched_together": watched_together,
+        "follow_counts": follow_counts,
+        "is_following": is_following,
+        "accent_shop": accent_shop,
         "is_self": is_self,
         "not_found": False,
         "discord_info": discord_info,
@@ -2293,6 +2415,124 @@ async def api_get_ratings_list(
     guild_id = get_current_guild_id(_user)
     ratings = await db.g_get_ratings_for_winner(guild_id, winner_id)
     return JSONResponse({"ratings": ratings, "count": len(ratings)})
+
+
+# === Follow API (v3.11) ===
+
+@app.post("/api/follow/{discord_id}")
+async def api_follow(discord_id: int, _user: dict = Depends(require_user)):
+    """Подписаться на пользователя. Нельзя на себя."""
+    guild_id = get_current_guild_id(_user)
+    viewer_id = _user.get("discord_id", 0)
+    if not viewer_id or viewer_id == discord_id:
+        return JSONResponse({"error": "cannot follow self"}, status_code=400)
+    await db.g_follow(guild_id, viewer_id, discord_id)
+    counts = await db.g_follow_counts(guild_id, discord_id)
+    return JSONResponse({"following": True, "followers": counts["followers"]})
+
+
+@app.post("/api/unfollow/{discord_id}")
+async def api_unfollow(discord_id: int, _user: dict = Depends(require_user)):
+    """Отписаться от пользователя."""
+    guild_id = get_current_guild_id(_user)
+    viewer_id = _user.get("discord_id", 0)
+    if not viewer_id:
+        return JSONResponse({"error": "no user"}, status_code=400)
+    await db.g_unfollow(guild_id, viewer_id, discord_id)
+    counts = await db.g_follow_counts(guild_id, discord_id)
+    return JSONResponse({"following": False, "followers": counts["followers"]})
+
+
+# === Косметика за «мёд»: accent-цвета (v3.11) ===
+# value → человекочитаемое имя. "amber" — дефолт (бесплатно).
+HONEY_ACCENTS = {
+    "amber": "Янтарь",
+    "rose": "Роза",
+    "violet": "Фиалка",
+    "teal": "Бирюза",
+    "lime": "Лайм",
+}
+HONEY_ACCENT_COST = 150  # мёда за один не-дефолтный акцент (разовая покупка)
+
+
+@app.post("/api/honey/accent/{accent}")
+async def api_set_accent(accent: str, _user: dict = Depends(require_user)):
+    """Купить (если ещё не куплен) и применить accent-цвет. amber — бесплатно."""
+    if accent not in HONEY_ACCENTS:
+        return JSONResponse({"error": "unknown accent"}, status_code=400)
+    guild_id = get_current_guild_id(_user)
+    uid = _user.get("discord_id", 0)
+    if not uid:
+        return JSONResponse({"error": "no user"}, status_code=400)
+    if accent == "amber":
+        data = {"ok": True, "owned": True, "balance": await db.g_honey_balance(guild_id, uid)}
+    else:
+        data = await db.g_cosmetic_buy(guild_id, uid, "accent", accent, HONEY_ACCENT_COST)
+    resp = JSONResponse(data, status_code=200 if data.get("ok") else 402)
+    if data.get("ok"):
+        # Кука читается клиентским JS (sidebar.html) — httponly выключен намеренно.
+        resp.set_cookie("accent", accent, max_age=31536000, samesite="lax")
+    return resp
+
+
+# === Турнир фильмов (bracket, v3.11) ===
+
+@app.get("/tournament", response_class=HTMLResponse)
+async def tournament_page(request: Request, _user: dict = Depends(require_user)):
+    guild_id = get_current_guild_id(_user)
+    tour = await db.g_get_active_tournament(guild_id)
+    matches = []
+    my_votes = {}
+    if tour:
+        matches = await db.g_get_tournament_matches(guild_id, tour["id"], tour["current_round"])
+    return templates.TemplateResponse(request, "tournament.html", {
+        "user": _user,
+        "current_guild_id": guild_id,
+        "is_admin": _user.get("is_admin", False),
+        "tournament": tour,
+        "matches": matches,
+        "active": "tournament",
+    })
+
+
+@app.post("/api/tournament/create")
+async def api_tournament_create(
+    _user: dict = Depends(require_admin),
+    title: str = Form("Турнир фильмов"),
+    items: str = Form(...),
+):
+    """Создать турнир (только админ). items — список фильмов, по одному на строку."""
+    guild_id = get_current_guild_id(_user)
+    existing = await db.g_get_active_tournament(guild_id)
+    if existing:
+        return JSONResponse({"error": "already active"}, status_code=400)
+    names = [ln.strip() for ln in items.splitlines() if ln.strip()]
+    tid = await db.g_create_tournament(guild_id, title.strip() or "Турнир фильмов", names,
+                                       _user.get("discord_id", 0))
+    if not tid:
+        return JSONResponse({"error": "need >= 2 films"}, status_code=400)
+    return JSONResponse({"ok": True, "tournament_id": tid})
+
+
+@app.post("/api/tournament/vote/{match_id}")
+async def api_tournament_vote(
+    match_id: int,
+    _user: dict = Depends(require_user),
+    choice: str = Form(...),
+):
+    guild_id = get_current_guild_id(_user)
+    res = await db.g_vote_match(guild_id, match_id, _user.get("discord_id", 0), choice)
+    return JSONResponse(res, status_code=200 if res.get("ok") else 400)
+
+
+@app.post("/api/tournament/advance")
+async def api_tournament_advance(_user: dict = Depends(require_admin)):
+    guild_id = get_current_guild_id(_user)
+    tour = await db.g_get_active_tournament(guild_id)
+    if not tour:
+        return JSONResponse({"error": "no active tournament"}, status_code=400)
+    res = await db.g_advance_tournament(guild_id, tour["id"])
+    return JSONResponse(res, status_code=200 if res.get("ok") else 400)
 
 
 # === Watchlist API ===
