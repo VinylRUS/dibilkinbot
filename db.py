@@ -5952,3 +5952,62 @@ async def g_advance_tournament(guild_id: int, tournament_id: int) -> dict:
             await db.commit()
             result = {"ok": True, "status": "voting", "round": next_round}
     return result
+
+
+# ============================================================
+# v3.11: Анонимный чат Тайного Санты
+# ============================================================
+
+async def g_santa_recipient_assignment(guild_id: int, event_id: int,
+                                       recipient_discord_id: int) -> dict | None:
+    """Назначение по получателю → кто его Санта (ВНУТРЕННЕЕ, не раскрывать получателю).
+
+    Возвращает {santa_discord_id} или None.
+    """
+    table_a = _guild.guild_table(guild_id, "santa_assignments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT santa_discord_id FROM {table_a} "
+            f"WHERE event_id = ? AND recipient_discord_id = ?",
+            (int(event_id), int(recipient_discord_id)),
+        ) as cur:
+            r = await cur.fetchone()
+    return {"santa_discord_id": r[0]} if r else None
+
+
+async def g_santa_add_message(guild_id: int, event_id: int, santa_discord_id: int,
+                              recipient_discord_id: int, sender: str, text: str) -> bool:
+    """Добавить сообщение в тред (sender: 'santa'|'recipient'). Текст обрезается до 2000."""
+    if sender not in ("santa", "recipient"):
+        return False
+    text = (text or "").strip()[:2000]
+    if not text:
+        return False
+    table = _guild.guild_table(guild_id, "santa_messages")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT INTO {table} (event_id, santa_discord_id, recipient_discord_id, sender, text, created_at) "
+            f"VALUES (?, ?, ?, ?, ?, ?)",
+            (int(event_id), int(santa_discord_id), int(recipient_discord_id), sender, text,
+             datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+    return True
+
+
+async def g_santa_get_messages(guild_id: int, event_id: int, santa_discord_id: int,
+                               recipient_discord_id: int) -> list[dict]:
+    """Сообщения треда по порядку. Возвращает [{sender, text, created_at}, ...].
+
+    Личности не раскрываются — только роль отправителя (santa/recipient).
+    """
+    table = _guild.guild_table(guild_id, "santa_messages")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT sender, text, created_at FROM {table} "
+            f"WHERE event_id = ? AND santa_discord_id = ? AND recipient_discord_id = ? "
+            f"ORDER BY id",
+            (int(event_id), int(santa_discord_id), int(recipient_discord_id)),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [{"sender": r[0], "text": r[1], "created_at": r[2]} for r in rows]

@@ -245,6 +245,40 @@ async def test_follow_and_feed(client):
         await c.commit()
 
 
+@pytest.mark.asyncio
+async def test_santa_anonymous_chat(client):
+    """Анонимный чат: сообщения санты и получателя в одном треде, порядок и роли;
+    обратный поиск назначения по получателю даёт санту (внутренне)."""
+    import db
+    from config import settings
+    from guild import guild_table
+
+    S, R = 91001, 91002  # санта, получатель
+    ev = await db.g_create_santa_event(TEST_GUILD_ID, "НГ", "2099-01-01T00:00:00", "до 1000₽", 1001)
+    eid = ev["id"]
+    # Назначение напрямую (минуя требование 4+ участников)
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(
+            f"INSERT INTO {guild_table(TEST_GUILD_ID, 'santa_assignments')} "
+            f"(event_id, santa_discord_id, recipient_discord_id, assigned_at) VALUES (?, ?, ?, ?)",
+            (eid, S, R, datetime.utcnow().isoformat()))
+        await c.commit()
+
+    # Обратный поиск: по получателю → его санта (внутренняя функция)
+    rec = await db.g_santa_recipient_assignment(TEST_GUILD_ID, eid, R)
+    assert rec and rec["santa_discord_id"] == S
+
+    # Переписка
+    assert await db.g_santa_add_message(TEST_GUILD_ID, eid, S, R, "santa", "Привет! Что хочешь?") is True
+    assert await db.g_santa_add_message(TEST_GUILD_ID, eid, S, R, "recipient", "Инди-игры") is True
+    assert await db.g_santa_add_message(TEST_GUILD_ID, eid, S, R, "santa", "   ") is False  # пусто
+    assert await db.g_santa_add_message(TEST_GUILD_ID, eid, S, R, "bogus", "x") is False  # роль
+
+    msgs = await db.g_santa_get_messages(TEST_GUILD_ID, eid, S, R)
+    assert [m["sender"] for m in msgs] == ["santa", "recipient"]
+    assert msgs[0]["text"] == "Привет! Что хочешь?"
+
+
 def test_profile_renders_honey(client):
     """Публичный профиль отдаёт 200 и показывает карточку «Мёд»."""
     r = client.get("/u/1001")  # TEST_ADMIN_DISCORD_ID из conftest

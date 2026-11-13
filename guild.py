@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -524,6 +524,20 @@ GUILD_SCHEMA_TEMPLATES = {
             UNIQUE(match_id, user_discord_id)
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_match ON {table}(match_id);
+    """,
+    # v3.11: анонимный чат Санта ↔ получатель внутри назначения.
+    "santa_messages": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            santa_discord_id INTEGER NOT NULL,
+            recipient_discord_id INTEGER NOT NULL,
+            sender TEXT NOT NULL,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_thread
+            ON {table}(event_id, santa_discord_id, recipient_discord_id);
     """,
 }
 
