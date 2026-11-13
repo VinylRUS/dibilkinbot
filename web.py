@@ -1393,6 +1393,14 @@ async def winners_page(
     for w in winners:
         w["user_rating"] = await db.g_get_user_rating(guild_id, w["id"], user_discord_id) if user_discord_id else None
     total_pages = max(1, (total + per_page - 1) // per_page)
+    # v3.11: «Спорные фильмы» — показываем только на 1-й странице без поиска
+    controversial = []
+    if page == 1 and not search:
+        try:
+            controversial = await db.g_controversial_films(guild_id, min_ratings=3, limit=5)
+        except Exception as e:
+            import logging
+            logging.getLogger("winners").warning("controversial failed: %s", e)
     return templates.TemplateResponse(request, "winners.html", {
         "user": _user,
         "winners": winners,
@@ -1402,6 +1410,7 @@ async def winners_page(
         "per_page": per_page,
         "total": total,
         "total_pages": total_pages,
+        "controversial": controversial,
     })
 
 

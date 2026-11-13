@@ -129,6 +129,45 @@ def test_dashboard_renders_honey(client):
     assert "honey-board" in r.text
 
 
+@pytest.mark.asyncio
+async def test_controversial_films(client):
+    """«Спорные фильмы»: фильм с большим разбросом оценок ранжируется выше."""
+    import db
+    from config import settings
+    from guild import guild_table
+
+    t_win = guild_table(TEST_GUILD_ID, "winners")
+    t_rat = guild_table(TEST_GUILD_ID, "ratings")
+    now = datetime.utcnow().isoformat()
+
+    async with aiosqlite.connect(settings.database_path) as c:
+        cur = await c.execute(
+            f"INSERT INTO {t_win} (lot_name, confidence, detected_at) VALUES (?, ?, ?)",
+            ("Спорный", "high", now))
+        wid_spread = cur.lastrowid
+        cur = await c.execute(
+            f"INSERT INTO {t_win} (lot_name, confidence, detected_at) VALUES (?, ?, ?)",
+            ("Единодушный", "high", now))
+        wid_tight = cur.lastrowid
+        # Большой разброс: 1,10,1,10 (σ=4.5)
+        for i, val in enumerate((1.0, 10.0, 1.0, 10.0)):
+            await c.execute(
+                f"INSERT INTO {t_rat} (winner_id, user_discord_id, rating, created_at) "
+                f"VALUES (?, ?, ?, ?)", (wid_spread, 80000 + i, val, now))
+        # Единодушие: 7,7,8,7 (σ≈0.43)
+        for i, val in enumerate((7.0, 7.0, 8.0, 7.0)):
+            await c.execute(
+                f"INSERT INTO {t_rat} (winner_id, user_discord_id, rating, created_at) "
+                f"VALUES (?, ?, ?, ?)", (wid_tight, 81000 + i, val, now))
+        await c.commit()
+
+    rows = await db.g_controversial_films(TEST_GUILD_ID, min_ratings=3, limit=5)
+    assert len(rows) == 2
+    assert rows[0]["winner_id"] == wid_spread  # спорный — первый
+    assert rows[0]["stddev"] > rows[1]["stddev"]
+    assert rows[0]["count"] == 4
+
+
 def test_profile_renders_honey(client):
     """Публичный профиль отдаёт 200 и показывает карточку «Мёд»."""
     r = client.get("/u/1001")  # TEST_ADMIN_DISCORD_ID из conftest

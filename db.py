@@ -5513,3 +5513,40 @@ async def g_activity_streak(guild_id: int, user_discord_id: int) -> int:
         streak += 1
         cursor -= timedelta(days=1)
     return streak
+
+
+async def g_controversial_films(guild_id: int, min_ratings: int = 3, limit: int = 5) -> list[dict]:
+    """v3.11: «Спорные фильмы» — победители с наибольшим разбросом оценок.
+
+    Дисперсия считается в SQL через AVG(x^2) - AVG(x)^2 (в SQLite нет STDDEV),
+    stddev = sqrt(variance) добавляется в Python. Учитываются только не-тестовые
+    победители с >= min_ratings оценками.
+
+    Возвращает [{winner_id, lot_name, count, avg, stddev}, ...] по убыванию разброса.
+    """
+    import math
+    t_win = _guild.guild_table(guild_id, "winners")
+    t_rat = _guild.guild_table(guild_id, "ratings")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT w.id, w.lot_name, COUNT(r.rating) AS cnt, "
+            f"AVG(r.rating) AS mean, "
+            f"(AVG(r.rating * r.rating) - AVG(r.rating) * AVG(r.rating)) AS variance "
+            f"FROM {t_win} w JOIN {t_rat} r ON r.winner_id = w.id "
+            f"WHERE COALESCE(w.is_test, 0) = 0 "
+            f"GROUP BY w.id HAVING cnt >= ? "
+            f"ORDER BY variance DESC, cnt DESC LIMIT ?",
+            (int(min_ratings), int(limit)),
+        ) as cur:
+            rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        variance = max(0.0, float(r[4] or 0.0))  # клампим отриц. из-за float-погрешности
+        out.append({
+            "winner_id": r[0],
+            "lot_name": r[1],
+            "count": int(r[2]),
+            "avg": round(float(r[3] or 0.0), 2),
+            "stddev": round(math.sqrt(variance), 2),
+        })
+    return out
