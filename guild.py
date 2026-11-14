@@ -177,7 +177,8 @@ GUILD_SCHEMA_TEMPLATES = {
             cancelled_by INTEGER,
             token TEXT NOT NULL,
             spin_started_at TEXT,
-            spin_started_by INTEGER
+            spin_started_by INTEGER,
+            mode TEXT DEFAULT 'wheel'
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
         CREATE INDEX IF NOT EXISTS idx_{table}_token ON {table}(token);
@@ -576,6 +577,10 @@ async def init_guild_tables(guild_id: int | str) -> None:
             "countdown_sent": "INTEGER DEFAULT 0",
             "rate_prompt_sent": "INTEGER DEFAULT 0",
             "is_marathon": "INTEGER DEFAULT 0",
+        })
+        # v3.11: режим сбора (колесо/турнир)
+        await _migrate_add_columns(db, gid, "collections", {
+            "mode": "TEXT DEFAULT 'wheel'",
         })
         await db.commit()
     log.info("Initialized guild tables for guild_id=%s", gid)

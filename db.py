@@ -4296,7 +4296,8 @@ def _gen_collection_token() -> str:
     return "".join(_secrets.choice(alphabet) for _ in range(20))
 
 
-async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) -> dict:
+async def g_start_collection(guild_id: int, started_by: int, max_per_user: int,
+                             mode: str = "wheel") -> dict:
     """Запустить новый сбор фильмов. Если уже есть активный — вернуть его (не создавать новый).
     Возвращает dict с полями: id, status, max_per_user, started_by, started_at, token.
 
@@ -4309,7 +4310,8 @@ async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) 
         try:
             # Проверяем активный сбор
             async with db.execute(
-                f"SELECT id, status, max_per_user, started_by, started_at, token FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+                f"SELECT id, status, max_per_user, started_by, started_at, token, "
+                f"COALESCE(mode, 'wheel') FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
             ) as cur:
                 row = await cur.fetchone()
             if row:
@@ -4317,18 +4319,21 @@ async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) 
                 return {
                     "id": row[0], "status": row[1], "max_per_user": row[2],
                     "started_by": row[3], "started_at": row[4], "token": row[5],
+                    "mode": row[6],
                 }
             # Создаём новый
+            mode = mode if mode in ("wheel", "tournament") else "wheel"
             token = _gen_collection_token()
             now = datetime.utcnow().isoformat()
             cur = await db.execute(
-                f"INSERT INTO {table} (status, max_per_user, started_by, started_at, token) VALUES ('active', ?, ?, ?, ?)",
-                (max_per_user, started_by, now, token),
+                f"INSERT INTO {table} (status, max_per_user, started_by, started_at, token, mode) "
+                f"VALUES ('active', ?, ?, ?, ?, ?)",
+                (max_per_user, started_by, now, token, mode),
             )
             await db.commit()
             return {
                 "id": cur.lastrowid, "status": "active", "max_per_user": max_per_user,
-                "started_by": started_by, "started_at": now, "token": token,
+                "started_by": started_by, "started_at": now, "token": token, "mode": mode,
             }
         except Exception:
             await db.rollback()
@@ -4340,7 +4345,7 @@ async def g_get_active_collection(guild_id: int) -> dict | None:
     table = _guild.guild_table(guild_id, "collections")
     async with _connect() as db:
         async with db.execute(
-            f"SELECT id, status, max_per_user, started_by, started_at, completed_at, completed_by, cancelled_at, cancelled_by, token, spin_started_at, spin_started_by "
+            f"SELECT id, status, max_per_user, started_by, started_at, completed_at, completed_by, cancelled_at, cancelled_by, token, spin_started_at, spin_started_by, COALESCE(mode, 'wheel') "
             f"FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
         ) as cur:
             row = await cur.fetchone()
@@ -4351,6 +4356,7 @@ async def g_get_active_collection(guild_id: int) -> dict | None:
             "started_by": row[3], "started_at": row[4], "completed_at": row[5],
             "completed_by": row[6], "cancelled_at": row[7], "cancelled_by": row[8],
             "token": row[9], "spin_started_at": row[10], "spin_started_by": row[11],
+            "mode": row[12],
         }
 
 

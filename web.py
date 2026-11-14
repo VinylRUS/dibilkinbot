@@ -2486,7 +2486,9 @@ def _round_label(n_matches: int) -> str:
 async def tournament_page(request: Request, _user: dict = Depends(require_user)):
     guild_id = get_current_guild_id(_user)
     tour = await db.g_get_active_tournament(guild_id)
-    bracket = []            # [{round, label, is_current, matches:[...]}]
+    bracket_left = []       # колонки левой половины (раунд 1 → ближе к финалу)
+    bracket_right = []      # колонки правой половины (зеркально)
+    bracket_final = None    # {label, is_current, match}
     current_matches = []    # матчи текущего раунда (для голосования)
     if tour:
         import math
@@ -2494,22 +2496,32 @@ async def tournament_page(request: Request, _user: dict = Depends(require_user))
         by_round: dict[int, list] = {}
         for m in all_matches:
             by_round.setdefault(m["round"], []).append(m)
-        # Кол-во участников round 1 → сколько всего раундов в сетке
         r1 = by_round.get(1, [])
         participants = sum((1 if m["left_name"] else 0) + (1 if m["right_name"] else 0) for m in r1)
         total_rounds = max(1, math.ceil(math.log2(participants))) if participants > 1 else 1
-        for r in range(1, total_rounds + 1):
+
+        def _col(r):
             matches = sorted(by_round.get(r, []), key=lambda x: x["slot"])
             n_expected = max(1, len(r1) // (2 ** (r - 1))) if r1 else 1
             if not matches:
-                # Будущий раунд — плейсхолдеры
                 matches = [{"placeholder": True} for _ in range(n_expected)]
-            bracket.append({
-                "round": r,
-                "label": _round_label(n_expected),
-                "is_current": (r == tour["current_round"] and tour["status"] != "completed"),
-                "matches": matches,
-            })
+            return matches, n_expected
+
+        for r in range(1, total_rounds):  # все, кроме финала — делим пополам
+            matches, n_expected = _col(r)
+            half = (len(matches) + 1) // 2
+            is_cur = (r == tour["current_round"] and tour["status"] != "completed")
+            bracket_left.append({"label": _round_label(n_expected), "is_current": is_cur,
+                                 "matches": matches[:half]})
+            bracket_right.append({"label": _round_label(n_expected), "is_current": is_cur,
+                                  "matches": matches[half:]})
+        # Финал (центр)
+        fmatches, _ = _col(total_rounds)
+        bracket_final = {
+            "label": _round_label(1),
+            "is_current": (total_rounds == tour["current_round"] and tour["status"] != "completed"),
+            "match": fmatches[0] if fmatches else {"placeholder": True},
+        }
         if tour["status"] != "completed":
             current_matches = sorted(by_round.get(tour["current_round"], []), key=lambda x: x["slot"])
     return templates.TemplateResponse(request, "tournament.html", {
@@ -2517,7 +2529,9 @@ async def tournament_page(request: Request, _user: dict = Depends(require_user))
         "current_guild_id": guild_id,
         "is_admin": _user.get("is_admin", False),
         "tournament": tour,
-        "bracket": bracket,
+        "bracket_left": bracket_left,
+        "bracket_right": bracket_right,
+        "bracket_final": bracket_final,
         "current_matches": current_matches,
         "active": "tournament",
     })
@@ -2560,6 +2574,22 @@ async def api_tournament_advance(_user: dict = Depends(require_admin)):
     if not tour:
         return JSONResponse({"error": "no active tournament"}, status_code=400)
     res = await db.g_advance_tournament(guild_id, tour["id"])
+    # v3.11: при завершении турнира — постим чемпиона в Discord-канал анонсов (как колесо)
+    if res.get("ok") and res.get("status") == "completed" and res.get("winner"):
+        try:
+            import bot as bot_module
+            bot_instance = bot_module.get_bot_instance()
+            cid = await db.get_setting("channel_announce_id")
+            if bot_instance and cid and str(cid).isdigit():
+                channel = bot_instance.get_channel(int(cid))
+                if channel is not None:
+                    await channel.send(
+                        f"🏆 **Победитель кинотурнира:** «{res['winner']}»! "
+                        f"Голосованием выбран чемпион — его и смотрим. 🎬🍿"
+                    )
+        except Exception as e:
+            import logging
+            logging.getLogger("tournament").warning("Discord champion post failed: %s", e)
     return JSONResponse(res, status_code=200 if res.get("ok") else 400)
 
 

@@ -241,6 +241,21 @@
     }
 
     // === Organizer actions ===
+    // v3.11: выбор режима сбора (колесо / турнир)
+    window.collectionMode = 'wheel';
+    window.selectMode = function (mode) {
+      window.collectionMode = (mode === 'tournament') ? 'tournament' : 'wheel';
+      const w = document.getElementById('mode-wheel');
+      const t = document.getElementById('mode-tournament');
+      const on = (el, active) => {
+        if (!el) return;
+        el.style.background = active ? 'var(--accent)' : 'transparent';
+        el.style.color = active ? 'var(--accent-text)' : 'var(--text-muted)';
+      };
+      on(w, window.collectionMode === 'wheel');
+      on(t, window.collectionMode === 'tournament');
+    };
+
     async function startCollection() {
       const maxInput = document.getElementById('max_per_user');
       const max = Math.max(1, Math.min(10, parseInt(maxInput.value) || 5));
@@ -249,6 +264,7 @@
       btn.textContent = '⏳ Запускаю...';
       const formData = new FormData();
       formData.append('max_per_user', max);
+      formData.append('mode', window.collectionMode || 'wheel');
       try {
         const r = await fetch('/api/collection/start', { method: 'POST', body: formData });
         const data = await r.json();
@@ -268,20 +284,24 @@
 
     async function startSpin(force) {
       const btn = event.target;
+      const isTour = (typeof COLLECTION_MODE !== 'undefined' && COLLECTION_MODE === 'tournament');
+      const what = isTour ? 'турнир' : 'колесо';
       const confirmMsg = force
-        ? 'Запустить крутку принудительно? Не все участники готовы.'
-        : 'Запустить крутку колеса? Все выбранные фильмы попадут в колесо (в случайном порядке).';
+        ? `Запустить ${what} принудительно? Не все участники готовы.`
+        : (isTour
+            ? 'Запустить турнир? Все выбранные фильмы попадут в сетку турнира для голосования.'
+            : 'Запустить крутку колеса? Все выбранные фильмы попадут в колесо (в случайном порядке).');
       if (!confirm(confirmMsg)) return;
       btn.disabled = true;
-      btn.textContent = '⏳ Загружаю в колесо...';
+      btn.textContent = isTour ? '⏳ Создаю турнир...' : '⏳ Загружаю в колесо...';
       const formData = new FormData();
       formData.append('force', force);
       try {
         const r = await fetch('/api/collection/start_spin', { method: 'POST', body: formData });
         const data = await r.json();
         if (r.ok) {
-          // Показываем кнопку «Перейти к колесу» вместо автоперехода
-          showCollectionCompleted(data.picks_count);
+          // Показываем кнопку «Перейти к колесу/турниру» вместо автоперехода
+          showCollectionCompleted(data.picks_count, data.mode || 'wheel', data.redirect || '/wheel');
         } else {
           alert(data.error || 'Ошибка');
           btn.disabled = false;
@@ -294,8 +314,13 @@
       }
     }
 
-    function showCollectionCompleted(picksCount) {
-      // Заменяем organizer controls на блок «Перейти к колесу»
+    function showCollectionCompleted(picksCount, mode, redirect) {
+      mode = mode || 'wheel';
+      redirect = redirect || '/wheel';
+      const isTour = mode === 'tournament';
+      const dest = isTour ? '🏆 Перейти к турниру' : '🎡 Перейти к колесу';
+      const whereText = isTour ? `турнир (${picksCount} фильм(ов))` : `колесо (${picksCount} шт.)`;
+      // Заменяем organizer controls на блок «Перейти»
       const orgControls = document.querySelector('.organizer-controls');
       if (!orgControls) {
         // Обычный участник: organizer-controls нет — показываем баннер сверху
@@ -303,8 +328,8 @@
         if (slot && !slot.hasChildNodes()) {
           slot.innerHTML = `
             <div class="wheel-ready-banner">
-              <span>✅ Сбор завершён — в колесе ${picksCount} фильм(ов).</span>
-              <a href="/wheel" class="org-btn" style="text-decoration:none;display:inline-block;">🎡 Перейти к колесу</a>
+              <span>✅ Сбор завершён — ${whereText}.</span>
+              <a href="${redirect}" class="org-btn" style="text-decoration:none;display:inline-block;">${dest}</a>
             </div>`;
         }
       }
@@ -312,10 +337,10 @@
         orgControls.innerHTML = `
           <h4>✅ Сбор завершён</h4>
           <p style="font-size: 0.85rem; margin: 0 0 14px; color: var(--text-muted);">
-            Фильмы загружены в колесо (${picksCount} шт.). Перейдите к колесу чтобы крутить.
+            Фильмы отправлены в ${whereText}.
           </p>
-          <a href="/wheel" class="org-btn" style="text-decoration: none; display: block; text-align: center;">
-            🎡 Перейти к колесу
+          <a href="${redirect}" class="org-btn" style="text-decoration: none; display: block; text-align: center;">
+            ${dest}
           </a>
         `;
       }

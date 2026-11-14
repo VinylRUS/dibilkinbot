@@ -368,6 +368,26 @@ async def test_tournament_needs_two(client):
     assert await db.g_create_tournament(TEST_GUILD_ID, "T", ["A", "A", "  "], 1001) is None
 
 
+@pytest.mark.asyncio
+async def test_collection_mode(client):
+    """Сбор запоминает режим (колесо/турнир) и отдаёт его в активном сборе."""
+    import db
+    from config import settings
+    from guild import guild_table
+    # чистим активные сборы тестовой гильдии
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"UPDATE {guild_table(TEST_GUILD_ID, 'collections')} SET status='cancelled' WHERE status='active'")
+        await c.commit()
+    col = await db.g_start_collection(TEST_GUILD_ID, 1001, 5, mode="tournament")
+    assert col["mode"] == "tournament"
+    active = await db.g_get_active_collection(TEST_GUILD_ID)
+    assert active and active["mode"] == "tournament"
+    # прибираем
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"UPDATE {guild_table(TEST_GUILD_ID, 'collections')} SET status='cancelled' WHERE status='active'")
+        await c.commit()
+
+
 def test_tournament_page_renders(client):
     r = client.get("/tournament")
     assert r.status_code == 200
