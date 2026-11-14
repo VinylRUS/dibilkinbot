@@ -43,8 +43,9 @@ def wheel_ease(t: float) -> float:
 
     Производная непрерывна на стыках → нет рывков скорости.
     """
-    ACCEL_END = 0.20
-    PLATEAU_END = 0.70
+    # v3.11: быстрый старт + короткое плато + длинное торможение (идентично JS wheelEase).
+    ACCEL_END = 0.08
+    PLATEAU_END = 0.16
     accel_area = ACCEL_END / 2
     plateau_area = PLATEAU_END - ACCEL_END
     decel_area = (1 - PLATEAU_END) / 2

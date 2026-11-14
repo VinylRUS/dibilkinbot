@@ -849,7 +849,9 @@ async function clearWheel() {
 // === Physics easing (must be byte-identical to wheel_physics.wheel_ease) ===
 // =================================================================
 function wheelEase(t) {
-  const ACCEL_END = 0.20, PLATEAU_END = 0.70;
+  // v3.11: быстрый старт + короткое плато + длинное торможение (как настоящее колесо).
+  // Было 0.20/0.70 (50% времени на постоянной макс. скорости → долго крутилось ровно).
+  const ACCEL_END = 0.08, PLATEAU_END = 0.16;
   const accel_area = ACCEL_END / 2;
   const plateau_area = PLATEAU_END - ACCEL_END;
   const decel_area = (1 - PLATEAU_END) / 2;
@@ -904,9 +906,9 @@ function animatePhysics(initialRotation, totalRotation, durationMs, snapshotCoun
       const currentSector = getSectorUnderPointer(currentRotation, snapshotCount);
       if (currentSector !== lastSectorUnderPointer && currentSector >= 0) {
         lastSectorUnderPointer = currentSector;
-        // Velocity ratio from easing derivative (approx)
+        // Velocity ratio from easing derivative (approx) — те же границы, что в wheelEase
         let vel = 0;
-        const ACCEL_END = 0.20, PLATEAU_END = 0.70;
+        const ACCEL_END = 0.08, PLATEAU_END = 0.16;
         if (progress < ACCEL_END) {
           const u = progress / ACCEL_END; vel = u * u * (3 - 2 * u);
         } else if (progress < PLATEAU_END) {
