@@ -6228,3 +6228,22 @@ async def g_delete_film_comment(guild_id: int, comment_id: int, user_discord_id:
                 (int(comment_id), int(user_discord_id)))
         await db.commit()
         return cur.rowcount > 0
+
+
+async def g_steam_icons_for_appids(guild_id: int, appids: list[int]) -> dict:
+    """v3.11: иконки Steam-игр по appid из серверного кеша user_steam_games
+    (любого участника). Нужно для вишлиста — берём «нормальные» значки как у «Игр».
+    Возвращает {appid: icon_url}.
+    """
+    appids = [int(a) for a in appids if a]
+    if not appids:
+        return {}
+    table = _guild.guild_table(guild_id, "user_steam_games")
+    placeholders = ",".join("?" for _ in appids)
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT appid, icon_url FROM {table} "
+            f"WHERE appid IN ({placeholders}) AND icon_url IS NOT NULL AND icon_url != '' "
+            f"GROUP BY appid", tuple(appids)) as cur:
+            rows = await cur.fetchall()
+    return {int(r[0]): r[1] for r in rows}

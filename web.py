@@ -2136,6 +2136,21 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         watchlist = await db.g_list_watchlist(guild_id, discord_id, include_watched=True)
     # v2.3.2: показывать ли Steam-вишлист в публичном профиле
     show_wishlist = await db.get_user_show_wishlist(discord_id) if discord_id else False
+    # v3.11: витрина accent-цветов (стили) — перенесена в настройки
+    accent_shop = None
+    if discord_id:
+        try:
+            owned = await db.g_cosmetics_owned(guild_id, discord_id, "accent")
+            accent_shop = {
+                "accents": HONEY_ACCENTS,
+                "owned": owned,
+                "cost": HONEY_ACCENT_COST,
+                "current": request.cookies.get("accent", "amber"),
+                "balance": await db.g_honey_balance(guild_id, discord_id),
+            }
+        except Exception as e:
+            import logging
+            logging.getLogger("profile").warning("accent shop (settings) failed: %s", e)
     return templates.TemplateResponse(request, "profile.html", {
         "user": _user,
         "tg_link": tg_link,
@@ -2146,6 +2161,7 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         "show_wishlist": show_wishlist,
         "is_santa_enabled": await is_santa_enabled(),
         "watchlist": watchlist,
+        "accent_shop": accent_shop,
     })
 
 
@@ -2285,6 +2301,18 @@ async def public_profile_page(
                         steam_profile_check["steam_id64"], limit=10
                     )
                     steam_wishlist = wl if wl else []
+                    # v3.11: «нормальные» квадратные значки как у «Игр» — из кеша сервера по appid
+                    if steam_wishlist:
+                        try:
+                            icons = await db.g_steam_icons_for_appids(
+                                guild_id, [g.get("appid") for g in steam_wishlist])
+                            for g in steam_wishlist:
+                                ic = icons.get(g.get("appid"))
+                                if ic:
+                                    g["icon_url"] = ic
+                        except Exception as e:
+                            import logging
+                            logging.getLogger("wishlist").warning("wishlist icons failed: %s", e)
     except Exception as e:
         import logging
         logging.getLogger("wishlist").warning(

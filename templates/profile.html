@@ -235,6 +235,9 @@
       <a href="#sec-achievements" class="profile-nav-item" data-target="sec-achievements">
         <img src="/static/icons/medal.png" alt=""> Ачивки
       </a>
+      <a href="#sec-styles" class="profile-nav-item" data-target="sec-styles">
+        <img src="/static/icons/star.png" alt=""> Стили
+      </a>
     </nav>
 
     {# === 01 Профиль === #}
@@ -434,7 +437,63 @@
         </div>
       </article>
     </section>
+
+    {# === 06 Стили === #}
+    <section class="profile-section" id="sec-styles">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2><img src="/static/icons/star.png" alt="" width="16" height="16" class="ui-icon"> Стили</h2>
+      </div>
+      {% if accent_shop %}
+      <article class="card">
+        <label style="margin-top:0;">Цвет акцента <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0;">— 🍯 {{ accent_shop.cost }} за новый, баланс: {{ accent_shop.balance }}</span></label>
+        <div class="accent-shop">
+          {% for key, label in accent_shop.accents.items() %}
+          {% set owned = (key == 'amber') or (key in accent_shop.owned) %}
+          <button type="button" class="accent-swatch {% if key == accent_shop.current %}equipped{% endif %} {% if not owned %}locked{% endif %}"
+                  data-accent-key="{{ key }}" data-owned="{{ '1' if owned else '0' }}"
+                  onclick="setAccent(this)"
+                  title="{{ label }}{% if not owned %} — 🍯 {{ accent_shop.cost }}{% endif %}">
+            <span class="accent-dot" {% if key != 'amber' %}data-accent="{{ key }}"{% endif %} style="background:var(--accent);"></span>
+            <span class="accent-label">{{ label }}{% if not owned %} 🔒{% endif %}</span>
+          </button>
+          {% endfor %}
+        </div>
+        <p class="hint" style="margin-top:10px;">Акцент применяется ко всей панели. «Мёд» копится за активность на сервере.</p>
+      </article>
+      {% else %}
+      <article class="card"><p style="color:var(--text-muted);margin:0;">Войдите, чтобы менять стили.</p></article>
+      {% endif %}
+    </section>
   </main>
+
+  <script>
+    // v3.11: покупка/применение accent-цвета (перенесено из публичного профиля)
+    window.setAccent = function (btn) {
+      const key = btn.dataset.accentKey;
+      btn.disabled = true;
+      fetch('/api/honey/accent/' + key, { method: 'POST' })
+        .then(r => r.json().then(d => ({ ok: r.ok, d: d })))
+        .then(function (res) {
+          if (!res.ok || !res.d.ok) {
+            const msg = res.d && res.d.error === 'insufficient' ? '❌ Недостаточно мёда' : '❌ Ошибка';
+            if (window.showToast) window.showToast(msg, 'error');
+            return;
+          }
+          if (key === 'amber') document.documentElement.removeAttribute('data-accent');
+          else document.documentElement.setAttribute('data-accent', key);
+          document.querySelectorAll('.accent-swatch').forEach(s => s.classList.remove('equipped'));
+          btn.classList.add('equipped');
+          btn.classList.remove('locked');
+          btn.dataset.owned = '1';
+          const lbl = btn.querySelector('.accent-label');
+          if (lbl) lbl.textContent = lbl.textContent.replace(' 🔒', '');
+          if (window.showToast) window.showToast('✓ Акцент применён', 'success');
+        })
+        .catch(() => { if (window.showToast) window.showToast('❌ Ошибка', 'error'); })
+        .finally(() => { btn.disabled = false; });
+    };
+  </script>
 
   <script>
     // === Copy to clipboard ===
