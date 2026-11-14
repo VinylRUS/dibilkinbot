@@ -118,8 +118,8 @@
   --input-bg-focus: rgba(255, 255, 255, 0.1);
 
   --text: #FFFFFF;
-  --text-muted: rgba(255, 255, 255, 0.6);
-  --text-soft: rgba(255, 255, 255, 0.4);
+  --text-muted: rgba(255, 255, 255, 0.72);
+  --text-soft: rgba(255, 255, 255, 0.52);
 
   --accent: #FFB703;
   --accent-2: #FFC940;
@@ -188,8 +188,8 @@
     --input-bg-focus: rgba(255, 255, 255, 0.1);
 
     --text: #FFFFFF;
-    --text-muted: rgba(255, 255, 255, 0.6);
-    --text-soft: rgba(255, 255, 255, 0.4);
+    --text-muted: rgba(255, 255, 255, 0.72);
+    --text-soft: rgba(255, 255, 255, 0.52);
 
     --accent: #FFB703;
     --accent-2: #FFC940;
@@ -233,6 +233,29 @@
   }
 }
 
+/* ===== v3.11: Шестерёнка настроек (фикс справа вверху) ===== */
+.settings-gear {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 190;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+  text-decoration: none;
+  transition: background 0.15s, transform 0.2s var(--spring);
+}
+.settings-gear:hover { background: var(--accent-soft); transform: rotate(45deg); }
+.settings-gear .ui-icon { width: 20px; height: 20px; }
+
 /* ===== Motion-токены (общие для обеих тем) =====
    DESIGN_SYSTEM §3: пружинный возврат и плавный easing.
    Раньше использовались (var(--spring)/var(--smooth)) в карточках, сайдбаре,
@@ -267,6 +290,10 @@ body {
   line-height: 1.5;
   position: relative;
   overflow-x: hidden;
+  /* v3.11: чёткость текста — сглаживание и оптимизация рендера глифов */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Декоративные размытые круги (blobs) на фоне */
@@ -1293,12 +1320,14 @@ input:checked + .slider:before {
   transform: scale(1.08);
   z-index: 1;
 }
-/* При hover на половинке — она подсвечивается. Все последующие
-   остаются пустыми (как в классическом star rating). */
-.star-rating:hover .star-half:hover::before {
+/* Hover-превью через JS (initStarHover в sidebar.html): CSS не умеет красить
+   ПРЕДЫДУЩИХ соседей, поэтому JS вешает .hover-filled на все половинки до
+   наведённой. Во время превью (.previewing) сохранённый .filled перебивается,
+   чтобы показывать именно наведённый рейтинг с прогрессией слева направо. */
+.star-rating .star-half.hover-filled::before {
   color: var(--star-color-full);
 }
-.star-rating:hover .star-half:hover ~ .star-half::before {
+.star-rating.previewing .star-half:not(.hover-filled)::before {
   color: var(--star-color-empty);
 }
 .star-rating .rating-value {
@@ -1577,18 +1606,18 @@ body.has-sidebar.sidebar-open {
   transition: filter 0.25s ease;
 }
 [data-theme="dark"] .sb-liquid-icon {
-  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 [data-theme="light"] .sb-liquid-icon {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 .sb-item:hover .sb-liquid-icon,
 .sb-item.active .sb-liquid-icon {
-  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 6px var(--icon-glow-strong)) brightness(1.15);
+  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong)) brightness(1.15);
 }
 [data-theme="light"] .sb-item:hover .sb-liquid-icon,
 [data-theme="light"] .sb-item.active .sb-liquid-icon {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 6px var(--icon-glow-strong));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong));
 }
 .sb-item-label { opacity: 0; transition: opacity 0.15s 0.1s; }
 .sidebar.open .sb-item-label { opacity: 1; }
@@ -2155,16 +2184,16 @@ article.card .stat-box-label,
   height: 16px;
 }
 [data-theme="dark"] .ui-icon {
-  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 [data-theme="dark"] .ui-icon:hover {
-  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 5px var(--icon-glow-strong));
+  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong));
 }
 [data-theme="light"] .ui-icon {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 [data-theme="light"] .ui-icon:hover {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 5px var(--icon-glow-strong));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong));
 }
 h2 .ui-icon, h3 .ui-icon, .section-title .ui-icon { width: 18px; height: 18px; }
 
@@ -2406,22 +2435,55 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
   --icon-glow: rgba(132, 204, 22, 0.45); --icon-glow-strong: rgba(132, 204, 22, 0.65);
 }
 
-/* Витрина акцентов на профиле */
+/* Витрина акцентов на профиле — одинаковые карточки-кнопки, ровная сетка */
 .accent-shop { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 4px; }
 .accent-swatch {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  background: transparent; border: none; cursor: pointer; padding: 0; margin: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: 78px; padding: 12px 8px; margin: 0; box-sizing: border-box;
+  background: var(--content-bg); border: 1px solid var(--content-border);
+  border-radius: 12px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s var(--spring);
 }
+.accent-swatch:hover { border-color: var(--accent); transform: translateY(-2px); }
+.accent-swatch.equipped { border-color: var(--accent); background: var(--accent-soft); }
 .accent-swatch .accent-dot {
-  width: 34px; height: 34px; border-radius: 50%;
-  border: 2px solid var(--content-border);
-  box-shadow: var(--glass-inset);
-  transition: transform 0.15s var(--spring), box-shadow 0.15s;
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3), 0 1px 3px rgba(0, 0, 0, 0.25);
 }
-.accent-swatch:hover .accent-dot { transform: scale(1.1); }
-.accent-swatch.equipped .accent-dot { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
-.accent-swatch .accent-label { font-size: 0.68rem; color: var(--text-muted); }
-.accent-swatch.locked .accent-dot { opacity: 0.55; }
+.accent-swatch.equipped .accent-dot { border-color: var(--text); }
+.accent-swatch .accent-label {
+  font-size: 0.68rem; color: var(--text-muted); line-height: 1.2; text-align: center;
+  white-space: nowrap;
+}
+.accent-swatch.equipped .accent-label { color: var(--accent); font-weight: 600; }
+.accent-swatch.locked .accent-dot { opacity: 0.6; }
+
+/* ===== v3.11: Кнопка и модалка комментариев к фильму ===== */
+.comment-btn {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 10px;
+  background: var(--content-bg); border: 1px solid var(--content-border);
+  color: var(--text-muted); padding: 5px 12px; border-radius: 10px;
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.comment-btn:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.comment-btn .comment-count { font-weight: 800; color: var(--accent); }
+.fc-item {
+  display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.fc-item:last-child { border-bottom: none; }
+.fc-avatar {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent-soft); color: var(--accent);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem;
+}
+.fc-body { flex: 1; min-width: 0; }
+.fc-head { display: flex; align-items: baseline; gap: 8px; }
+.fc-name { font-weight: 700; color: var(--text); font-size: 0.86rem; }
+.fc-date { font-size: 0.7rem; color: var(--text-soft); }
+.fc-del { margin-left: auto; background: none; border: none; color: var(--red); cursor: pointer; font-size: 0.78rem; padding: 0; }
+.fc-text { color: var(--text); font-size: 0.88rem; line-height: 1.5; margin-top: 2px; word-wrap: break-word; overflow-wrap: anywhere; }
 
 /* ===== v3.11: Follow на профиле ===== */
 .profile-follow {

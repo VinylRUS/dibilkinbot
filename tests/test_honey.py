@@ -368,6 +368,74 @@ async def test_tournament_needs_two(client):
     assert await db.g_create_tournament(TEST_GUILD_ID, "T", ["A", "A", "  "], 1001) is None
 
 
+@pytest.mark.asyncio
+async def test_film_comments(client):
+    """Комментарии к фильму: добавление, список, счётчики, удаление своего/чужого."""
+    import db
+    from config import settings
+    from guild import guild_table
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, 'film_comments')}")
+        await c.commit()
+    WID, U1, U2 = 7001, 60001, 60002
+    cid1 = await db.g_add_film_comment(TEST_GUILD_ID, WID, U1, "Отличный фильм!")
+    assert cid1
+    assert await db.g_add_film_comment(TEST_GUILD_ID, WID, U2, "Согласен")
+    assert await db.g_add_film_comment(TEST_GUILD_ID, WID, U1, "   ") is None  # пусто
+    assert await db.g_count_film_comments(TEST_GUILD_ID, WID) == 2
+    comments = await db.g_list_film_comments(TEST_GUILD_ID, WID)
+    assert [c["text"] for c in comments] == ["Отличный фильм!", "Согласен"]
+    counts = await db.g_film_comment_counts(TEST_GUILD_ID, [WID, 9999])
+    assert counts.get(WID) == 2
+    # U2 не может удалить чужой (U1) без админки
+    assert await db.g_delete_film_comment(TEST_GUILD_ID, cid1, U2, is_admin=False) is False
+    # админ может
+    assert await db.g_delete_film_comment(TEST_GUILD_ID, cid1, U2, is_admin=True) is True
+    assert await db.g_count_film_comments(TEST_GUILD_ID, WID) == 1
+
+
+@pytest.mark.asyncio
+async def test_seed_default_achievements(client):
+    """Сид стандартных ачивок создаёт их один раз, повторный вызов пропускает."""
+    import db
+    from config import settings
+    from guild import guild_table
+    # чистим ачивки тестовой гильдии
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, 'achievements')}")
+        await c.commit()
+    res = await db.g_seed_default_achievements(TEST_GUILD_ID, 1001)
+    assert res["created"] == len(db.DEFAULT_ACHIEVEMENTS) >= 30
+    assert res["skipped"] == 0
+    # все триггеры валидны
+    for (_, _, trig, thr, ik, color, glow) in db.DEFAULT_ACHIEVEMENTS:
+        assert trig in db.ACHIEVEMENT_TRIGGERS
+        assert thr >= 0
+    # повторно — всё пропущено
+    res2 = await db.g_seed_default_achievements(TEST_GUILD_ID, 1001)
+    assert res2["created"] == 0 and res2["skipped"] == len(db.DEFAULT_ACHIEVEMENTS)
+
+
+@pytest.mark.asyncio
+async def test_collection_mode(client):
+    """Сбор запоминает режим (колесо/турнир) и отдаёт его в активном сборе."""
+    import db
+    from config import settings
+    from guild import guild_table
+    # чистим активные сборы тестовой гильдии
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"UPDATE {guild_table(TEST_GUILD_ID, 'collections')} SET status='cancelled' WHERE status='active'")
+        await c.commit()
+    col = await db.g_start_collection(TEST_GUILD_ID, 1001, 5, mode="tournament")
+    assert col["mode"] == "tournament"
+    active = await db.g_get_active_collection(TEST_GUILD_ID)
+    assert active and active["mode"] == "tournament"
+    # прибираем
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"UPDATE {guild_table(TEST_GUILD_ID, 'collections')} SET status='cancelled' WHERE status='active'")
+        await c.commit()
+
+
 def test_tournament_page_renders(client):
     r = client.get("/tournament")
     assert r.status_code == 200

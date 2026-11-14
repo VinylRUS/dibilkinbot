@@ -259,9 +259,15 @@
 
   <main class="container">
     <h2><img src="/static/icons/trophy.png" alt="" width="16" height="16" class="ui-icon"> Ачивки сервера</h2>
-    <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;">
+    <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 12px;">
       Создавайте ачивки для участников. Можно привязать Discord роль, настроить авто-выдачу по действиям или выдавать вручную.
     </p>
+    <div style="margin-bottom: 20px;">
+      <button type="button" class="btn-outline" onclick="seedDefaultAchievements(this)">
+        <img src="/static/icons/medal.png" alt="" width="14" height="14" class="ui-icon"> Добавить 30 стандартных ачивок
+      </button>
+      <span style="font-size: 0.78rem; color: var(--text-soft); margin-left: 8px;">по оценкам, цитатам, играм, войсу и т.д. — с авто-выдачей</span>
+    </div>
 
     <div class="achievements-grid">
       {# Левая колонка: список ачивок #}
@@ -1220,6 +1226,28 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { closeGrantModal(); closeEditModal(); }
     });
+
+    // v3.11: создать стандартный набор ачивок
+    async function seedDefaultAchievements(btn) {
+      if (!confirm('Добавить 30 стандартных ачивок? Уже существующие (по названию) будут пропущены.')) return;
+      btn.disabled = true;
+      const original = btn.innerHTML;
+      btn.innerHTML = '<span class="spinner-inline"></span> Создаю...';
+      try {
+        const r = await fetch('/api/achievements/seed_defaults', { method: 'POST' });
+        const data = await r.json();
+        if (r.ok && data.ok) {
+          showToast(`✓ Создано: ${data.created}, пропущено: ${data.skipped}`, 'success', 4000);
+          setTimeout(() => location.reload(), 900);
+        } else {
+          showToast(data.error || 'Ошибка', 'error');
+          btn.disabled = false; btn.innerHTML = original;
+        }
+      } catch (e) {
+        showToast('Сетевая ошибка: ' + e.message, 'error');
+        btn.disabled = false; btn.innerHTML = original;
+      }
+    }
   </script>
 {% include "_footer.html" %}
 </body>

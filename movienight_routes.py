@@ -112,15 +112,18 @@ async def collect_by_token(request: Request, token: str, _user: dict = Depends(r
 async def api_collection_start(
     _user: dict = Depends(require_user),
     max_per_user: int = Form(5),
+    mode: str = Form("wheel"),
 ):
     """Запустить новый сбор. Любой юзер может начать.
-    Лимит: 1-10 фильмов на участника.
+    Лимит: 1-10 фильмов на участника. mode: 'wheel' | 'tournament'.
     Также постит анонс в Discord-канал #анонсов (если настроен).
     """
     if max_per_user < 1:
         max_per_user = 1
     if max_per_user > 10:
         max_per_user = 10
+    if mode not in ("wheel", "tournament"):
+        mode = "wheel"
 
     guild_id = get_current_guild_id(_user)
     user_discord_id = _user.get("discord_id", 0)
@@ -129,7 +132,7 @@ async def api_collection_start(
 
     # init_guild_tables уже вызывается при on_ready бота
 
-    collection = await db.g_start_collection(guild_id, user_discord_id, max_per_user)
+    collection = await db.g_start_collection(guild_id, user_discord_id, max_per_user, mode)
 
     # v3.10: журнал активности — запуск сбора на киновечер
     try:
@@ -447,6 +450,25 @@ async def api_collection_start_spin(
                 "redirect": "/wheel",
             })
         return JSONResponse({"error": "no picks found"}, status_code=400)
+
+    # v3.11: режим «турнир» — вместо колеса создаём турнир из выбранных фильмов
+    if collection.get("mode") == "tournament":
+        titles = [p["title"] for p in picks]
+        # На случай уже идущего турнира — не создаём второй
+        existing_tour = await db.g_get_active_tournament(guild_id)
+        if existing_tour:
+            return JSONResponse({"ok": True, "picks_count": len(picks),
+                                 "mode": "tournament", "redirect": "/tournament",
+                                 "note": "already active"})
+        title = "Кинотурнир " + datetime.utcnow().strftime("%d.%m")
+        tid = await db.g_create_tournament(guild_id, title, titles, user_discord_id)
+        if not tid:
+            return JSONResponse({"error": "Недостаточно уникальных фильмов для турнира."},
+                                status_code=400)
+        await ws_manager.broadcast_collection_completed(guild_id, len(picks))
+        return JSONResponse({"ok": True, "picks_count": len(picks),
+                             "mode": "tournament", "tournament_id": tid,
+                             "redirect": "/tournament"})
 
     # Очищаем колесо перед загрузкой
     await db.g_clear_wheel(guild_id)

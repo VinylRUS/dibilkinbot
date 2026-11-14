@@ -83,6 +83,15 @@ async def achievements_page(request: Request, _user: dict = Depends(require_admi
 
 # === Achievements: REST API ===
 
+@router.post("/api/achievements/seed_defaults")
+async def api_seed_default_achievements(_user: dict = Depends(require_admin)):
+    """v3.11: создать стандартный набор ачивок (~30). Идемпотентно — пропускает
+    уже существующие по имени."""
+    guild_id = get_current_guild_id(_user)
+    res = await db.g_seed_default_achievements(guild_id, _user.get("discord_id", 0))
+    return JSONResponse({"ok": True, **res})
+
+
 @router.post("/api/achievements/create")
 async def api_create_achievement(
     _user: dict = Depends(require_admin),

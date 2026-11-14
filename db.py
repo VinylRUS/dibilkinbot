@@ -4296,7 +4296,8 @@ def _gen_collection_token() -> str:
     return "".join(_secrets.choice(alphabet) for _ in range(20))
 
 
-async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) -> dict:
+async def g_start_collection(guild_id: int, started_by: int, max_per_user: int,
+                             mode: str = "wheel") -> dict:
     """Запустить новый сбор фильмов. Если уже есть активный — вернуть его (не создавать новый).
     Возвращает dict с полями: id, status, max_per_user, started_by, started_at, token.
 
@@ -4309,7 +4310,8 @@ async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) 
         try:
             # Проверяем активный сбор
             async with db.execute(
-                f"SELECT id, status, max_per_user, started_by, started_at, token FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+                f"SELECT id, status, max_per_user, started_by, started_at, token, "
+                f"COALESCE(mode, 'wheel') FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
             ) as cur:
                 row = await cur.fetchone()
             if row:
@@ -4317,18 +4319,21 @@ async def g_start_collection(guild_id: int, started_by: int, max_per_user: int) 
                 return {
                     "id": row[0], "status": row[1], "max_per_user": row[2],
                     "started_by": row[3], "started_at": row[4], "token": row[5],
+                    "mode": row[6],
                 }
             # Создаём новый
+            mode = mode if mode in ("wheel", "tournament") else "wheel"
             token = _gen_collection_token()
             now = datetime.utcnow().isoformat()
             cur = await db.execute(
-                f"INSERT INTO {table} (status, max_per_user, started_by, started_at, token) VALUES ('active', ?, ?, ?, ?)",
-                (max_per_user, started_by, now, token),
+                f"INSERT INTO {table} (status, max_per_user, started_by, started_at, token, mode) "
+                f"VALUES ('active', ?, ?, ?, ?, ?)",
+                (max_per_user, started_by, now, token, mode),
             )
             await db.commit()
             return {
                 "id": cur.lastrowid, "status": "active", "max_per_user": max_per_user,
-                "started_by": started_by, "started_at": now, "token": token,
+                "started_by": started_by, "started_at": now, "token": token, "mode": mode,
             }
         except Exception:
             await db.rollback()
@@ -4340,7 +4345,7 @@ async def g_get_active_collection(guild_id: int) -> dict | None:
     table = _guild.guild_table(guild_id, "collections")
     async with _connect() as db:
         async with db.execute(
-            f"SELECT id, status, max_per_user, started_by, started_at, completed_at, completed_by, cancelled_at, cancelled_by, token, spin_started_at, spin_started_by "
+            f"SELECT id, status, max_per_user, started_by, started_at, completed_at, completed_by, cancelled_at, cancelled_by, token, spin_started_at, spin_started_by, COALESCE(mode, 'wheel') "
             f"FROM {table} WHERE status = 'active' ORDER BY id DESC LIMIT 1"
         ) as cur:
             row = await cur.fetchone()
@@ -4351,6 +4356,7 @@ async def g_get_active_collection(guild_id: int) -> dict | None:
             "started_by": row[3], "started_at": row[4], "completed_at": row[5],
             "completed_by": row[6], "cancelled_at": row[7], "cancelled_by": row[8],
             "token": row[9], "spin_started_at": row[10], "spin_started_by": row[11],
+            "mode": row[12],
         }
 
 
@@ -6091,3 +6097,134 @@ async def g_movie_nights_due_rate(guild_id: int, cutoff_iso: str, floor_iso: str
             (cutoff_iso, floor_iso)) as cur:
             rows = await cur.fetchall()
     return [{"id": r[0], "title": r[1], "scheduled_at": r[2], "event_id": r[3]} for r in rows]
+
+
+# ============================================================
+# v3.11: Набор стандартных ачивок (~30) под возможности сайта
+# ============================================================
+# Формат: (name, description, trigger_type, threshold, icon_key, color, glow)
+# Единицы: voice_time — в секундах; steam_play_time — в часах; остальные — счётчик.
+DEFAULT_ACHIEVEMENTS = [
+    ("Первая оценка", "Поставьте первую оценку фильму", "first_rating", 1, "star", "accent", "accent"),
+    ("Критик", "Поставьте 10 оценок", "ratings_count", 10, "star", "blue", "none"),
+    ("Заядлый критик", "Поставьте 50 оценок", "ratings_count", 50, "star", "purple", "none"),
+    ("Кинокритик", "Поставьте 100 оценок", "ratings_count", 100, "star", "gold", "accent"),
+    ("Легенда оценок", "Поставьте 250 оценок", "ratings_count", 250, "crown", "gold", "pulse"),
+    ("Добряк", "25 оценок 4 и выше", "high_ratings_count", 25, "heart", "green", "none"),
+    ("Перфекционист", "10 оценок 5 из 5", "perfect_rating_count", 10, "diamond", "blue", "accent"),
+    ("Золотой критик", "Войдите в топ-3 по числу оценок", "top_rater", 3, "medal", "gold", "gold"),
+    ("Первая цитата", "Сохраните первую цитату", "first_quote", 1, "quote", "accent", "accent"),
+    ("Цитатник", "Сохраните 10 цитат", "quotes_count", 10, "quote", "purple", "none"),
+    ("Мастер цитат", "Сохраните 50 цитат", "quotes_count", 50, "quote", "gold", "accent"),
+    ("Киноман", "Посмотрите 10 фильмов", "watched_count", 10, "film", "blue", "none"),
+    ("Киноэксперт", "Посмотрите 50 фильмов", "watched_count", 50, "film", "purple", "none"),
+    ("Киномарафонец", "Посмотрите 100 фильмов", "watched_count", 100, "popcorn", "gold", "pulse"),
+    ("Коллекционер", "10 фильмов в вишлисте", "watchlist_count", 10, "check", "green", "none"),
+    ("Хранитель списков", "50 фильмов в вишлисте", "watchlist_count", 50, "check", "purple", "none"),
+    ("Счастливчик", "Ваш фильм выиграл в колесе", "wheel_wins", 1, "trophy", "accent", "accent"),
+    ("Везунчик", "5 побед ваших фильмов в колесе", "wheel_wins", 5, "trophy", "purple", "none"),
+    ("Фартовый", "10 побед ваших фильмов в колесе", "wheel_wins", 10, "trophy", "gold", "pulse"),
+    ("Организатор", "Запустите сбор на киновечер", "collections_started", 1, "users", "green", "none"),
+    ("Массовик-затейник", "Запустите 5 сборов", "collections_started", 5, "users", "gold", "accent"),
+    ("Тайный Санта", "Поучаствуйте в Тайном Санте", "santa_participations", 1, "santa", "red", "accent"),
+    ("Дед Мороз", "3 раза в Тайном Санте", "santa_participations", 3, "gift", "gold", "gold"),
+    ("Голосок", "10 часов в войс-чате", "voice_time", 36000, "users", "blue", "none"),
+    ("Болтун", "50 часов в войс-чате", "voice_time", 180000, "users", "purple", "none"),
+    ("Радиоведущий", "100 часов в войс-чате", "voice_time", 360000, "fire", "gold", "pulse"),
+    ("Компанейский", "10 совместных войс-сессий", "voice_co_sessions", 10, "users", "green", "none"),
+    ("Геймер", "50 игр в библиотеке Steam", "steam_games_count", 50, "rocket", "blue", "none"),
+    ("Коллекционер игр", "100 игр в библиотеке Steam", "steam_games_count", 100, "rocket", "purple", "accent"),
+    ("Задрот", "100 часов в играх Steam", "steam_play_time", 100, "lightning", "gold", "accent"),
+    ("Ветеран Steam", "1000 часов в играх Steam", "steam_play_time", 1000, "fire", "gold", "pulse"),
+]
+
+
+async def g_seed_default_achievements(guild_id: int, created_by: int = 0) -> dict:
+    """Создать стандартный набор ачивок. Идемпотентно: пропускает уже существующие
+    (по имени). Возвращает {created, skipped}.
+    """
+    existing = {a["name"] for a in await g_list_achievements(guild_id)}
+    created = 0
+    skipped = 0
+    for (name, desc, trig, thr, icon_key, color, glow) in DEFAULT_ACHIEVEMENTS:
+        if name in existing:
+            skipped += 1
+            continue
+        icon_config = {"icon_key": icon_key, "color": color, "glow": glow}
+        try:
+            await g_create_achievement(guild_id, name, desc, icon_config, trig, thr, None, created_by)
+            created += 1
+        except Exception as e:
+            log.warning("seed achievement %r failed: %s", name, e)
+    return {"created": created, "skipped": skipped, "total": len(DEFAULT_ACHIEVEMENTS)}
+
+
+# ============================================================
+# v3.11: Комментарии к фильмам (по победителю колеса)
+# ============================================================
+
+async def g_add_film_comment(guild_id: int, winner_id: int, user_discord_id: int, text: str) -> int | None:
+    """Добавить комментарий к фильму. Текст обрезается до 1000. Возвращает id или None."""
+    text = (text or "").strip()[:1000]
+    if not text:
+        return None
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (winner_id, user_discord_id, text, created_at) VALUES (?, ?, ?, ?)",
+            (int(winner_id), int(user_discord_id), text, datetime.utcnow().isoformat()))
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_list_film_comments(guild_id: int, winner_id: int) -> list[dict]:
+    """Комментарии к фильму (с инфо о юзере), старые → новые."""
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT c.id, c.user_discord_id, "
+            f"COALESCE(u.display_name, u.username, 'User#' || c.user_discord_id) AS name, "
+            f"c.text, c.created_at "
+            f"FROM {table} c LEFT JOIN users u ON u.discord_id = c.user_discord_id "
+            f"WHERE c.winner_id = ? ORDER BY c.id",
+            (int(winner_id),)) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "user_discord_id": r[1], "name": r[2], "text": r[3], "created_at": r[4]}
+            for r in rows]
+
+
+async def g_count_film_comments(guild_id: int, winner_id: int) -> int:
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE winner_id = ?", (int(winner_id),)) as cur:
+            return int((await cur.fetchone())[0])
+
+
+async def g_film_comment_counts(guild_id: int, winner_ids: list[int]) -> dict:
+    """Счётчики комментариев для списка winner_id одним запросом → {winner_id: count}."""
+    if not winner_ids:
+        return {}
+    table = _guild.guild_table(guild_id, "film_comments")
+    placeholders = ",".join("?" for _ in winner_ids)
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT winner_id, COUNT(*) FROM {table} WHERE winner_id IN ({placeholders}) "
+            f"GROUP BY winner_id", tuple(int(w) for w in winner_ids)) as cur:
+            rows = await cur.fetchall()
+    return {int(r[0]): int(r[1]) for r in rows}
+
+
+async def g_delete_film_comment(guild_id: int, comment_id: int, user_discord_id: int,
+                                is_admin: bool = False) -> bool:
+    """Удалить свой комментарий (или любой — если админ). Возвращает True если удалён."""
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        if is_admin:
+            cur = await db.execute(f"DELETE FROM {table} WHERE id = ?", (int(comment_id),))
+        else:
+            cur = await db.execute(
+                f"DELETE FROM {table} WHERE id = ? AND user_discord_id = ?",
+                (int(comment_id), int(user_discord_id)))
+        await db.commit()
+        return cur.rowcount > 0

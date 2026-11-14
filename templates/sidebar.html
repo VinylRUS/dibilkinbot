@@ -65,6 +65,11 @@
   })();
 </script>
 
+<!-- v3.11: Шестерёнка справа вверху → настройки профиля -->
+<a href="/profile" class="settings-gear" title="Настройки профиля" aria-label="Настройки профиля">
+  <img src="/static/icons/settings.png" alt="" width="20" height="20" class="ui-icon">
+</a>
+
 <!-- Overlay для мобильных -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
@@ -543,9 +548,129 @@ window.closeRatingsModal = function() {
   if (modal) modal.style.display = 'none';
 };
 
+// === v3.11: Модалка комментариев к фильму ===
+window.showCommentsModal = function (winnerId, filmTitle) {
+  function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+  let modal = document.getElementById('comments-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'comments-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    modal.innerHTML = `
+      <div style="background:var(--glass-bg);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);border-radius:16px;padding:22px;max-width:520px;width:100%;max-height:82vh;display:flex;flex-direction:column;box-shadow:var(--glass-shadow);">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:14px;">
+          <div>
+            <div style="font-size:0.74rem;color:var(--text-muted);margin-bottom:2px;">Комментарии к фильму</div>
+            <div id="comments-modal-title" style="font-size:1.05rem;font-weight:700;color:var(--text);"></div>
+          </div>
+          <button onclick="closeCommentsModal()" class="btn-icon" aria-label="Закрыть" style="font-size:1.2rem;">×</button>
+        </div>
+        <div id="comments-modal-list" style="overflow-y:auto;flex:1;min-height:60px;margin-bottom:12px;">
+          <div style="text-align:center;padding:16px;color:var(--text-muted);">⏳ Загрузка...</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+          <textarea id="comments-modal-input" rows="2" maxlength="1000" placeholder="Ваш комментарий..." style="flex:1;resize:vertical;"></textarea>
+          <button class="btn-primary" style="margin:0;" onclick="sendFilmComment()">Отправить</button>
+        </div>
+      </div>`;
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeCommentsModal(); });
+    document.body.appendChild(modal);
+  }
+  modal._winnerId = winnerId;
+  document.getElementById('comments-modal-title').textContent = filmTitle || '';
+  document.getElementById('comments-modal-input').value = '';
+  modal.style.display = 'flex';
+  loadFilmComments(winnerId);
+
+  function loadFilmComments(wid) {
+    const list = document.getElementById('comments-modal-list');
+    fetch(`/api/winners/${wid}/comments`).then(r => r.json()).then(data => {
+      const me = data.me, isAdmin = data.is_admin;
+      if (!data.comments || !data.comments.length) {
+        list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">💬</div><p class="empty-state-text">Пока нет комментариев. Будьте первым!</p></div>';
+        return;
+      }
+      list.innerHTML = data.comments.map(c => {
+        const canDel = isAdmin || c.user_discord_id === me;
+        const initials = (c.name || '?')[0].toUpperCase();
+        const date = c.created_at ? new Date(c.created_at).toLocaleDateString('ru-RU') : '';
+        return `<div class="fc-item" data-id="${c.id}">
+          <div class="fc-avatar">${esc(initials)}</div>
+          <div class="fc-body">
+            <div class="fc-head">
+              <span class="fc-name">${esc(c.name)}</span>
+              <span class="fc-date">${esc(date)}</span>
+              ${canDel ? `<button class="fc-del" onclick="deleteFilmComment(${wid}, ${c.id})">удалить</button>` : ''}
+            </div>
+            <div class="fc-text">${esc(c.text)}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }).catch(() => { list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠</div><p class="empty-state-text">Ошибка загрузки</p></div>'; });
+  }
+  window._loadFilmComments = loadFilmComments;
+};
+
+window.sendFilmComment = function () {
+  const modal = document.getElementById('comments-modal');
+  if (!modal) return;
+  const wid = modal._winnerId;
+  const input = document.getElementById('comments-modal-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const body = new FormData(); body.append('text', text);
+  fetch(`/api/winners/${wid}/comments`, { method: 'POST', body }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      input.value = '';
+      if (window._loadFilmComments) window._loadFilmComments(wid);
+      const badge = document.querySelector(`#comment-btn-${wid} .comment-count`);
+      if (badge && typeof d.count === 'number') badge.textContent = d.count;
+    } else { window.showToast('❌ ' + (d.error || 'Ошибка'), 'error'); }
+  }).catch(() => window.showToast('❌ Ошибка', 'error'));
+};
+
+window.deleteFilmComment = function (winnerId, commentId) {
+  fetch(`/api/winners/${winnerId}/comments/${commentId}/delete`, { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.ok) {
+        if (window._loadFilmComments) window._loadFilmComments(winnerId);
+        const badge = document.querySelector(`#comment-btn-${winnerId} .comment-count`);
+        if (badge && typeof d.count === 'number') badge.textContent = d.count;
+      } else { window.showToast('❌ Нельзя удалить', 'error'); }
+    }).catch(() => window.showToast('❌ Ошибка', 'error'));
+};
+
+window.closeCommentsModal = function () {
+  const modal = document.getElementById('comments-modal');
+  if (modal) modal.style.display = 'none';
+};
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeRatingsModal();
+  if (e.key === 'Escape') { closeRatingsModal(); if (window.closeCommentsModal) window.closeCommentsModal(); }
 });
+
+// === v3.11: Hover-превью звёздного рейтинга (прогрессия слева направо) ===
+// CSS не умеет красить предыдущих соседей, поэтому подсвечиваем .hover-filled
+// на все половинки до наведённой; на уход — возвращаем сохранённое состояние.
+window.initStarHover = function () {
+  document.querySelectorAll('.star-rating:not(.readonly):not([data-hover-init])').forEach(container => {
+    container.setAttribute('data-hover-init', '1');
+    const halves = Array.from(container.querySelectorAll('.star-half'));
+    halves.forEach(half => {
+      half.addEventListener('mouseenter', () => {
+        const rating = parseFloat(half.dataset.rating);
+        container.classList.add('previewing');
+        halves.forEach(h => h.classList.toggle('hover-filled', parseFloat(h.dataset.rating) <= rating));
+      });
+    });
+    container.addEventListener('mouseleave', () => {
+      container.classList.remove('previewing');
+      halves.forEach(h => h.classList.remove('hover-filled'));
+    });
+  });
+};
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.initStarHover);
+else window.initStarHover();
 
 // === Ripple-эффект (DESIGN_SYSTEM §5) ===
 // Волна от точки клика на кнопках/ссылках-кнопках. Пропускаем при reduced-motion.

@@ -200,6 +200,15 @@
               <em style="margin-left: 8px;">(можно переголосовать)</em>
             </div>
           {% endif %}
+
+          {# v3.11: комментарии к фильму #}
+          <button type="button" class="comment-btn" id="comment-btn-{{ w.id }}"
+                  onclick="showCommentsModal({{ w.id }}, {{ w.lot_name|tojson }})"
+                  title="Комментарии к фильму">
+            <img src="/static/icons/chat.png" alt="" width="14" height="14" class="ui-icon">
+            <span class="comment-count">{{ w.comment_count }}</span>
+            <span>Комментарии</span>
+          </button>
         </div>
 
         <div class="stars">

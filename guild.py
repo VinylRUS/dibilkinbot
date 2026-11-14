@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages", "movie_night_rsvp"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages", "movie_night_rsvp", "film_comments"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -177,7 +177,8 @@ GUILD_SCHEMA_TEMPLATES = {
             cancelled_by INTEGER,
             token TEXT NOT NULL,
             spin_started_at TEXT,
-            spin_started_by INTEGER
+            spin_started_by INTEGER,
+            mode TEXT DEFAULT 'wheel'
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
         CREATE INDEX IF NOT EXISTS idx_{table}_token ON {table}(token);
@@ -542,6 +543,17 @@ GUILD_SCHEMA_TEMPLATES = {
         CREATE INDEX IF NOT EXISTS idx_{table}_thread
             ON {table}(event_id, santa_discord_id, recipient_discord_id);
     """,
+    # v3.11: комментарии к фильмам (привязаны к победителю колеса).
+    "film_comments": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            winner_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_winner ON {table}(winner_id);
+    """,
     # v3.11: RSVP «Интересно» к киновечеру (из Discord Scheduled Event).
     "movie_night_rsvp": """
         CREATE TABLE IF NOT EXISTS {table} (
@@ -576,6 +588,10 @@ async def init_guild_tables(guild_id: int | str) -> None:
             "countdown_sent": "INTEGER DEFAULT 0",
             "rate_prompt_sent": "INTEGER DEFAULT 0",
             "is_marathon": "INTEGER DEFAULT 0",
+        })
+        # v3.11: режим сбора (колесо/турнир)
+        await _migrate_add_columns(db, gid, "collections", {
+            "mode": "TEXT DEFAULT 'wheel'",
         })
         await db.commit()
     log.info("Initialized guild tables for guild_id=%s", gid)
