@@ -118,8 +118,8 @@
   --input-bg-focus: rgba(255, 255, 255, 0.1);
 
   --text: #FFFFFF;
-  --text-muted: rgba(255, 255, 255, 0.6);
-  --text-soft: rgba(255, 255, 255, 0.4);
+  --text-muted: rgba(255, 255, 255, 0.72);
+  --text-soft: rgba(255, 255, 255, 0.52);
 
   --accent: #FFB703;
   --accent-2: #FFC940;
@@ -188,8 +188,8 @@
     --input-bg-focus: rgba(255, 255, 255, 0.1);
 
     --text: #FFFFFF;
-    --text-muted: rgba(255, 255, 255, 0.6);
-    --text-soft: rgba(255, 255, 255, 0.4);
+    --text-muted: rgba(255, 255, 255, 0.72);
+    --text-soft: rgba(255, 255, 255, 0.52);
 
     --accent: #FFB703;
     --accent-2: #FFC940;
@@ -233,6 +233,29 @@
   }
 }
 
+/* ===== v3.11: Шестерёнка настроек (фикс справа вверху) ===== */
+.settings-gear {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 190;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+  text-decoration: none;
+  transition: background 0.15s, transform 0.2s var(--spring);
+}
+.settings-gear:hover { background: var(--accent-soft); transform: rotate(45deg); }
+.settings-gear .ui-icon { width: 20px; height: 20px; }
+
 /* ===== Motion-токены (общие для обеих тем) =====
    DESIGN_SYSTEM §3: пружинный возврат и плавный easing.
    Раньше использовались (var(--spring)/var(--smooth)) в карточках, сайдбаре,
@@ -267,6 +290,10 @@ body {
   line-height: 1.5;
   position: relative;
   overflow-x: hidden;
+  /* v3.11: чёткость текста — сглаживание и оптимизация рендера глифов */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Декоративные размытые круги (blobs) на фоне */
@@ -1579,18 +1606,18 @@ body.has-sidebar.sidebar-open {
   transition: filter 0.25s ease;
 }
 [data-theme="dark"] .sb-liquid-icon {
-  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 [data-theme="light"] .sb-liquid-icon {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 .sb-item:hover .sb-liquid-icon,
 .sb-item.active .sb-liquid-icon {
-  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 6px var(--icon-glow-strong)) brightness(1.15);
+  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong)) brightness(1.15);
 }
 [data-theme="light"] .sb-item:hover .sb-liquid-icon,
 [data-theme="light"] .sb-item.active .sb-liquid-icon {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 6px var(--icon-glow-strong));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong));
 }
 .sb-item-label { opacity: 0; transition: opacity 0.15s 0.1s; }
 .sidebar.open .sb-item-label { opacity: 1; }
@@ -2157,16 +2184,16 @@ article.card .stat-box-label,
   height: 16px;
 }
 [data-theme="dark"] .ui-icon {
-  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 [data-theme="dark"] .ui-icon:hover {
-  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 5px var(--icon-glow-strong));
+  filter: drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong));
 }
 [data-theme="light"] .ui-icon {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 4px var(--icon-glow));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow)) drop-shadow(0 0 2px var(--icon-glow));
 }
 [data-theme="light"] .ui-icon:hover {
-  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 5px var(--icon-glow-strong));
+  filter: brightness(0) drop-shadow(0 0 1px var(--icon-glow-strong)) drop-shadow(0 0 3px var(--icon-glow-strong));
 }
 h2 .ui-icon, h3 .ui-icon, .section-title .ui-icon { width: 18px; height: 18px; }
 
