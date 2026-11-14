@@ -1293,12 +1293,14 @@ input:checked + .slider:before {
   transform: scale(1.08);
   z-index: 1;
 }
-/* При hover на половинке — она подсвечивается. Все последующие
-   остаются пустыми (как в классическом star rating). */
-.star-rating:hover .star-half:hover::before {
+/* Hover-превью через JS (initStarHover в sidebar.html): CSS не умеет красить
+   ПРЕДЫДУЩИХ соседей, поэтому JS вешает .hover-filled на все половинки до
+   наведённой. Во время превью (.previewing) сохранённый .filled перебивается,
+   чтобы показывать именно наведённый рейтинг с прогрессией слева направо. */
+.star-rating .star-half.hover-filled::before {
   color: var(--star-color-full);
 }
-.star-rating:hover .star-half:hover ~ .star-half::before {
+.star-rating.previewing .star-half:not(.hover-filled)::before {
   color: var(--star-color-empty);
 }
 .star-rating .rating-value {

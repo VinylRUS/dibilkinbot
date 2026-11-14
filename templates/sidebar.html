@@ -547,6 +547,29 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeRatingsModal();
 });
 
+// === v3.11: Hover-превью звёздного рейтинга (прогрессия слева направо) ===
+// CSS не умеет красить предыдущих соседей, поэтому подсвечиваем .hover-filled
+// на все половинки до наведённой; на уход — возвращаем сохранённое состояние.
+window.initStarHover = function () {
+  document.querySelectorAll('.star-rating:not(.readonly):not([data-hover-init])').forEach(container => {
+    container.setAttribute('data-hover-init', '1');
+    const halves = Array.from(container.querySelectorAll('.star-half'));
+    halves.forEach(half => {
+      half.addEventListener('mouseenter', () => {
+        const rating = parseFloat(half.dataset.rating);
+        container.classList.add('previewing');
+        halves.forEach(h => h.classList.toggle('hover-filled', parseFloat(h.dataset.rating) <= rating));
+      });
+    });
+    container.addEventListener('mouseleave', () => {
+      container.classList.remove('previewing');
+      halves.forEach(h => h.classList.remove('hover-filled'));
+    });
+  });
+};
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.initStarHover);
+else window.initStarHover();
+
 // === Ripple-эффект (DESIGN_SYSTEM §5) ===
 // Волна от точки клика на кнопках/ссылках-кнопках. Пропускаем при reduced-motion.
 (function () {
