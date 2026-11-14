@@ -7,17 +7,21 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
   <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
-    /* ===== Кнопка назад (как у колеса) ===== */
+    /* ===== Кнопка назад (как у колеса — фикс top-left) ===== */
     .back-link {
+      position: fixed; top: 16px; left: 16px; z-index: 100;
       display: inline-flex; align-items: center; gap: 6px;
       background: var(--glass-bg); backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
       color: var(--accent); padding: 8px 16px; border-radius: 12px;
       text-decoration: none; font-size: 0.9rem; font-weight: 600;
       border: 1px solid var(--glass-border); transition: all 0.15s var(--smooth);
-      margin-bottom: 16px;
     }
     .back-link:hover { background: var(--accent); color: var(--accent-text); }
+    /* Фокус-страница как у колеса: контент по центру, место под фикс-кнопку */
+    .tournament-main { max-width: 1100px; margin: 0 auto; padding: 64px 24px 32px; }
+    h2.tournament-title { justify-content: center; text-align: center; }
+    h2.tournament-title::before { display: none; }
 
     /* ===== Двусторонняя турнирная сетка ===== */
     .bracket2 {
@@ -86,7 +90,23 @@
   </style>
 </head>
 <body>
-  {% include "sidebar.html" %}
+  <script>
+    // Фокус-страница как колесо (без сайдбара). Применяем accent-цвет из куки
+    // и даём минимальный showToast, если его нет.
+    (function () {
+      var m = document.cookie.match(/(?:^|;\s*)accent=([a-z]+)/);
+      if (m && m[1] && m[1] !== 'amber') document.documentElement.setAttribute('data-accent', m[1]);
+      if (!window.showToast) {
+        window.showToast = function (msg, type) {
+          var t = document.createElement('div');
+          t.textContent = msg;
+          t.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:12px 16px;border-radius:12px;background:var(--glass-bg);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);color:var(--text);font-size:0.88rem;border-left:4px solid ' + (type === 'error' ? 'var(--red)' : type === 'success' ? 'var(--green)' : 'var(--accent)');
+          document.body.appendChild(t);
+          setTimeout(function () { t.style.opacity = '0'; t.style.transition = 'opacity .2s'; setTimeout(function(){t.remove();}, 200); }, 3000);
+        };
+      }
+    })();
+  </script>
 
   {# Макрос карточки матча #}
   {% macro match_card(m) %}
@@ -115,9 +135,9 @@
     {% endif %}
   {% endmacro %}
 
-  <main class="container">
-    <a href="/" class="back-link">← В панель</a>
-    <h2>🏆 Турнир фильмов</h2>
+  <a href="/" class="back-link">← В панель</a>
+  <main class="tournament-main">
+    <h2 class="tournament-title">🏆 Турнир фильмов</h2>
 
     {% if not tournament %}
       <article class="card">
