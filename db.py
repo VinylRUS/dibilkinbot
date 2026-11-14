@@ -6097,3 +6097,63 @@ async def g_movie_nights_due_rate(guild_id: int, cutoff_iso: str, floor_iso: str
             (cutoff_iso, floor_iso)) as cur:
             rows = await cur.fetchall()
     return [{"id": r[0], "title": r[1], "scheduled_at": r[2], "event_id": r[3]} for r in rows]
+
+
+# ============================================================
+# v3.11: Набор стандартных ачивок (~30) под возможности сайта
+# ============================================================
+# Формат: (name, description, trigger_type, threshold, icon_key, color, glow)
+# Единицы: voice_time — в секундах; steam_play_time — в часах; остальные — счётчик.
+DEFAULT_ACHIEVEMENTS = [
+    ("Первая оценка", "Поставьте первую оценку фильму", "first_rating", 1, "star", "accent", "accent"),
+    ("Критик", "Поставьте 10 оценок", "ratings_count", 10, "star", "blue", "none"),
+    ("Заядлый критик", "Поставьте 50 оценок", "ratings_count", 50, "star", "purple", "none"),
+    ("Кинокритик", "Поставьте 100 оценок", "ratings_count", 100, "star", "gold", "accent"),
+    ("Легенда оценок", "Поставьте 250 оценок", "ratings_count", 250, "crown", "gold", "pulse"),
+    ("Добряк", "25 оценок 4 и выше", "high_ratings_count", 25, "heart", "green", "none"),
+    ("Перфекционист", "10 оценок 5 из 5", "perfect_rating_count", 10, "diamond", "blue", "accent"),
+    ("Золотой критик", "Войдите в топ-3 по числу оценок", "top_rater", 3, "medal", "gold", "gold"),
+    ("Первая цитата", "Сохраните первую цитату", "first_quote", 1, "quote", "accent", "accent"),
+    ("Цитатник", "Сохраните 10 цитат", "quotes_count", 10, "quote", "purple", "none"),
+    ("Мастер цитат", "Сохраните 50 цитат", "quotes_count", 50, "quote", "gold", "accent"),
+    ("Киноман", "Посмотрите 10 фильмов", "watched_count", 10, "film", "blue", "none"),
+    ("Киноэксперт", "Посмотрите 50 фильмов", "watched_count", 50, "film", "purple", "none"),
+    ("Киномарафонец", "Посмотрите 100 фильмов", "watched_count", 100, "popcorn", "gold", "pulse"),
+    ("Коллекционер", "10 фильмов в вишлисте", "watchlist_count", 10, "check", "green", "none"),
+    ("Хранитель списков", "50 фильмов в вишлисте", "watchlist_count", 50, "check", "purple", "none"),
+    ("Счастливчик", "Ваш фильм выиграл в колесе", "wheel_wins", 1, "trophy", "accent", "accent"),
+    ("Везунчик", "5 побед ваших фильмов в колесе", "wheel_wins", 5, "trophy", "purple", "none"),
+    ("Фартовый", "10 побед ваших фильмов в колесе", "wheel_wins", 10, "trophy", "gold", "pulse"),
+    ("Организатор", "Запустите сбор на киновечер", "collections_started", 1, "users", "green", "none"),
+    ("Массовик-затейник", "Запустите 5 сборов", "collections_started", 5, "users", "gold", "accent"),
+    ("Тайный Санта", "Поучаствуйте в Тайном Санте", "santa_participations", 1, "santa", "red", "accent"),
+    ("Дед Мороз", "3 раза в Тайном Санте", "santa_participations", 3, "gift", "gold", "gold"),
+    ("Голосок", "10 часов в войс-чате", "voice_time", 36000, "users", "blue", "none"),
+    ("Болтун", "50 часов в войс-чате", "voice_time", 180000, "users", "purple", "none"),
+    ("Радиоведущий", "100 часов в войс-чате", "voice_time", 360000, "fire", "gold", "pulse"),
+    ("Компанейский", "10 совместных войс-сессий", "voice_co_sessions", 10, "users", "green", "none"),
+    ("Геймер", "50 игр в библиотеке Steam", "steam_games_count", 50, "rocket", "blue", "none"),
+    ("Коллекционер игр", "100 игр в библиотеке Steam", "steam_games_count", 100, "rocket", "purple", "accent"),
+    ("Задрот", "100 часов в играх Steam", "steam_play_time", 100, "lightning", "gold", "accent"),
+    ("Ветеран Steam", "1000 часов в играх Steam", "steam_play_time", 1000, "fire", "gold", "pulse"),
+]
+
+
+async def g_seed_default_achievements(guild_id: int, created_by: int = 0) -> dict:
+    """Создать стандартный набор ачивок. Идемпотентно: пропускает уже существующие
+    (по имени). Возвращает {created, skipped}.
+    """
+    existing = {a["name"] for a in await g_list_achievements(guild_id)}
+    created = 0
+    skipped = 0
+    for (name, desc, trig, thr, icon_key, color, glow) in DEFAULT_ACHIEVEMENTS:
+        if name in existing:
+            skipped += 1
+            continue
+        icon_config = {"icon_key": icon_key, "color": color, "glow": glow}
+        try:
+            await g_create_achievement(guild_id, name, desc, icon_config, trig, thr, None, created_by)
+            created += 1
+        except Exception as e:
+            log.warning("seed achievement %r failed: %s", name, e)
+    return {"created": created, "skipped": skipped, "total": len(DEFAULT_ACHIEVEMENTS)}

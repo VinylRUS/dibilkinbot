@@ -369,6 +369,28 @@ async def test_tournament_needs_two(client):
 
 
 @pytest.mark.asyncio
+async def test_seed_default_achievements(client):
+    """Сид стандартных ачивок создаёт их один раз, повторный вызов пропускает."""
+    import db
+    from config import settings
+    from guild import guild_table
+    # чистим ачивки тестовой гильдии
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, 'achievements')}")
+        await c.commit()
+    res = await db.g_seed_default_achievements(TEST_GUILD_ID, 1001)
+    assert res["created"] == len(db.DEFAULT_ACHIEVEMENTS) >= 30
+    assert res["skipped"] == 0
+    # все триггеры валидны
+    for (_, _, trig, thr, ik, color, glow) in db.DEFAULT_ACHIEVEMENTS:
+        assert trig in db.ACHIEVEMENT_TRIGGERS
+        assert thr >= 0
+    # повторно — всё пропущено
+    res2 = await db.g_seed_default_achievements(TEST_GUILD_ID, 1001)
+    assert res2["created"] == 0 and res2["skipped"] == len(db.DEFAULT_ACHIEVEMENTS)
+
+
+@pytest.mark.asyncio
 async def test_collection_mode(client):
     """Сбор запоминает режим (колесо/турнир) и отдаёт его в активном сборе."""
     import db
