@@ -1297,21 +1297,26 @@ input:checked + .slider:before {
   overflow: hidden;
   transition: filter 0.1s, transform 0.1s;
 }
+/* v3.11: звезда — SVG-маска (а не символ ★): шрифт рисовал ★ как овал/пилюлю.
+   Маска даёт всегда чёткую форму звезды; половина получается overflow:hidden у кнопки. */
 .star-rating .star-half::before {
-  content: "★";
+  content: "";
   position: absolute;
   top: 0;
-  font-size: var(--star-size);
-  line-height: 1;
-  color: var(--star-color-empty);
+  left: 0;
+  width: var(--star-size);
+  height: var(--star-size);
+  background-color: var(--star-color-empty);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .587l3.668 7.431 8.2 1.192-5.934 5.783 1.401 8.167L12 18.896l-7.335 3.864 1.401-8.167L.132 8.21l8.2-1.192z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .587l3.668 7.431 8.2 1.192-5.934 5.783 1.401 8.167L12 18.896l-7.335 3.864 1.401-8.167L.132 8.21l8.2-1.192z'/%3E%3C/svg%3E") center / contain no-repeat;
   pointer-events: none;
 }
-/* Левая половинка: символ ★ прижат к левому краю (видна левая половина звезды) */
+/* Левая половинка: звезда прижата к левому краю (видна левая половина) */
 .star-rating .star-half.left::before { left: 0; }
-/* Правая половинка: символ ★ сдвинут влево (видна правая половина звезды) */
+/* Правая половинка: звезда сдвинута влево (видна правая половина) */
 .star-rating .star-half.right::before { left: calc(var(--star-size) / -2); }
 .star-rating .star-half.filled::before {
-  color: var(--star-color-full);
+  background-color: var(--star-color-full);
 }
 /* Hover-эффект: мягкое увеличение без brightness (раньше brightness(1.3)
    давал слишком яркий glow — звёзды сияли. Теперь только scale 1.08
@@ -1325,10 +1330,10 @@ input:checked + .slider:before {
    наведённой. Во время превью (.previewing) сохранённый .filled перебивается,
    чтобы показывать именно наведённый рейтинг с прогрессией слева направо. */
 .star-rating .star-half.hover-filled::before {
-  color: var(--star-color-full);
+  background-color: var(--star-color-full);
 }
 .star-rating.previewing .star-half:not(.hover-filled)::before {
-  color: var(--star-color-empty);
+  background-color: var(--star-color-empty);
 }
 .star-rating .rating-value {
   margin-left: 8px;
