@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages", "movie_night_rsvp", "film_comments"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "tournament_ready", "santa_messages", "movie_night_rsvp", "film_comments"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -528,6 +528,18 @@ GUILD_SCHEMA_TEMPLATES = {
             UNIQUE(match_id, user_discord_id)
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_match ON {table}(match_id);
+    """,
+    # v3.11: готовность участников к завершению раунда турнира.
+    "tournament_ready": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id INTEGER NOT NULL,
+            round INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(tournament_id, round, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_tr ON {table}(tournament_id, round);
     """,
     # v3.11: анонимный чат Санта ↔ получатель внутри назначения.
     "santa_messages": """
