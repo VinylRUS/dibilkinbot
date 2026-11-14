@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages", "movie_night_rsvp"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "vq_events", "vq_commands", "vq_links", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "santa_messages", "movie_night_rsvp", "film_comments"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -542,6 +542,17 @@ GUILD_SCHEMA_TEMPLATES = {
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_thread
             ON {table}(event_id, santa_discord_id, recipient_discord_id);
+    """,
+    # v3.11: комментарии к фильмам (привязаны к победителю колеса).
+    "film_comments": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            winner_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_winner ON {table}(winner_id);
     """,
     # v3.11: RSVP «Интересно» к киновечеру (из Discord Scheduled Event).
     "movie_night_rsvp": """

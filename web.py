@@ -1443,6 +1443,15 @@ async def winners_page(
     for w in winners:
         w["user_rating"] = await db.g_get_user_rating(guild_id, w["id"], user_discord_id) if user_discord_id else None
     total_pages = max(1, (total + per_page - 1) // per_page)
+    # v3.11: счётчики комментариев к фильмам на странице
+    comment_counts = {}
+    try:
+        comment_counts = await db.g_film_comment_counts(guild_id, [w["id"] for w in winners])
+    except Exception as e:
+        import logging
+        logging.getLogger("winners").warning("comment counts failed: %s", e)
+    for w in winners:
+        w["comment_count"] = comment_counts.get(w["id"], 0)
     # v3.11: «Спорные фильмы» — показываем только на 1-й странице без поиска
     controversial = []
     if page == 1 and not search:
@@ -2415,6 +2424,44 @@ async def api_get_ratings_list(
     guild_id = get_current_guild_id(_user)
     ratings = await db.g_get_ratings_for_winner(guild_id, winner_id)
     return JSONResponse({"ratings": ratings, "count": len(ratings)})
+
+
+# === Комментарии к фильмам (v3.11) ===
+
+@app.get("/api/winners/{winner_id}/comments")
+async def api_get_film_comments(winner_id: int, _user: dict = Depends(require_user)):
+    guild_id = get_current_guild_id(_user)
+    comments = await db.g_list_film_comments(guild_id, winner_id)
+    return JSONResponse({
+        "comments": comments,
+        "count": len(comments),
+        "me": _user.get("discord_id", 0),
+        "is_admin": _user.get("is_admin", False),
+    })
+
+
+@app.post("/api/winners/{winner_id}/comments")
+async def api_add_film_comment(winner_id: int, _user: dict = Depends(require_user),
+                               text: str = Form(...)):
+    guild_id = get_current_guild_id(_user)
+    uid = _user.get("discord_id", 0)
+    if not uid:
+        return JSONResponse({"error": "no user"}, status_code=400)
+    cid = await db.g_add_film_comment(guild_id, winner_id, uid, text)
+    if not cid:
+        return JSONResponse({"error": "Пустой комментарий."}, status_code=400)
+    count = await db.g_count_film_comments(guild_id, winner_id)
+    return JSONResponse({"ok": True, "id": cid, "count": count})
+
+
+@app.post("/api/winners/{winner_id}/comments/{comment_id}/delete")
+async def api_delete_film_comment(winner_id: int, comment_id: int,
+                                  _user: dict = Depends(require_user)):
+    guild_id = get_current_guild_id(_user)
+    ok = await db.g_delete_film_comment(
+        guild_id, comment_id, _user.get("discord_id", 0), _user.get("is_admin", False))
+    count = await db.g_count_film_comments(guild_id, winner_id)
+    return JSONResponse({"ok": ok, "count": count}, status_code=200 if ok else 403)
 
 
 # === Follow API (v3.11) ===

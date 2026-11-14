@@ -369,6 +369,32 @@ async def test_tournament_needs_two(client):
 
 
 @pytest.mark.asyncio
+async def test_film_comments(client):
+    """Комментарии к фильму: добавление, список, счётчики, удаление своего/чужого."""
+    import db
+    from config import settings
+    from guild import guild_table
+    async with aiosqlite.connect(settings.database_path) as c:
+        await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, 'film_comments')}")
+        await c.commit()
+    WID, U1, U2 = 7001, 60001, 60002
+    cid1 = await db.g_add_film_comment(TEST_GUILD_ID, WID, U1, "Отличный фильм!")
+    assert cid1
+    assert await db.g_add_film_comment(TEST_GUILD_ID, WID, U2, "Согласен")
+    assert await db.g_add_film_comment(TEST_GUILD_ID, WID, U1, "   ") is None  # пусто
+    assert await db.g_count_film_comments(TEST_GUILD_ID, WID) == 2
+    comments = await db.g_list_film_comments(TEST_GUILD_ID, WID)
+    assert [c["text"] for c in comments] == ["Отличный фильм!", "Согласен"]
+    counts = await db.g_film_comment_counts(TEST_GUILD_ID, [WID, 9999])
+    assert counts.get(WID) == 2
+    # U2 не может удалить чужой (U1) без админки
+    assert await db.g_delete_film_comment(TEST_GUILD_ID, cid1, U2, is_admin=False) is False
+    # админ может
+    assert await db.g_delete_film_comment(TEST_GUILD_ID, cid1, U2, is_admin=True) is True
+    assert await db.g_count_film_comments(TEST_GUILD_ID, WID) == 1
+
+
+@pytest.mark.asyncio
 async def test_seed_default_achievements(client):
     """Сид стандартных ачивок создаёт их один раз, повторный вызов пропускает."""
     import db

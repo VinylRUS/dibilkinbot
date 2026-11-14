@@ -6157,3 +6157,74 @@ async def g_seed_default_achievements(guild_id: int, created_by: int = 0) -> dic
         except Exception as e:
             log.warning("seed achievement %r failed: %s", name, e)
     return {"created": created, "skipped": skipped, "total": len(DEFAULT_ACHIEVEMENTS)}
+
+
+# ============================================================
+# v3.11: Комментарии к фильмам (по победителю колеса)
+# ============================================================
+
+async def g_add_film_comment(guild_id: int, winner_id: int, user_discord_id: int, text: str) -> int | None:
+    """Добавить комментарий к фильму. Текст обрезается до 1000. Возвращает id или None."""
+    text = (text or "").strip()[:1000]
+    if not text:
+        return None
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        cur = await db.execute(
+            f"INSERT INTO {table} (winner_id, user_discord_id, text, created_at) VALUES (?, ?, ?, ?)",
+            (int(winner_id), int(user_discord_id), text, datetime.utcnow().isoformat()))
+        await db.commit()
+        return cur.lastrowid
+
+
+async def g_list_film_comments(guild_id: int, winner_id: int) -> list[dict]:
+    """Комментарии к фильму (с инфо о юзере), старые → новые."""
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT c.id, c.user_discord_id, "
+            f"COALESCE(u.display_name, u.username, 'User#' || c.user_discord_id) AS name, "
+            f"c.text, c.created_at "
+            f"FROM {table} c LEFT JOIN users u ON u.discord_id = c.user_discord_id "
+            f"WHERE c.winner_id = ? ORDER BY c.id",
+            (int(winner_id),)) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "user_discord_id": r[1], "name": r[2], "text": r[3], "created_at": r[4]}
+            for r in rows]
+
+
+async def g_count_film_comments(guild_id: int, winner_id: int) -> int:
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE winner_id = ?", (int(winner_id),)) as cur:
+            return int((await cur.fetchone())[0])
+
+
+async def g_film_comment_counts(guild_id: int, winner_ids: list[int]) -> dict:
+    """Счётчики комментариев для списка winner_id одним запросом → {winner_id: count}."""
+    if not winner_ids:
+        return {}
+    table = _guild.guild_table(guild_id, "film_comments")
+    placeholders = ",".join("?" for _ in winner_ids)
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT winner_id, COUNT(*) FROM {table} WHERE winner_id IN ({placeholders}) "
+            f"GROUP BY winner_id", tuple(int(w) for w in winner_ids)) as cur:
+            rows = await cur.fetchall()
+    return {int(r[0]): int(r[1]) for r in rows}
+
+
+async def g_delete_film_comment(guild_id: int, comment_id: int, user_discord_id: int,
+                                is_admin: bool = False) -> bool:
+    """Удалить свой комментарий (или любой — если админ). Возвращает True если удалён."""
+    table = _guild.guild_table(guild_id, "film_comments")
+    async with _connect() as db:
+        if is_admin:
+            cur = await db.execute(f"DELETE FROM {table} WHERE id = ?", (int(comment_id),))
+        else:
+            cur = await db.execute(
+                f"DELETE FROM {table} WHERE id = ? AND user_discord_id = ?",
+                (int(comment_id), int(user_discord_id)))
+        await db.commit()
+        return cur.rowcount > 0
