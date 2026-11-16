@@ -362,6 +362,56 @@ async def test_tournament_flow(client):
 
 
 @pytest.mark.asyncio
+async def test_tournament_ready_advance(client):
+    """Раунд закрывается только когда ВСЕ участники (голосовавшие) готовы."""
+    import db
+    from config import settings
+    from guild import guild_table
+    async with aiosqlite.connect(settings.database_path) as c:
+        for base in ("tournaments", "tournament_matches", "tournament_votes", "tournament_ready"):
+            await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, base)}")
+        await c.commit()
+    tid = await db.g_create_tournament(TEST_GUILD_ID, "T", ["A", "B", "C", "D"], 1001)
+    r1 = await db.g_get_tournament_matches(TEST_GUILD_ID, tid, 1)
+    U1, U2 = 75001, 75002
+    for m in r1:
+        await db.g_vote_match(TEST_GUILD_ID, m["id"], U1, "left")
+        await db.g_vote_match(TEST_GUILD_ID, m["id"], U2, "left")
+    # участники = {U1, U2}
+    st = await db.g_tournament_ready_status(TEST_GUILD_ID, tid, 1)
+    assert st["total"] == 2 and st["ready"] == 0
+    # никто не готов → не продвигается
+    res = await db.g_tournament_try_advance(TEST_GUILD_ID, tid, force=False)
+    assert res["advanced"] is False
+    # один готов → всё ещё ждём
+    await db.g_tournament_set_ready(TEST_GUILD_ID, tid, 1, U1)
+    res = await db.g_tournament_try_advance(TEST_GUILD_ID, tid, force=False)
+    assert res["advanced"] is False
+    assert (await db.g_tournament_ready_status(TEST_GUILD_ID, tid, 1))["ready"] == 1
+    # оба готовы → продвигается
+    await db.g_tournament_set_ready(TEST_GUILD_ID, tid, 1, U2)
+    res = await db.g_tournament_try_advance(TEST_GUILD_ID, tid, force=False)
+    assert res["advanced"] is True and res["status"] == "voting" and res["round"] == 2
+    # готовность прошлого раунда очищена
+    assert (await db.g_tournament_ready_status(TEST_GUILD_ID, tid, 1))["ready"] == 0
+
+
+@pytest.mark.asyncio
+async def test_tournament_force_advance(client):
+    """Админский force продвигает без готовности."""
+    import db
+    from config import settings
+    from guild import guild_table
+    async with aiosqlite.connect(settings.database_path) as c:
+        for base in ("tournaments", "tournament_matches", "tournament_votes", "tournament_ready"):
+            await c.execute(f"DELETE FROM {guild_table(TEST_GUILD_ID, base)}")
+        await c.commit()
+    tid = await db.g_create_tournament(TEST_GUILD_ID, "T", ["A", "B"], 1001)
+    res = await db.g_tournament_try_advance(TEST_GUILD_ID, tid, force=True)
+    assert res["advanced"] is True and res["status"] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_tournament_needs_two(client):
     """Турнир из < 2 уникальных фильмов не создаётся."""
     import db

@@ -7,7 +7,6 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
   <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
-    /* ===== Кнопка назад (как у колеса — фикс top-left) ===== */
     .back-link {
       position: fixed; top: 16px; left: 16px; z-index: 100;
       display: inline-flex; align-items: center; gap: 6px;
@@ -18,81 +17,51 @@
       border: 1px solid var(--glass-border); transition: all 0.15s var(--smooth);
     }
     .back-link:hover { background: var(--accent); color: var(--accent-text); }
-    /* Фокус-страница как у колеса: контент по центру, место под фикс-кнопку */
-    .tournament-main { max-width: 1100px; margin: 0 auto; padding: 64px 24px 32px; }
+    .tournament-main { max-width: 1100px; margin: 0 auto; padding: 64px 24px 40px; }
     h2.tournament-title { justify-content: center; text-align: center; }
     h2.tournament-title::before { display: none; }
 
-    /* ===== Двусторонняя турнирная сетка ===== */
-    .bracket2 {
-      display: flex; gap: 14px; overflow-x: auto; padding: 8px 4px 16px;
-      align-items: stretch; justify-content: center;
-    }
-    .br-col {
-      display: flex; flex-direction: column; justify-content: space-around;
-      gap: 12px; min-width: 150px; flex-shrink: 0;
-    }
-    .br-col.center { justify-content: center; min-width: 170px; }
-    .br-label {
-      font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--text-soft); font-weight: 700; text-align: center; margin-bottom: 2px;
-    }
+    /* ===== Чистая сетка (слева направо, раунды — колонки) ===== */
+    .bracket { display: flex; gap: 18px; overflow-x: auto; padding: 8px 4px 16px; align-items: stretch; }
+    .br-col { display: flex; flex-direction: column; justify-content: space-around; gap: 12px; min-width: 180px; flex-shrink: 0; }
+    .br-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-soft); font-weight: 700; text-align: center; margin-bottom: 2px; }
     .br-col.cur .br-label { color: var(--accent); }
-    .bm {
-      background: var(--content-bg); border: 1px solid var(--content-border);
-      border-radius: 12px; padding: 6px; box-shadow: var(--glass-shadow), var(--glass-inset);
-      display: flex; flex-direction: column; gap: 4px;
-    }
+    .bm { background: var(--content-bg); border: 1px solid var(--content-border); border-radius: 12px; padding: 6px; box-shadow: var(--glass-shadow), var(--glass-inset); display: flex; flex-direction: column; gap: 4px; }
     .br-col.cur .bm { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft), var(--glass-shadow); }
-    .bm-side {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 6px 9px; border-radius: 8px; font-size: 0.8rem; color: var(--text);
-      background: var(--card-alt);
-    }
+    .bm-side { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 8px; font-size: 0.82rem; color: var(--text); background: var(--card-alt); }
     .bm-side.win { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
-    .bm-side.lose { opacity: 0.5; }
+    .bm-side.lose { opacity: 0.45; }
     .bm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bm-votes { font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0; }
+    .bm-votes { font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0; }
     .bm-side.win .bm-votes { color: var(--accent); }
-    .bm-vs { text-align: center; font-size: 0.58rem; color: var(--text-soft); font-weight: 800; }
+    .bm-vs { text-align: center; font-size: 0.6rem; color: var(--text-soft); font-weight: 800; }
     .bm-placeholder { opacity: 0.4; }
-    .bm-champ { border-color: var(--accent); background: var(--accent-soft); }
-    .bm-champ .bm-side { background: transparent; color: var(--accent); font-weight: 800; justify-content: center; }
 
     /* ===== Голосование ===== */
-    .vote-match {
-      display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 10px;
-      background: var(--content-bg); border: 1px solid var(--content-border);
-      border-radius: var(--content-radius); padding: 14px; margin-bottom: 12px;
-      box-shadow: var(--glass-shadow), var(--glass-inset);
-    }
-    .vote-side {
-      display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center;
-      border: 1px solid transparent; border-radius: 12px; padding: 12px; cursor: pointer;
-      background: var(--card-alt); transition: border-color .15s, transform .15s var(--spring);
-      color: var(--text); font-weight: 700;
-    }
+    .vote-match { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 10px; background: var(--content-bg); border: 1px solid var(--content-border); border-radius: var(--content-radius); padding: 14px; margin-bottom: 12px; box-shadow: var(--glass-shadow), var(--glass-inset); }
+    .vote-side { display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; border: 2px solid transparent; border-radius: 12px; padding: 12px; cursor: pointer; background: var(--card-alt); transition: border-color .15s, transform .15s var(--spring); color: var(--text); font-weight: 700; }
     .vote-side:hover { border-color: var(--accent); transform: translateY(-2px); }
-    .vote-side.win { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .vote-side.mine { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
     .vote-votes { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
     .vote-vs { display: flex; align-items: center; color: var(--text-soft); font-weight: 800; }
     .vote-bye { grid-column: 1/-1; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
 
-    /* ===== Чемпион ===== */
-    .champion-wrap { text-align: center; padding: 20px; }
-    .champion-crown { font-size: 2.6rem; line-height: 1; animation: champ-pop .5s var(--spring); }
-    .champion-name {
-      font-size: 1.8rem; font-weight: 800; color: var(--accent); margin: 8px 0 4px;
-      text-shadow: 0 0 24px var(--accent-soft); animation: champ-pop .5s var(--spring) .1s both;
-    }
-    .champion-sub { color: var(--text-muted); font-size: 0.9rem; }
+    /* ===== Панель готовности ===== */
+    .ready-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: var(--content-bg); border: 1px solid var(--content-border); border-radius: var(--content-radius); padding: 14px 18px; margin-top: 8px; box-shadow: var(--glass-shadow), var(--glass-inset); }
+    .ready-count { font-weight: 700; color: var(--accent); }
+    .ready-hint { color: var(--text-muted); font-size: 0.85rem; }
+
+    /* ===== Окно чемпиона по центру ===== */
+    .champ-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(6px); z-index: 9998; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .champ-card { background: var(--glass-bg); backdrop-filter: var(--glass-blur); border: 1px solid var(--accent); border-radius: 20px; padding: 36px 40px; text-align: center; box-shadow: var(--glass-shadow-hover), 0 0 60px var(--accent-soft); max-width: 480px; animation: champ-pop .5s var(--spring); }
+    .champ-crown { font-size: 3rem; line-height: 1; }
+    .champ-name { font-size: 2rem; font-weight: 800; color: var(--accent); margin: 10px 0 6px; text-shadow: 0 0 24px var(--accent-soft); }
+    .champ-sub { color: var(--text-muted); font-size: 0.92rem; margin-bottom: 18px; }
     @keyframes champ-pop { from { opacity:0; transform: scale(.8); } to { opacity:1; transform: scale(1); } }
   </style>
 </head>
 <body>
   <script>
-    // Фокус-страница как колесо (без сайдбара). Применяем accent-цвет из куки
-    // и даём минимальный showToast, если его нет.
     (function () {
       var m = document.cookie.match(/(?:^|;\s*)accent=([a-z]+)/);
       if (m && m[1] && m[1] !== 'amber') document.documentElement.setAttribute('data-accent', m[1]);
@@ -107,33 +76,6 @@
       }
     })();
   </script>
-
-  {# Макрос карточки матча #}
-  {% macro match_card(m) %}
-    {% if m.placeholder %}
-    <div class="bm bm-placeholder">
-      <div class="bm-side"><span class="bm-name">—</span></div>
-      <div class="bm-vs">VS</div>
-      <div class="bm-side"><span class="bm-name">—</span></div>
-    </div>
-    {% else %}
-    <div class="bm">
-      <div class="bm-side {% if m.winner_name and m.winner_name == m.left_name %}win{% elif m.winner_name %}lose{% endif %}">
-        <span class="bm-name" title="{{ m.left_name }}">{{ m.left_name or '—' }}</span>
-        <span class="bm-votes">{{ m.left_votes }}</span>
-      </div>
-      {% if m.right_name %}
-      <div class="bm-vs">VS</div>
-      <div class="bm-side {% if m.winner_name and m.winner_name == m.right_name %}win{% elif m.winner_name %}lose{% endif %}">
-        <span class="bm-name" title="{{ m.right_name }}">{{ m.right_name }}</span>
-        <span class="bm-votes">{{ m.right_votes }}</span>
-      </div>
-      {% else %}
-      <div class="bm-vs" style="color:var(--green);">🎟 проходит</div>
-      {% endif %}
-    </div>
-    {% endif %}
-  {% endmacro %}
 
   <a href="/" class="back-link">← В панель</a>
   <main class="tournament-main">
@@ -157,54 +99,52 @@
     {% else %}
       <h3 class="section-title" style="margin-top:0;">Сетка — «{{ tournament.title }}»</h3>
       <article class="card" style="padding:12px;">
-        <div class="bracket2">
-          {# Левая половина: раунд 1 слева → ближе к финалу #}
-          {% for col in bracket_left %}
+        <div class="bracket">
+          {% for col in bracket %}
           <div class="br-col {% if col.is_current %}cur{% endif %}">
             <div class="br-label">{{ col.label }}</div>
-            {% for m in col.matches %}{{ match_card(m) }}{% endfor %}
-          </div>
-          {% endfor %}
-
-          {# Центр: финал + чемпион #}
-          {% if bracket_final %}
-          <div class="br-col center {% if bracket_final.is_current %}cur{% endif %}">
-            <div class="br-label">{{ bracket_final.label }}</div>
-            {{ match_card(bracket_final.match) }}
-            {% if tournament.status == 'completed' %}
-            <div class="bm bm-champ"><div class="bm-side">👑 {{ tournament.winner_name }}</div></div>
-            {% endif %}
-          </div>
-          {% endif %}
-
-          {# Правая половина: зеркально (ближе к центру = поздние раунды) #}
-          {% for col in bracket_right|reverse %}
-          <div class="br-col {% if col.is_current %}cur{% endif %}">
-            <div class="br-label">{{ col.label }}</div>
-            {% for m in col.matches %}{{ match_card(m) }}{% endfor %}
+            {% for m in col.matches %}
+              {% if m.placeholder %}
+              <div class="bm bm-placeholder">
+                <div class="bm-side"><span class="bm-name">—</span></div>
+                <div class="bm-vs">VS</div>
+                <div class="bm-side"><span class="bm-name">—</span></div>
+              </div>
+              {% else %}
+              <div class="bm">
+                <div class="bm-side {% if m.winner_name and m.winner_name == m.left_name %}win{% elif m.winner_name %}lose{% endif %}">
+                  <span class="bm-name" title="{{ m.left_name }}">{{ m.left_name or '—' }}</span>
+                  <span class="bm-votes">{{ m.left_votes }}</span>
+                </div>
+                {% if m.right_name %}
+                <div class="bm-vs">VS</div>
+                <div class="bm-side {% if m.winner_name and m.winner_name == m.right_name %}win{% elif m.winner_name %}lose{% endif %}">
+                  <span class="bm-name" title="{{ m.right_name }}">{{ m.right_name }}</span>
+                  <span class="bm-votes">{{ m.right_votes }}</span>
+                </div>
+                {% else %}
+                <div class="bm-vs" style="color:var(--green);">🎟 проходит</div>
+                {% endif %}
+              </div>
+              {% endif %}
+            {% endfor %}
           </div>
           {% endfor %}
         </div>
       </article>
 
-      {% if tournament.status == 'completed' %}
-        <article class="card champion-wrap" style="margin-top:16px;">
-          <div class="champion-crown">👑</div>
-          <div class="champion-name">{{ tournament.winner_name }}</div>
-          <div class="champion-sub">Победитель турнира «{{ tournament.title }}» — объявляется чемпионом киноаукциона! 🎬</div>
-        </article>
-      {% else %}
-        <h3 class="section-title">Голосование — раунд {{ tournament.current_round }}</h3>
-        <p style="color:var(--text-muted);margin-top:-4px;">Выберите фильм в каждой паре.</p>
+      {% if tournament.status != 'completed' %}
+        <h3 class="section-title">Голосование — {{ bracket[tournament.current_round - 1].label if bracket else ('раунд ' ~ tournament.current_round) }}</h3>
+        <p style="color:var(--text-muted);margin-top:-4px;">Выберите фильм в каждой паре, затем нажмите «Готов».</p>
         {% for m in current_matches %}
           {% if m.right_name %}
           <div class="vote-match" data-match="{{ m.id }}">
-            <button class="vote-side left" onclick="voteMatch({{ m.id }}, 'left', this)">
+            <button class="vote-side left {% if my_votes.get(m.id) == 'left' %}mine{% endif %}" onclick="voteMatch({{ m.id }}, 'left', this)">
               <span>{{ m.left_name }}</span>
               <span class="vote-votes"><span class="lv">{{ m.left_votes }}</span> голосов</span>
             </button>
             <div class="vote-vs">VS</div>
-            <button class="vote-side right" onclick="voteMatch({{ m.id }}, 'right', this)">
+            <button class="vote-side right {% if my_votes.get(m.id) == 'right' %}mine{% endif %}" onclick="voteMatch({{ m.id }}, 'right', this)">
               <span>{{ m.right_name }}</span>
               <span class="vote-votes"><span class="rv">{{ m.right_votes }}</span> голосов</span>
             </button>
@@ -214,16 +154,38 @@
           {% endif %}
         {% endfor %}
 
-        {% if is_admin %}
-        <button class="btn-primary" onclick="advanceTournament(this)" style="margin-top:12px;">
-          Завершить раунд → следующий
-        </button>
-        {% endif %}
+        <div class="ready-bar">
+          {% if ready.me_ready %}
+            <button class="btn-outline" onclick="setReady(false)">✓ Вы готовы — отменить</button>
+          {% else %}
+            <button class="btn-primary" style="margin:0;" onclick="setReady(true)">Готов</button>
+          {% endif %}
+          <span class="ready-count" id="ready-count">{{ ready.ready }}/{{ ready.total }}</span>
+          <span class="ready-hint">готовы к следующему раунду. Когда готовы все — раунд закрывается автоматически.</span>
+          {% if is_admin %}
+          <button class="btn-ghost" style="margin-left:auto;" onclick="forceAdvance(this)">Завершить раунд принудительно</button>
+          {% endif %}
+        </div>
       {% endif %}
     {% endif %}
   </main>
 
+  {% if tournament and tournament.status == 'completed' %}
+  <div class="champ-overlay" id="champ-overlay">
+    <div class="champ-card">
+      <div class="champ-crown">👑</div>
+      <div class="champ-name">{{ tournament.winner_name }}</div>
+      <div class="champ-sub">Победитель турнира «{{ tournament.title }}» — чемпион киноаукциона! 🎬</div>
+      <a href="/" class="btn-primary" style="margin:0;text-decoration:none;">В панель</a>
+    </div>
+  </div>
+  {% endif %}
+
   <script>
+    const TOUR_ACTIVE = {{ 'true' if tournament else 'false' }};
+    const TOUR_ROUND = {{ tournament.current_round if tournament else 0 }};
+    const TOUR_STATUS = "{{ tournament.status if tournament else '' }}";
+
     function createTournament(e) {
       e.preventDefault();
       fetch('/api/tournament/create', { method: 'POST', body: new FormData(e.target) })
@@ -242,19 +204,42 @@
           const card = btn.closest('.vote-match');
           card.querySelector('.lv').textContent = d.left_votes;
           card.querySelector('.rv').textContent = d.right_votes;
-          card.querySelectorAll('.vote-side').forEach(s => s.classList.remove('win'));
-          btn.classList.add('win');
+          card.querySelectorAll('.vote-side').forEach(s => s.classList.remove('mine'));
+          btn.classList.add('mine');
           window.showToast('✓ Голос учтён', 'success');
         })
         .catch(() => window.showToast('❌ Ошибка', 'error'));
     }
-    function advanceTournament(btn) {
+    function setReady(on) {
+      fetch('/api/tournament/' + (on ? 'ready' : 'unready'), { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          if (d.advanced) { location.reload(); return; }
+          const rc = document.getElementById('ready-count');
+          if (rc && typeof d.ready === 'number') rc.textContent = d.ready + '/' + d.total;
+          location.reload(); // перерисовать кнопку «готов/отменить»
+        })
+        .catch(() => window.showToast('❌ Ошибка', 'error'));
+    }
+    function forceAdvance(btn) {
+      if (!confirm('Завершить раунд принудительно, не дожидаясь всех?')) return;
       btn.disabled = true;
       fetch('/api/tournament/advance', { method: 'POST' })
         .then(r => r.json())
         .then(d => { if (d.ok) location.reload();
           else { window.showToast('❌ ' + (d.error || 'Ошибка'), 'error'); btn.disabled = false; } })
         .catch(() => { window.showToast('❌ Ошибка', 'error'); btn.disabled = false; });
+    }
+    // Синхронизация: опрашиваем статус; при смене раунда/завершении — перезагружаем
+    if (TOUR_ACTIVE && TOUR_STATUS !== 'completed') {
+      setInterval(function () {
+        fetch('/api/tournament/status').then(r => r.json()).then(d => {
+          if (!d.active) { location.reload(); return; }
+          if (d.status === 'completed' || d.current_round !== TOUR_ROUND) { location.reload(); return; }
+          const rc = document.getElementById('ready-count');
+          if (rc && typeof d.ready === 'number') rc.textContent = d.ready + '/' + d.total;
+        }).catch(() => {});
+      }, 4000);
     }
   </script>
 {% include "_footer.html" %}

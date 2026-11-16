@@ -5962,6 +5962,106 @@ async def g_advance_tournament(guild_id: int, tournament_id: int) -> dict:
     return result
 
 
+async def g_tournament_participants(guild_id: int, tournament_id: int) -> list[int]:
+    """Участники турнира = все, кто хоть раз голосовал в нём."""
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    t_v = _guild.guild_table(guild_id, "tournament_votes")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT DISTINCT v.user_discord_id FROM {t_v} v "
+            f"JOIN {t_m} m ON m.id = v.match_id WHERE m.tournament_id = ?",
+            (int(tournament_id),)) as cur:
+            return [int(r[0]) for r in await cur.fetchall()]
+
+
+async def g_tournament_set_ready(guild_id: int, tournament_id: int, round_no: int,
+                                 user_discord_id: int) -> None:
+    """Отметить участника готовым к завершению текущего раунда."""
+    table = _guild.guild_table(guild_id, "tournament_ready")
+    async with _connect() as db:
+        await db.execute(
+            f"INSERT OR IGNORE INTO {table} (tournament_id, round, user_discord_id, created_at) "
+            f"VALUES (?, ?, ?, ?)",
+            (int(tournament_id), int(round_no), int(user_discord_id), datetime.utcnow().isoformat()))
+        await db.commit()
+
+
+async def g_tournament_unset_ready(guild_id: int, tournament_id: int, round_no: int,
+                                   user_discord_id: int) -> None:
+    table = _guild.guild_table(guild_id, "tournament_ready")
+    async with _connect() as db:
+        await db.execute(
+            f"DELETE FROM {table} WHERE tournament_id = ? AND round = ? AND user_discord_id = ?",
+            (int(tournament_id), int(round_no), int(user_discord_id)))
+        await db.commit()
+
+
+async def g_tournament_ready_status(guild_id: int, tournament_id: int, round_no: int,
+                                    user_discord_id: int | None = None) -> dict:
+    """Статус готовности раунда: сколько готово из участников.
+
+    Возвращает {ready, total, all_ready, me_ready}.
+    Готовыми считаются только участники (голосовавшие).
+    """
+    table = _guild.guild_table(guild_id, "tournament_ready")
+    participants = set(await g_tournament_participants(guild_id, tournament_id))
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT user_discord_id FROM {table} WHERE tournament_id = ? AND round = ?",
+            (int(tournament_id), int(round_no))) as cur:
+            ready_users = {int(r[0]) for r in await cur.fetchall()}
+    ready_among = ready_users & participants
+    total = len(participants)
+    ready = len(ready_among)
+    return {
+        "ready": ready,
+        "total": total,
+        "all_ready": total > 0 and ready >= total,
+        "me_ready": bool(user_discord_id is not None and int(user_discord_id) in ready_users),
+    }
+
+
+async def g_tournament_try_advance(guild_id: int, tournament_id: int,
+                                   force: bool = False) -> dict:
+    """Продвинуть турнир ТОЛЬКО если все участники готовы (или force=True, админ).
+
+    Возвращает результат advance (+advanced:bool) или {advanced:False, ...статус}.
+    """
+    tour = await g_get_tournament(guild_id, tournament_id)
+    if not tour or tour["status"] == "completed":
+        return {"ok": False, "advanced": False, "error": "not active"}
+    rnd = tour["current_round"]
+    status = await g_tournament_ready_status(guild_id, tournament_id, rnd)
+    if not force and not status["all_ready"]:
+        return {"ok": True, "advanced": False, "status": "voting",
+                "ready": status["ready"], "total": status["total"]}
+    res = await g_advance_tournament(guild_id, tournament_id)
+    res["advanced"] = bool(res.get("ok"))
+    # Чистим готовность завершённого раунда
+    try:
+        table = _guild.guild_table(guild_id, "tournament_ready")
+        async with _connect() as db:
+            await db.execute(f"DELETE FROM {table} WHERE tournament_id = ? AND round = ?",
+                             (int(tournament_id), int(rnd)))
+            await db.commit()
+    except Exception:
+        pass
+    return res
+
+
+async def g_tournament_user_votes(guild_id: int, tournament_id: int, round_no: int,
+                                  user_discord_id: int) -> dict:
+    """Какие матчи текущего раунда пользователь уже оценил → {match_id: choice}."""
+    t_m = _guild.guild_table(guild_id, "tournament_matches")
+    t_v = _guild.guild_table(guild_id, "tournament_votes")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT v.match_id, v.choice FROM {t_v} v JOIN {t_m} m ON m.id = v.match_id "
+            f"WHERE m.tournament_id = ? AND m.round = ? AND v.user_discord_id = ?",
+            (int(tournament_id), int(round_no), int(user_discord_id))) as cur:
+            return {int(r[0]): r[1] for r in await cur.fetchall()}
+
+
 # ============================================================
 # v3.11: Анонимный чат Тайного Санты
 # ============================================================
