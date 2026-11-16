@@ -1,5 +1,21 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.12.0 (0000000) — Убрана интеграция с модом Village Quest
+
+#АДМИНСКИЕ_ФИЧИ#
+- Удалена вся связь с Minecraft-модом `village-quest-remake`: страница `/vq`, slash-команды `/linkmc`, `/vqme`, `/unlinkmc`, REST API `/api/vq/*`, gateway для transport B, блок конфигурации на `/tokens`, секция в публичном профиле, пункт в боковом меню. Модули `vq_api.py`, `vq_client.py`, `vq_data.py`, `vq_gateway.py`, `vq_routes.py`, `templates/vq.html` удалены целиком (~1900 строк). Гильдия-таблицы `vq_events`, `vq_commands`, `vq_links` убраны из `GUILD_TABLES` и схемы. Подготовка к написанию собственного мода/датапака.
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- `bot.py`: удалён `VillageQuestCog` (3 slash-команды `/linkmc` / `/vqme` / `/unlinkmc`) и регистрация в `cogs`.
+- `web.py`: убраны `import vq_routes` / `vq_gateway` + `app.include_router`, блок fetch `vq_player` / `vq_link` в обработчике публичного профиля, ключи контекста `vq_link` / `vq_player`.
+- `guild.py`: убраны `vq_events` / `vq_commands` / `vq_links` из `GUILD_TABLES` и `GUILD_TABLE_SCHEMAS`.
+- `db.py`: добавлена миграция v3.12.0 — при первом старте после обновления физически дропает per-guild таблицы `guild_{id}_vq_events` / `_vq_commands` / `_vq_links` (через `sqlite_master` — для всех guild_id, включая legacy guild 0 и удалённые гильдии, которых уже нет в реестре) и удаляет `vq_*` ключи из per-guild `guild_{id}_settings` и global `settings`. Идемпотентна (флаг `migration_v3120_vq_drop_done`).
+- `templates/tokens.html`: удалён VQ-блок конфигурации (HTML + AJAX-скрипт).
+- `templates/profile_public.html`: удалена секция «Village Quest (Minecraft)».
+- `templates/sidebar.html`: удалён пункт «Village Quest».
+- Иконка `static/icons/globe.png` оставлена — используется в `channels.html` и `sidebar.html` для других разделов.
+- Исторические записи в CHANGELOG про Village Quest (v3.1.x) оставлены как история.
+
 ## v3.11.0 (0000000) — Полировка дизайна: ripple, авто-тема, плавные переходы
 
 #НОВЫЕ_ФИЧИ#

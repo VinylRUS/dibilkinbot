@@ -320,11 +320,6 @@ def _cookie_secure_flag(request: Request) -> dict:
 
 app.include_router(wheel_routes.router)
 app.include_router(movienight_routes.router)
-# v3.1: Village Quest integration — REST API + gateway endpoints for transport B
-import vq_routes as _vq_routes
-import vq_gateway as _vq_gateway
-app.include_router(_vq_routes.router)
-app.include_router(_vq_gateway.router)
 
 @app.on_event("startup")
 async def _startup():
@@ -2319,37 +2314,6 @@ async def public_profile_page(
             "Wishlist fetch failed for %s: %s", target_discord_id, e
         )
 
-    # v3.1.5: Village Quest — fetch MC player data if linked via /vq
-    # Best-effort — если MC сервер спит (exarathon) или мод не настроен,
-    # просто не показываем секцию.
-    vq_player = None
-    vq_link = None
-    try:
-        # Локальный кеш линков — быстрый, без обращения к моду
-        import vq_data
-        vq_link = await vq_data.get_link_by_discord(guild_id, target_discord_id)
-        if vq_link:
-            # Линк есть — пробуем получить карточку с сервера (transport-agnostic)
-            import vq_api
-            result = await vq_api.get_player_by_discord(guild_id, target_discord_id)
-            if result.get("status") == 200 and isinstance(result.get("result"), dict):
-                # Может быть либо чистый player dict, либо обёртка {discord_id, link, player}
-                r = result["result"]
-                vq_player = r.get("player") if isinstance(r, dict) and "player" in r else r
-            elif result.get("error") == "timeout":
-                # MC сервер спит — сохраняем что линк есть, карточку не покажем
-                logging.getLogger("vq").debug(
-                    "VQ player fetch timeout for %s (server sleeping?)",
-                    target_discord_id,
-                )
-            # Иначе — мод ответил ошибкой (404 не должно быть, линк есть в кеше),
-            # просто не показываем секцию
-    except Exception as e:
-        import logging
-        logging.getLogger("vq").debug(
-            "VQ player fetch failed for %s: %s", target_discord_id, e
-        )
-
     # v3.11: «Мёд» 🍯 целевого пользователя
     honey = {"balance": 0, "streak": 0}
     try:
@@ -2435,8 +2399,6 @@ async def public_profile_page(
         "merged_games": merged_games,
         "pinned_achievements": pinned_achievements,
         "steam_wishlist": steam_wishlist,
-        "vq_link": vq_link,
-        "vq_player": vq_player,
     })
 
 
