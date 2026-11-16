@@ -417,6 +417,58 @@ async def init_db() -> None:
                     log.warning("v3.7.0 migration: %s: %s", table_wi_migr, e)
             await db.commit()
 
+            # === Миграция v3.12.0: дроп таблиц и settings VQ ===
+            # (интеграция с village-quest-remake удалена — см. CHANGELOG v3.12.0)
+            # Запускается ОДИН РАЗ (флаг migration_v3120_vq_drop_done в global settings).
+            # Удаляет физически все следы VQ:
+            #   - per-guild таблицы guild_{id}_vq_events / _vq_commands / _vq_links
+            #     (через sqlite_master — поймает все guild_id, включая legacy guild 0
+            #     и удалённые гильдии, которых уже нет в реестре guilds)
+            #   - per-guild settings ключи с prefix 'vq_' из таблиц guild_{id}_settings
+            #   - на всякий случай vq_* ключи из global settings (VQ config был per-guild,
+            #     но проверяем и global)
+            async with db.execute(
+                "SELECT value FROM settings WHERE key = 'migration_v3120_vq_drop_done'"
+            ) as cur:
+                v3120_row = await cur.fetchone()
+            if not v3120_row:
+                dropped_tables = 0
+                cleaned_settings = 0
+                # 1. Находим все VQ per-guild таблицы через sqlite_master
+                async with db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name LIKE 'guild_%_vq_%'"
+                ) as cur:
+                    vq_tables = [row[0] for row in await cur.fetchall()]
+                for tname in vq_tables:
+                    safe = tname.replace('"', '""')
+                    await db.execute(f'DROP TABLE IF EXISTS "{safe}"')
+                    dropped_tables += 1
+                # 2. Чистим vq_* ключи из всех per-guild settings таблиц
+                async with db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name LIKE 'guild_%_settings'"
+                ) as cur:
+                    settings_tables = [row[0] for row in await cur.fetchall()]
+                for tname in settings_tables:
+                    safe = tname.replace('"', '""')
+                    cur_s = await db.execute(
+                        f"DELETE FROM \"{safe}\" WHERE key LIKE 'vq_%'"
+                    )
+                    cleaned_settings += cur_s.rowcount
+                # 3. На всякий случай — global settings (без суффикса)
+                cur_g = await db.execute("DELETE FROM settings WHERE key LIKE 'vq_%'")
+                cleaned_settings += cur_g.rowcount
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value, is_secret) "
+                    "VALUES ('migration_v3120_vq_drop_done', '1', 0)"
+                )
+                await db.commit()
+                log.info(
+                    "v3.12.0 migration: dropped %d VQ tables, cleaned %d VQ settings rows",
+                    dropped_tables, cleaned_settings
+                )
+
         log.info("DB initialized at %s (size=%d bytes)",
                  settings.database_path, settings.database_path.stat().st_size)
     except Exception as e:
