@@ -9,6 +9,10 @@ lowercase + hyphens в slash-именах. Префикс `cl-` группиру
 autocomplete Discord'а.
 
 Все ответы ephemeral — даже если Матка, баланс/история это личные данные.
+
+v3.14.0: команды уходят моду через WS reverse-tunnel (cl_ws.send_command),
+а GET-данные (топ, рынок, квесты) читаются из cl_cache (обновляется push'ом
+мода). cl_client.py (HTTP) оставлен как dev-fallback для локального MC.
 """
 from __future__ import annotations
 
@@ -19,24 +23,45 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-import cl_client
+import cl_cache
 import cl_data
+import cl_ws
 import db
-from cl_client import CLApiError, CLAuthError, CLConfigError, CLUnavailableError
+from cl_ws import WsCommandError, WsTunnelError
 
 log = logging.getLogger(__name__)
 
 
 def _fmt_money(money: dict | None) -> str:
-    """{'amount': 150.0, 'currency': 'CC'} → '150.0 CC'."""
+    """{'amount': 150.0, 'currency': 'CC'} → '150 медяков'.
+
+    v3.14.0: если валюта == 'CC' (медяки), используем русское склонение:
+    1 медяк / 2-4 медяка / 0,5-19 медяков.
+    """
     if not money:
         return "—"
     amt = money.get("amount", 0)
     cur = money.get("currency", "")
-    # целые числа без десятичных
-    if isinstance(amt, (int, float)) and amt == int(amt):
-        amt = int(amt)
+    if isinstance(amt, (int, float)):
+        if amt == int(amt):
+            amt = int(amt)
+        if cur == "CC":
+            return f"**{amt}** {_copper_form(amt)}".strip()
     return f"**{amt}** {cur}".strip()
+
+
+def _copper_form(n: float) -> str:
+    """Russian plural: 1 медяк / 2-4 медяка / 0/5-19 медяков."""
+    if isinstance(n, float) and n != int(n):
+        return "медяков"  # дробные — всегда genitive plural
+    n = int(abs(n))
+    mod10 = n % 10
+    mod100 = n % 100
+    if mod10 == 1 and mod100 != 11:
+        return "медяк"
+    if 2 <= mod10 <= 4 and (mod100 < 10 or mod100 >= 20):
+        return "медяка"
+    return "медяков"
 
 
 def _fmt_time(ms: int | None) -> str:
@@ -66,22 +91,26 @@ class ChaosLedgerCog(commands.Cog):
             return False
         return True
 
-    async def _client_or_respond(
+    async def _ensure_connected(
         self, interaction: discord.Interaction, *, defer: bool = True
-    ) -> cl_client.CLClient | None:
-        """Возвращает CLClient или отвечает ошибкой config. Defer'ит если нужно."""
-        guild_id = interaction.guild_id or 0
+    ) -> bool:
+        """Defer'ит interaction и проверяет, что мод подключен через WS.
+
+        Возвращает True если мод онлайн, иначе отправляет ephemeral-ответ с
+        инструкцией и возвращает False.
+        """
         if defer and not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
-        client = await cl_client.get_client(guild_id)
-        if not client.configured:
+        if not cl_ws.is_connected():
             await interaction.followup.send(
-                "⚠️ ChaosLedger не настроен для этого сервера.\n"
-                "Настройте API URL и ключ в панели: **Настройки → ChaosLedger**.",
+                "⚠️ Мод ChaosLedger не подключен к боту через reverse-tunnel.\n"
+                "Проверьте: **/adminpanel → Фичи** → «Включить модуль ChaosLedger»,\n"
+                "что в **/adminpanel → Токены** задан **cl_ws_token**,\n"
+                "и что мод на сервере сконфигурирован (wsEnabled=true, wsUrl, wsBotToken).",
                 ephemeral=True,
             )
-            return None
-        return client
+            return False
+        return True
 
     async def _resolve_uuid(
         self, interaction: discord.Interaction, member: discord.Member | None = None
@@ -94,13 +123,9 @@ class ChaosLedgerCog(commands.Cog):
 
     @staticmethod
     def _err_msg(e: Exception) -> str:
-        if isinstance(e, CLAuthError):
-            return "❌ Неверный X-Api-Key. Проверьте config ChaosLedger."
-        if isinstance(e, CLUnavailableError):
-            return "❌ Мод ChaosLedger недоступен (timeout/connection)."
-        if isinstance(e, CLConfigError):
-            return "⚠️ ChaosLedger не настроен."
-        if isinstance(e, CLApiError):
+        if isinstance(e, WsTunnelError):
+            return f"❌ Мод недоступен через WS: {e}"
+        if isinstance(e, WsCommandError):
             return f"❌ Мод: {e}"
         return f"❌ {e}"
 
@@ -162,8 +187,7 @@ class ChaosLedgerCog(commands.Cog):
     ) -> None:
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
         mc_uuid = await self._resolve_uuid(interaction, user)
         if not mc_uuid:
@@ -173,7 +197,11 @@ class ChaosLedgerCog(commands.Cog):
             )
             return
         try:
-            acc = await client.get_account(mc_uuid, currency)
+            acc = await cl_ws.send_command("account", {
+                "ownerUuid": mc_uuid,
+                "ownerName": (user.display_name if user else interaction.user.display_name),
+                "currency": currency,
+            })
         except Exception as e:
             await interaction.followup.send(self._err_msg(e), ephemeral=True)
             return
@@ -202,8 +230,7 @@ class ChaosLedgerCog(commands.Cog):
     ) -> None:
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
         if amount <= 0:
             await interaction.followup.send("❌ Сумма должна быть положительной.", ephemeral=True)
@@ -219,7 +246,7 @@ class ChaosLedgerCog(commands.Cog):
             )
             return
         try:
-            txn = await client.pay({
+            txn = await cl_ws.send_command("pay", {
                 "fromUuid": from_uuid,
                 "fromName": interaction.user.display_name,
                 "toUuid": to_uuid,
@@ -246,18 +273,16 @@ class ChaosLedgerCog(commands.Cog):
     ) -> None:
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
         limit = max(1, min(20, limit))
-        try:
-            top = await client.get_top(currency, limit=limit)
-        except Exception as e:
-            await interaction.followup.send(self._err_msg(e), ephemeral=True)
-            return
+        # v3.14.0: top читаем из cl_cache (обновляется push'ом мода).
+        state = cl_cache.get_state(currency)
+        top = state.get("top", []) or []
         if not top:
             await interaction.followup.send("ℹ️ Нет счетов.", ephemeral=True)
             return
+        top = top[:limit]
         lines = [f"🏆 **Топ по `{currency}`**:"]
         for i, acc in enumerate(top, 1):
             name = acc.get("ownerName", "?")
@@ -271,14 +296,11 @@ class ChaosLedgerCog(commands.Cog):
     async def cl_quests(self, interaction: discord.Interaction) -> None:
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
-        try:
-            quests = await client.get_quests()
-        except Exception as e:
-            await interaction.followup.send(self._err_msg(e), ephemeral=True)
-            return
+        # v3.14.0: список квестов из cl_cache (обновляется push'ом мода).
+        state = cl_cache.get_state()
+        quests = state.get("quests", []) or []
         if not quests:
             await interaction.followup.send("ℹ️ Квестов нет.", ephemeral=True)
             return
@@ -301,13 +323,13 @@ class ChaosLedgerCog(commands.Cog):
     async def cl_quest(self, interaction: discord.Interaction, quest_id: str) -> None:
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
-        try:
-            q = await client.get_quest(quest_id)
-        except Exception as e:
-            await interaction.followup.send(self._err_msg(e), ephemeral=True)
+        # v3.14.0: детали квеста из cl_cache (фильтр по id).
+        state = cl_cache.get_state()
+        q = next((x for x in (state.get("quests") or []) if x.get("id") == quest_id), None)
+        if q is None:
+            await interaction.followup.send(f"ℹ️ Квест `{quest_id}` не найден.", ephemeral=True)
             return
         obj_lines = []
         for o in q.get("objectives", []) or []:
@@ -334,14 +356,11 @@ class ChaosLedgerCog(commands.Cog):
     async def cl_market(self, interaction: discord.Interaction) -> None:
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
-        try:
-            items = await client.get_market()
-        except Exception as e:
-            await interaction.followup.send(self._err_msg(e), ephemeral=True)
-            return
+        # v3.14.0: рынок из cl_cache (обновляется push'ом мода).
+        state = cl_cache.get_state()
+        items = state.get("market", []) or []
         if not items:
             await interaction.followup.send("ℹ️ Рынок пуст.", ephemeral=True)
             return
@@ -364,8 +383,7 @@ class ChaosLedgerCog(commands.Cog):
         verb = "Купить" if buy else "Продать"
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
         if quantity <= 0:
             await interaction.followup.send("❌ Количество должно быть положительным.", ephemeral=True)
@@ -381,7 +399,8 @@ class ChaosLedgerCog(commands.Cog):
             "quantity": quantity,
         }
         try:
-            item = await (client.market_buy if buy else client.market_sell)(req)
+            action = "market_buy" if buy else "market_sell"
+            item = await cl_ws.send_command(action, req)
         except Exception as e:
             await interaction.followup.send(self._err_msg(e), ephemeral=True)
             return
@@ -419,8 +438,7 @@ class ChaosLedgerCog(commands.Cog):
     ) -> None:
         if not await self._is_matka(interaction):
             return
-        client = await self._client_or_respond(interaction)
-        if not client:
+        if not await self._ensure_connected(interaction):
             return
         mc_uuid = await self._resolve_uuid(interaction, user)
         if not mc_uuid:
@@ -428,7 +446,10 @@ class ChaosLedgerCog(commands.Cog):
             return
         limit = max(1, min(20, limit))
         try:
-            txns = await client.get_player_transactions(mc_uuid, limit=limit)
+            txns = await cl_ws.send_command("player_transactions", {
+                "ownerUuid": mc_uuid,
+                "limit": limit,
+            })
         except Exception as e:
             await interaction.followup.send(self._err_msg(e), ephemeral=True)
             return

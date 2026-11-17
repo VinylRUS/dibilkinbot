@@ -1,15 +1,15 @@
 """FastAPI APIRouter — маршруты ChaosLedger (web-панель /ledger + JSON API).
 
 Доступ: только Матка (superuser) — `require_superuser` на каждом endpoint.
-Realtime: `/api/ledger/state` опрашивается каждые 10 сек из templates/ledger.html.
-Bot-side кеш snapshot TTL 10 сек в `cl_client.CLClient.get_ledger_state()` —
-несколько Маток получают один snapshot, однопоточный executor мода не
-бомбардируется параллельными одинаковыми запросами.
+Realtime: `/api/ledger/state` теперь отдаёт состояние из `cl_cache` —
+in-memory кеша, обновляемого модом через WS reverse-tunnel (push каждые ~10
+секунд, без опроса мода по HTTP). Бот больше не делает исходящих HTTP-запросов
+к моду — соединение однонаправленное в обратную сторону (мод → бот).
 
 Маршруты:
   GET  /ledger               — HTML-страница (sidebar + realtime polling)
-  GET  /api/ledger/state     — агрегированный snapshot (для setInterval 10с)
-  GET  /api/ledger/health    — liveness мода (индикатор в шапке)
+  GET  /api/ledger/state     — snapshot из cl_cache (обновляется push'ом мода)
+  GET  /api/ledger/health    — liveness мода (из cl_cache, без HTTP к моду)
   GET  /api/ledger/config    — текущий config (api_key как masked)
   POST /api/ledger/config    — обновить config (api_url, api_key, enabled)
   GET  /api/ledger/links     — список привязок Discord↔MC (админ-таблица)
@@ -21,7 +21,7 @@ import logging
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
-import cl_client
+import cl_cache
 import cl_data
 from deps import JSONResponse, require_superuser, templates
 
@@ -67,14 +67,13 @@ async def ledger_page(
 async def api_ledger_state(
     request: Request, user: dict = Depends(require_superuser)
 ) -> JSONResponse:
-    """Агрегированный snapshot: health + top + market + transactions + audit + quests.
+    """Snapshot состояния из cl_cache — обновляется push'ом мода через WS.
 
-    Кеш TTL 10 сек в cl_client.CLClient — повторные запросы от разных Маток
-    получают один snapshot. Поле `cached: true` если ответ из кеша.
+    Мод сам отправляет snapshot каждые ~10 секунд (см. WsTunnelClient в репо
+    мода). Бот ничего не опрашивает по HTTP — это и есть смысл reverse-tunnel.
+    Поле `cached: true` всегда, т.к. данные из push-кеша.
     """
-    guild_id = _gid(user)
-    client = await cl_client.get_client(guild_id)
-    state = await client.get_ledger_state()
+    state = cl_cache.get_state()
     return JSONResponse(state)
 
 
@@ -82,16 +81,12 @@ async def api_ledger_state(
 async def api_ledger_health(
     request: Request, user: dict = Depends(require_superuser)
 ) -> JSONResponse:
-    """Liveness мода — для индикатора в шапке страницы."""
-    guild_id = _gid(user)
-    client = await cl_client.get_client(guild_id)
-    if not client.configured:
-        return JSONResponse({"ok": False, "error": "not_configured"})
-    try:
-        h = await client.health()
-        return JSONResponse({"ok": True, "health": h})
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
+    """Liveness мода — для индикатора в шапке страницы.
+
+    Если reverse-tunnel активен (мод подключился и шлёт snapshot'ы),
+    отдаём cached health из cl_cache. Иначе ok=false, error=mod_disconnected.
+    """
+    return JSONResponse(cl_cache.get_health())
 
 
 # === Config ================================================================

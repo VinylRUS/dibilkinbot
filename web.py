@@ -991,6 +991,10 @@ KNOWN_TOKENS = [
     ("steam_api_key", "Steam Web API Key (steamcommunity.com/dev/apikey) — для модуля Тайный Санта"),
     ("github_token", "GitHub Personal Access Token (опционально) — для мониторинга версий. Без него лимит 60 req/hour"),
     ("modrinth_token", "Modrinth Personal Access Token (опционально) — для подписок на приватные/draft модпаки. Создаётся в modrinth.com/settings/pats"),
+    # v3.14.0: ChaosLedger WS reverse-tunnel. Этот же токен оператор копирует
+    # в chaosledger.properties мода (поле wsBotToken). Мод стучится на
+    # /ws/chaosledger и сверяет токен в hello-сообщении.
+    ("cl_ws_token", "ChaosLedger WS-токен (общий секрет для мода; введите произвольную длинную строку)"),
 ]
 
 
@@ -1017,6 +1021,7 @@ async def tokens_save(
     steam_api_key: str = Form(""),
     github_token: str = Form(""),
     modrinth_token: str = Form(""),
+    cl_ws_token: str = Form(""),
 ):
     updates = {
         "discord_token": discord_token.strip(),
@@ -1025,6 +1030,7 @@ async def tokens_save(
         "steam_api_key": steam_api_key.strip(),
         "github_token": github_token.strip(),
         "modrinth_token": modrinth_token.strip(),
+        "cl_ws_token": cl_ws_token.strip(),
     }
     for key, val in updates.items():
         if val:
@@ -1048,6 +1054,9 @@ KNOWN_CHANNELS = [
     ("telegram_thread_id", "Telegram thread_id (ID темы форума, опционально)"),
     ("tg_winners_chat_id", "Telegram chat_id для победителей колеса (опционально)"),
     ("tg_winners_thread_id", "Telegram thread_id для победителей колеса (опционально)"),
+    # v3.14.0: ChaosLedger WS reverse-tunnel settings (не секреты).
+    ("cl_ws_server_id", "ChaosLedger: человекочитаемый id сервера (например dibilki) — для логов и идентификации подключения мода"),
+    ("cl_ws_url", "ChaosLedger: публичный URL бота, на который стучится мод (например wss://your-bot.bothost.tech/ws/chaosledger). Это поле информационное — мод берёт URL из своего chaosledger.properties."),
 ]
 
 
@@ -1077,6 +1086,8 @@ async def channels_save(
     telegram_thread_id: str = Form(""),
     tg_winners_chat_id: str = Form(""),
     tg_winners_thread_id: str = Form(""),
+    cl_ws_server_id: str = Form(""),
+    cl_ws_url: str = Form(""),
 ):
     updates = {
         "panel_base_url": panel_base_url.strip(),
@@ -1091,6 +1102,8 @@ async def channels_save(
         "telegram_thread_id": telegram_thread_id.strip(),
         "tg_winners_chat_id": tg_winners_chat_id.strip(),
         "tg_winners_thread_id": tg_winners_thread_id.strip(),
+        "cl_ws_server_id": cl_ws_server_id.strip(),
+        "cl_ws_url": cl_ws_url.strip(),
     }
     for key, val in updates.items():
         if val:
@@ -1107,6 +1120,10 @@ KNOWN_FEATURES = [
     ("tg_crosspost_announce", "Кросс-постить анонсы киновечера в Telegram", "0"),
     ("santa_enabled", "Включить модуль «Тайный Санта» (Steam-игры)", "0"),
     ("db_backup_enabled", "Еженедельный бэкап БД в Telegram (для админа)", "1"),
+    # v3.14.0: ChaosLedger reverse-tunnel. Когда включено — бот принимает
+    # входящее WS-подключение от мода на /ws/chaosledger и читает snapshot'ы
+    # из кеша. Команды (cl-pay и т.д.) отправляются через это же соединение.
+    ("cl_ws_enabled", "Включить модуль ChaosLedger (WS reverse-tunnel к моду на Exaroton)", "0"),
 ]
 
 
@@ -1129,11 +1146,13 @@ async def features_save(
     tg_crosspost_announce: bool = Form(False),
     santa_enabled: bool = Form(False),
     db_backup_enabled: bool = Form(False),
+    cl_ws_enabled: bool = Form(False),
 ):
     await db.set_setting("tg_crosspost_quotes", "1" if tg_crosspost_quotes else "0", is_secret=False)
     await db.set_setting("tg_crosspost_announce", "1" if tg_crosspost_announce else "0", is_secret=False)
     await db.set_setting("santa_enabled", "1" if santa_enabled else "0", is_secret=False)
     await db.set_setting("db_backup_enabled", "1" if db_backup_enabled else "0", is_secret=False)
+    await db.set_setting("cl_ws_enabled", "1" if cl_ws_enabled else "0", is_secret=False)
     return RedirectResponse(url="/features?saved=1", status_code=303)
 
 
@@ -2870,8 +2889,10 @@ import santa_routes
 import achievements_routes
 import modrinth_routes
 import cl_routes
+import cl_ws  # v3.14.0: WebSocket reverse-tunnel server (мод → бот)
 app.include_router(santa_routes.router)
 app.include_router(achievements_routes.router)
 app.include_router(modrinth_routes.router)
 app.include_router(cl_routes.router)
+app.include_router(cl_ws.router)  # /ws/chaosledger
 
