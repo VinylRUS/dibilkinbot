@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme_from_request(request) }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ledger · DeeBeelkin</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
+  <style>
+    .ledger-head {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .health-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg); backdrop-filter: var(--glass-blur);
+    }
+    .health-pill.ok { color: var(--green); border-color: var(--green); }
+    .health-pill.err { color: var(--red); border-color: var(--red); }
+    .health-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: currentColor; animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .cached-tag {
+      font-size: 0.7rem; color: var(--text-muted); margin-left: 6px;
+    }
+
+    .ledger-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;
+    }
+    @media (max-width: 860px) { .ledger-grid { grid-template-columns: 1fr; } }
+    .ledger-grid .card.full { grid-column: 1 / -1; }
+
+    .ledger-list { list-style: none; padding: 0; margin: 0; }
+    .ledger-list li {
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+      font-size: 0.9rem;
+    }
+    .ledger-list li:last-child { border-bottom: none; }
+    .ledger-list .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ledger-list .val { font-family: var(--mono, monospace); white-space: nowrap; }
+    .ledger-list .muted { color: var(--text-muted); }
+
+    .price-up { color: var(--green); font-weight: 600; }
+    .price-down { color: var(--red); font-weight: 600; }
+    .price-flat { color: var(--text-muted); }
+
+    .cat-tag {
+      display: inline-block; padding: 1px 6px; border-radius: 4px;
+      font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+      background: var(--card-alt); color: var(--text-soft);
+    }
+    .cat-TRANSFER { background: rgba(100,149,237,0.15); color: #6495ed; }
+    .cat-GRANT { background: rgba(34,197,94,0.15); color: var(--green); }
+    .cat-CHARGE { background: rgba(239,68,68,0.15); color: var(--red); }
+
+    details.cl-config { margin-bottom: 16px; }
+    details.cl-config summary {
+      cursor: pointer; font-weight: 600; padding: 8px 0;
+      color: var(--accent);
+    }
+    .cl-config-form { display: grid; gap: 10px; margin-top: 12px; }
+    .cl-config-form label { font-size: 0.85rem; color: var(--text-soft); }
+    .cl-config-form input[type="text"],
+    .cl-config-form input[type="password"] {
+      width: 100%; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--content-bg);
+      color: var(--text); font-size: 0.9rem;
+    }
+    .cl-config-form .row { display: flex; gap: 10px; align-items: center; }
+    .cl-config-form .row label { margin: 0; }
+
+    .empty-state {
+      text-align: center; padding: 24px; color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .quest-rep { font-size: 0.75rem; color: var(--text-muted); margin-left: 4px; }
+  </style>
+</head>
+<body>
+  {% include "sidebar.html" %}
+
+  <main class="container">
+    <div class="ledger-head">
+      <h2 class="section-title">📊 ChaosLedger</h2>
+      <span id="health-pill" class="health-pill err"><span class="dot"></span><span id="health-text">загрузка…</span></span>
+      <span id="cached-tag" class="cached-tag" style="display:none;">cached</span>
+    </div>
+
+    {% if user.is_superuser %}
+    <details class="card cl-config">
+      <summary>⚙️ Настройки подключения к моду</summary>
+      <form id="cl-config-form" class="cl-config-form">
+        <div>
+          <label for="cl-api-url">API URL мода (host:port)</label>
+          <input type="text" id="cl-api-url" name="api_url"
+                 placeholder="http://127.0.0.1:8775"
+                 value="{{ cl_config.api_url or '' }}">
+        </div>
+        <div>
+          <label for="cl-api-key">X-Api-Key (пусто = open mode мода)</label>
+          <input type="password" id="cl-api-key" name="api_key"
+                 placeholder="{{ 'ключ задан (введите новый чтобы сменить)' if cl_api_key_set else 'не задан' }}">
+        </div>
+        <div class="row">
+          <label><input type="checkbox" name="enabled" value="1" {% if cl_config.enabled %}checked{% endif %}> модуль включён</label>
+        </div>
+        <button type="submit" class="btn-primary">Сохранить</button>
+      </form>
+    </details>
+    {% endif %}
+
+    <div class="ledger-grid">
+      <section class="card">
+        <h3 class="section-title">🏆 Топ балансов</h3>
+        <ul id="top-list" class="ledger-list">
+          <li class="muted"><span class="name">загрузка…</span></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h3 class="section-title">🏪 Рынок</h3>
+        <ul id="market-list" class="ledger-list">
+          <li class="muted"><span class="name">загрузка…</span></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h3 class="section-title">📋 Последние транзакции</h3>
+        <ul id="tx-list" class="ledger-list">
+          <li class="muted"><span class="name">загрузка…</span></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h3 class="section-title">📜 Квесты</h3>
+        <ul id="quests-list" class="ledger-list">
+          <li class="muted"><span class="name">загрузка…</span></li>
+        </ul>
+      </section>
+
+      <section class="card full">
+        <h3 class="section-title">🛡 Audit log</h3>
+        <ul id="audit-list" class="ledger-list">
+          <li class="muted"><span class="name">загрузка…</span></li>
+        </ul>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // === helpers ===
+    function esc(s) {
+      if (s === null || s === undefined) return '';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+    function fmtMoney(m) {
+      if (!m) return '—';
+      let a = m.amount; const c = m.currency || '';
+      if (typeof a === 'number' && a === Math.floor(a)) a = Math.floor(a);
+      return '<b>' + esc(a) + '</b> ' + esc(c);
+    }
+    function fmtTime(ms) {
+      if (!ms) return '—';
+      const d = new Date(ms);
+      if (isNaN(d)) return '—';
+      return d.toISOString().slice(0, 16).replace('T', ' ');
+    }
+    function emptyList(el, msg) {
+      el.innerHTML = '<li class="empty-state">' + esc(msg) + '</li>';
+    }
+
+    // === render functions ===
+    function renderHealth(health, cached) {
+      const pill = document.getElementById('health-pill');
+      const txt = document.getElementById('health-text');
+      const ctag = document.getElementById('cached-tag');
+      if (!health) {
+        pill.className = 'health-pill err';
+        txt.textContent = 'мод недоступен';
+      } else {
+        pill.className = 'health-pill ok';
+        const ver = health.version ? ' v' + health.version : '';
+        txt.textContent = 'online' + ver;
+      }
+      ctag.style.display = cached ? 'inline' : 'none';
+    }
+
+    function renderTop(top) {
+      const el = document.getElementById('top-list');
+      if (!top || !top.length) { emptyList(el, 'Нет счетов'); return; }
+      el.innerHTML = top.map(function (a, i) {
+        return '<li><span class="name">' + (i + 1) + '. ' + esc(a.ownerName || '?') + '</span>' +
+               '<span class="val">' + fmtMoney(a.balance) + '</span></li>';
+      }).join('');
+    }
+
+    function renderMarket(items) {
+      const el = document.getElementById('market-list');
+      if (!items || !items.length) { emptyList(el, 'Рынок пуст'); return; }
+      el.innerHTML = items.slice(0, 12).map(function (it) {
+        const last = it.lastPrice ? it.lastPrice.amount : null;
+        const base = it.basePrice ? it.basePrice.amount : null;
+        let trend = '';
+        if (last !== null && base !== null && base > 0) {
+          const pct = ((last - base) / base) * 100;
+          if (pct > 0.5) trend = ' <span class="price-up">↑' + pct.toFixed(1) + '%</span>';
+          else if (pct < -0.5) trend = ' <span class="price-down">↓' + Math.abs(pct).toFixed(1) + '%</span>';
+          else trend = ' <span class="price-flat">≈</span>';
+        }
+        return '<li><span class="name">' + esc(it.displayName || it.itemId) + trend + '</span>' +
+               '<span class="val">' + esc(last) + '</span></li>';
+      }).join('');
+    }
+
+    function renderTx(txns) {
+      const el = document.getElementById('tx-list');
+      if (!txns || !txns.length) { emptyList(el, 'Нет транзакций'); return; }
+      el.innerHTML = txns.slice(0, 15).map(function (t) {
+        const cat = t.category || '?';
+        const catCls = 'cat-' + cat;
+        const from = t.fromUuid ? (t.fromName || '?') : '—';
+        const to = t.toUuid ? (t.toName || '?') : '—';
+        return '<li><span class="name"><span class="cat-tag ' + catCls + '">' + esc(cat) + '</span> ' +
+               esc(from) + ' → ' + esc(to) + '</span>' +
+               '<span class="val">' + fmtMoney(t.amount) + '</span></li>';
+      }).join('');
+    }
+
+    function renderQuests(quests) {
+      const el = document.getElementById('quests-list');
+      if (!quests || !quests.length) { emptyList(el, 'Квестов нет'); return; }
+      el.innerHTML = quests.slice(0, 12).map(function (q) {
+        const rep = q.repeatable ? '<span class="quest-rep">🔁</span>' : '<span class="quest-rep">1×</span>';
+        const r = q.reward || {};
+        let rt;
+        if (r.type === 'MONEY') rt = fmtMoney(r.money);
+        else if (r.type === 'ITEM') rt = esc(r.count) + '× ' + esc(r.itemId);
+        else rt = '—';
+        return '<li><span class="name">' + rep + esc(q.title || q.id) + '</span>' +
+               '<span class="val">' + rt + '</span></li>';
+      }).join('');
+    }
+
+    function renderAudit(entries) {
+      const el = document.getElementById('audit-list');
+      if (!entries || !entries.length) { emptyList(el, 'Audit пуст'); return; }
+      el.innerHTML = entries.slice(0, 15).map(function (a) {
+        const actor = a.actorName || (a.actorUuid ? a.actorUuid.slice(0, 8) : '?');
+        const action = a.action || '?';
+        return '<li><span class="name"><b>' + esc(action) + '</b> · ' + esc(actor) +
+               (a.target ? ' → ' + esc(a.target.slice(0, 8)) : '') + '</span>' +
+               '<span class="val muted">' + fmtTime(a.createdAt) + '</span></li>';
+      }).join('');
+    }
+
+    function showErr(e) {
+      const pill = document.getElementById('health-pill');
+      const txt = document.getElementById('health-text');
+      pill.className = 'health-pill err';
+      let msg = e || 'ошибка';
+      if (e === 'not_configured') msg = 'не настроен';
+      else if (e === 'mod_unavailable') msg = 'мод недоступен';
+      txt.textContent = '⚠️ ' + msg;
+    }
+
+    // === polling 10s ===
+    function fetchState() {
+      fetch('/api/ledger/state').then(function (r) { return r.json(); }).then(function (d) {
+        if (!d.ok) { showErr(d.error); return; }
+        renderHealth(d.health, d.cached);
+        renderTop(d.top);
+        renderMarket(d.market);
+        renderTx(d.transactions);
+        renderQuests(d.quests);
+        renderAudit(d.audit);
+      }).catch(function () { /* молча — polling */ });
+    }
+    setInterval(fetchState, 10000);
+    fetchState();
+
+    // === config form ===
+    document.getElementById('cl-config-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      // checkbox enabled: FormData не шлёт unchecked — добавим явно
+      if (!fd.get('enabled')) fd.append('enabled', '0');
+      else fd.set('enabled', '1');
+      try {
+        const r = await fetch('/api/ledger/config', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (d.ok) {
+          window.showToast('✅ Config сохранён', 'success');
+          fetchState(); // сразу обновить snapshot с новым config
+        } else {
+          window.showToast('❌ ' + (d.error || 'Ошибка'), 'error');
+        }
+      } catch (_) {
+        window.showToast('❌ Сетевая ошибка', 'error');
+      }
+    });
+  </script>
+
+  {% include "_footer.html" %}
+</body>
+</html>

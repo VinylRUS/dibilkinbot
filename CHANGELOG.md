@@ -1,5 +1,28 @@
 # DeeBeelkin Bot — Changelog
 
+## v3.13.0 (0000000) — Интеграция с модом ChaosLedger (экономика / рынок / квесты)
+
+#НОВЫЕ_ФИЧИ#
+- **ChaosLedger** 📊 — полная интеграция с авторитетным серверным Fabric-модом `ChaosLedger` (Minecraft 26.3): бот выступает тонким клиентом к встроенному HTTP API мода (`/api/*`, `X-Api-Key`). Мод — источник истины (экономика, динамические цены по спросу/предложению, квесты как state-machine, награды, аудит); бот только читает данные и отправляет admin-действия.
+- **Realtime-панель `/ledger`** — живой просмотр экономики: health-индикатор мода, топ балансов, рынок с трендом цен (↑/↓ %), последние транзакции, квесты, audit log. Обновление раз в 10 секунд через `setInterval(fetch('/api/ledger/state'))` в стиле tournament.html. Bot-side snapshot-кеш TTL 10с — несколько одновременных Маток получают один snapshot, однопоточный executor мода не бомбардируется.
+- **11 slash-команд** (`/cl-link`, `/cl-unlink`, `/cl-balance`, `/cl-pay`, `/cl-top`, `/cl-quests`, `/cl-quest`, `/cl-market`, `/cl-buy`, `/cl-sell`, `/cl-history`) — все ephemeral, все gated ролью «Матка» (superuser). Привязка Discord↔Minecraft через Mojang API (ник → UUID).
+
+#АДМИНСКИЕ_ФИЧИ#
+- Доступ ко всему функционалу ChaosLedger — **только Матка** (superuser). Пчела и Трутень не видят пункт «Ledger» в sidebar и получают 403 на API. Функционал для всех — в следующей версии.
+- Форма конфигурации прямо на `/ledger` (details-блок): API URL мода (`http://host:8775`), `X-Api-Key` (поле password, шифруется Fernet), чекбокс «модуль включён». Ключ не возвращается обратно в форму — только индикатор «задан/не задан».
+
+#ТЕХНИЧЕСКАЯ_ИНФОРМАЦИЯ#
+- **`cl_client.py`** — async HTTP-клиент к моду (aiohttp). Retry 3 попытки с backoff для сетевых ошибок (4xx/5xx не retry — детеминированы). timeout 5с (мод однопоточный). Исключения: `CLApiError` (400 бизнес-ошибка), `CLAuthError` (401), `CLUnavailableError` (timeout/connection после retry), `CLConfigError` (не настроен). `get_ledger_state()` — агрегированный snapshot через `asyncio.gather` (health + top + market + transactions + audit + quests) с кешем TTL 10с. Singleton per-guild через `get_client(guild_id)` — пересоздаётся при смене config.
+- **`cl_data.py`** — per-guild config в `guild_{id}_settings` (`cl_enabled`, `cl_api_url`, `cl_api_key` — шифруется через `crypto.encrypt`). Link table `guild_{id}_cl_links` (discord_id PK, mc_uuid, mc_name, linked_at). `resolve_mc_uuid(nick)` — Mojang API, конвертация UUID в canonical 8-4-4-4-12.
+- **`cl_commands.py`** — `ChaosLedgerCog` (discord.ext.commands.Cog), 11 slash-команд. Хелпер `_is_matka` проверяет `db.get_user_role == "superuser"`. Все ответы ephemeral. Хелпер `_resolve_uuid` — MC UUID по Discord ID через link table.
+- **`cl_routes.py`** — FastAPI APIRouter. `/ledger` (HTML, `require_superuser`) + 5 JSON endpoints (`/api/ledger/state`, `/health`, `/config` GET+POST, `/links`) — все `require_superuser`. JSON через `deps.JSONResponse` (snowflake → str).
+- **`templates/ledger.html`** — в стиле `panel.html` (sidebar include + _footer). Кастомные стили на CSS-переменных (`.health-pill`, `.ledger-grid`, `.cat-tag`, `.price-up/down`). Polling `.catch(()=>{})` молча (как tournament.html). Форма config через `FormData` + `fetch POST`.
+- **`guild.py`**: `cl_links` добавлен в `GUILD_TABLES` и `GUILD_SCHEMA_TEMPLATES`. Таблица создаётся автоматически при `init_guild_tables` (вызывается из `bot.py:on_ready` для каждой гильдии) — отдельная миграция не нужна.
+- **`bot.py`**: `from cl_commands import ChaosLedgerCog` + добавлен в `setup_hook` список cog'ов.
+- **`web.py`**: `import cl_routes` + `app.include_router(cl_routes.router)`.
+- **`templates/sidebar.html`**: пункт «Ledger» в admin-блоке, обёрнут в `{% if user.is_superuser %}`. Иконка `sb_icon('ledger')` → reuse `trophy.png` + emoji-fallback 📊.
+- Тесты: `pytest tests/` — 110 passed, 1 xfailed (существующие не сломались). Изолированный `scripts/test_cl.py` — 19 тестов (cl_data CRUD + cl_client integration с локальным mock-сервером aiohttp.web, эмулирующим API мода).
+
 ## v3.12.0 (0000000) — Убрана интеграция с модом Village Quest
 
 #АДМИНСКИЕ_ФИЧИ#

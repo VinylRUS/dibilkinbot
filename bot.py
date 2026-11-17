@@ -24,6 +24,7 @@ from discord.ext import commands
 import crypto
 import db
 import telegram
+from cl_commands import ChaosLedgerCog
 from config import settings
 from telegram import send_message, tg_escape
 
@@ -409,6 +410,7 @@ class KinovecherBot(commands.Bot):
             ("WatchlistCog", WatchlistCog),
             ("SettingsCog", SettingsCog),
             ("LinkCog", LinkCog),
+            ("ChaosLedgerCog", ChaosLedgerCog),
         ]
         for name, cls in cogs:
             try:
