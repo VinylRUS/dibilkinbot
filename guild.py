@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "tournament_ready", "santa_messages", "movie_night_rsvp", "film_comments"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "tournament_ready", "santa_messages", "movie_night_rsvp", "film_comments", "cl_links"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -529,6 +529,16 @@ GUILD_SCHEMA_TEMPLATES = {
             UNIQUE(event_id, user_discord_id)
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_event ON {table}(event_id);
+    """,
+    # v3.13: ChaosLedger — link Discord ID ↔ Minecraft UUID (одна запись на юзера).
+    "cl_links": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            discord_id INTEGER PRIMARY KEY,
+            mc_uuid TEXT NOT NULL,
+            mc_name TEXT NOT NULL,
+            linked_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_mc_uuid ON {table}(mc_uuid);
     """,
 }
 

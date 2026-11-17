@@ -22,13 +22,14 @@
   'guilds': 'parallel-tasks',
   'achievements': 'medal',
   'modpacks': 'puzzle',
+  'ledger': 'trophy',
   'profile': 'user',
   'logout': 'exit',
   'menu': 'menu'
 } -%}
 {%- set icon_name = icon_map.get(name, name) -%}
 <img src="/static/icons/{{ icon_name }}.png" alt="{{ name }}" width="18" height="18" class="sb-liquid-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
-<span style="display:none; width:18px; height:18px;">{% if name == 'dashboard' %}🏠{% elif name == 'movie' %}🎬{% elif name == 'wheel' %}🎡{% elif name == 'trophy' %}🏆{% elif name == 'backlog' %}📋{% elif name == 'quote' %}💬{% elif name == 'santa' %}🎅{% elif name == 'key' %}🔑{% elif name == 'channels' %}📺{% elif name == 'features' %}⚙️{% elif name == 'users' %}👥{% elif name == 'guilds' %}🏰{% elif name == 'achievements' %}🏅{% elif name == 'modpacks' %}🧩{% elif name == 'profile' %}👤{% elif name == 'logout' %}🚪{% elif name == 'menu' %}☰{% endif %}</span>
+<span style="display:none; width:18px; height:18px;">{% if name == 'dashboard' %}🏠{% elif name == 'movie' %}🎬{% elif name == 'wheel' %}🎡{% elif name == 'trophy' %}🏆{% elif name == 'backlog' %}📋{% elif name == 'quote' %}💬{% elif name == 'santa' %}🎅{% elif name == 'key' %}🔑{% elif name == 'channels' %}📺{% elif name == 'features' %}⚙️{% elif name == 'users' %}👥{% elif name == 'guilds' %}🏰{% elif name == 'achievements' %}🏅{% elif name == 'modpacks' %}🧩{% elif name == 'ledger' %}📊{% elif name == 'profile' %}👤{% elif name == 'logout' %}🚪{% elif name == 'menu' %}☰{% endif %}</span>
 {%- endmacro -%}
 
 <script>
@@ -152,6 +153,13 @@
       {{ sb_icon('features') }}
       <span class="sb-item-label">Настройки</span>
     </a>
+    {# v3.13: ChaosLedger — только для Матки (superuser). Realtime экономика/рынок/квесты/аудит. #}
+    {% if user.is_superuser %}
+    <a href="/ledger" class="sb-item {% if active == 'ledger' %}active{% endif %}" title="ChaosLedger">
+      {{ sb_icon('ledger') }}
+      <span class="sb-item-label">Ledger</span>
+    </a>
+    {% endif %}
     {% endif %}
   </nav>
 
