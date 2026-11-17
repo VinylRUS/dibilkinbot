@@ -96,18 +96,18 @@
       <summary>⚙️ Настройки подключения к моду</summary>
       <form id="cl-config-form" class="cl-config-form">
         <div>
-          <label for="cl-api-url">API URL мода (host:port)</label>
+          <label for="cl-api-url">API URL мода (только для локальной разработки; на Exaroton не используется)</label>
           <input type="text" id="cl-api-url" name="api_url"
                  placeholder="http://127.0.0.1:8775"
                  value="{{ cl_config.api_url or '' }}">
         </div>
         <div>
-          <label for="cl-api-key">X-Api-Key (пусто = open mode мода)</label>
+          <label for="cl-api-key">X-Api-Key (только для локального HTTP; на Exaroton используется WS-токен из /adminpanel → Токены)</label>
           <input type="password" id="cl-api-key" name="api_key"
                  placeholder="{{ 'ключ задан (введите новый чтобы сменить)' if cl_api_key_set else 'не задан' }}">
         </div>
         <div class="row">
-          <label><input type="checkbox" name="enabled" value="1" {% if cl_config.enabled %}checked{% endif %}> модуль включён</label>
+          <label><input type="checkbox" name="enabled" value="1" {% if cl_config.enabled %}checked{% endif %}> модуль включён (для reverse-tunnel также включите тумблер «ChaosLedger» в /adminpanel → Фичи)</label>
         </div>
         <button type="submit" class="btn-primary">Сохранить</button>
       </form>
