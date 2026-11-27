@@ -431,9 +431,15 @@
       display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
     }
     .honey-admin-form input {
-      padding: 7px 10px; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--input-bg);
+      padding: 7px 10px; border-radius: 12px;
+      border: 1px solid var(--glass-border); background: var(--input-bg);
       color: var(--text); font-size: 0.82rem;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .honey-admin-form input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
     }
   </style>
 
