@@ -5827,6 +5827,41 @@ async def g_following_feed(guild_id: int, follower: int, limit: int = 20, days: 
 
 
 # ============================================================
+# v3.16.0: Надетая рамка аватара (эквип косметики за мёд)
+# ============================================================
+
+async def g_frame_get(guild_id: int, user_discord_id: int) -> str | None:
+    """Ключ надетой рамки пользователя (None — рамки нет)."""
+    table = _guild.guild_table(guild_id, "honey_user_frame")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT frame_key FROM {table} WHERE user_discord_id = ? LIMIT 1",
+            (int(user_discord_id),),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def g_frame_set(guild_id: int, user_discord_id: int,
+                      frame_key: str | None) -> None:
+    """Надеть рамку (frame_key) или снять (None). Идемпотентно."""
+    table = _guild.guild_table(guild_id, "honey_user_frame")
+    async with _connect() as db:
+        if frame_key is None:
+            await db.execute(
+                f"DELETE FROM {table} WHERE user_discord_id = ?",
+                (int(user_discord_id),))
+        else:
+            await db.execute(
+                f"INSERT INTO {table} (user_discord_id, frame_key, updated_at) "
+                f"VALUES (?, ?, ?) "
+                f"ON CONFLICT(user_discord_id) DO UPDATE SET "
+                f"frame_key = excluded.frame_key, updated_at = excluded.updated_at",
+                (int(user_discord_id), frame_key, datetime.utcnow().isoformat()))
+        await db.commit()
+
+
+# ============================================================
 # v3.11: Косметика за «мёд» (accent-цвета)
 # ============================================================
 

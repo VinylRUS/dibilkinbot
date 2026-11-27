@@ -2724,3 +2724,105 @@ table.bets-mini th { color: var(--text-muted); font-weight: 600; }
 .honey-grid > *:nth-child(2) { animation-delay: 30ms; }
 .honey-grid > *:nth-child(3) { animation-delay: 60ms; }
 .honey-grid > *:nth-child(n+4) { animation-delay: 90ms; }
+
+/* ============================================================
+   v3.16.0: Рамки аватара за мёд — вариант A (CSS/SVG-кольца).
+   Анти-интерференс с индикаторами ролей (Матка/Трутень):
+   1. Аддитивное ВНЕШНЕЕ кольцо (::after на .profile-avatar-wrap) —
+      структурный бордер аватара (2px accent) не трогаем; у Матки/
+      Трутня без купленной рамки вид меняется на ноль.
+   2. Плоские кольца чистым --accent / --green ЗАПРЕЩЕНЫ — эти цвета
+      зарезервированы за бейджами ролей. Только градиенты,
+      многокольцевые паттерны и анимации — читается как «косметика».
+   3. pointer-events: none; кольцо ниже статус-дота (z-index 2) —
+      Discord-статус и шестерёнка настроек работают как раньше.
+   Рендер — только публичный профиль (72px). Свет/тьма — через
+   текущие токены/rgba, без хардкода фонов.
+   ============================================================ */
+.profile-avatar-wrap[class*="frame-"]::after {
+  content: "";
+  position: absolute;
+  inset: -7px;                 /* внешнее кольцо за пределами аватара */
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* 🥇 Почётный Пасечник — золотое двойное кольцо + мягкий глоу */
+.profile-avatar-wrap.frame-pasechnik::after {
+  border: 2px solid var(--gold, #FFD700);
+  box-shadow:
+    0 0 0 3px rgba(255, 215, 0, 0.18),
+    0 0 14px rgba(255, 215, 0, 0.30),
+    inset 0 0 0 2px rgba(255, 215, 0, 0.28);
+}
+
+/* 🍯 Хранитель Улья — «текучий» янтарный градиент (мёд обтекает улей) */
+.profile-avatar-wrap.frame-keeper::after {
+  inset: -8px;
+  background: conic-gradient(from 210deg,
+    #FFB703, #FFC940, #FFD060, #FFB703, #FFC940);
+  -webkit-mask: radial-gradient(farthest-side,
+    transparent calc(100% - 5px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side,
+    transparent calc(100% - 5px), #000 calc(100% - 4px));
+  animation: frame-keeper-flow 9s linear infinite;
+}
+@keyframes frame-keeper-flow { to { transform: rotate(1turn); } }
+
+/* 🌙 Ночная Пчела — фиолетово-синий градиент + холодный глоу */
+.profile-avatar-wrap.frame-night_bee::after {
+  inset: -6px;
+  background: linear-gradient(135deg, var(--purple), var(--blue));
+  -webkit-mask: radial-gradient(farthest-side,
+    transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side,
+    transparent calc(100% - 4px), #000 calc(100% - 3px));
+  box-shadow: 0 0 12px rgba(181, 123, 220, 0.35);
+}
+
+/* 🍰 Медовик — тёплое пунктирное «печёное» кольцо */
+.profile-avatar-wrap.frame-medovik::after {
+  border: 3px dashed #D9A066;
+  box-shadow: 0 0 8px rgba(217, 160, 102, 0.25);
+}
+
+/* ⚙️ Пчела-механик (GIF) — вращающееся металлическое пунктирное
+   кольцо + пчела на орбите. Анимации отключаются при
+   prefers-reduced-motion (глобальный guard). */
+.profile-avatar-wrap.frame-bee_mechanic::after {
+  border: 3px dashed #9AA8B5;
+  animation: frame-mechanic-spin 14s linear infinite;
+}
+@keyframes frame-mechanic-spin { to { transform: rotate(1turn); } }
+.profile-avatar-wrap.frame-bee_mechanic::before {
+  content: "🐝";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 0;
+  padding-top: 1px;          /* пчела на внешнем крае орбиты */
+  pointer-events: none;
+  animation: frame-mechanic-spin 14s linear infinite;
+  z-index: 1;                /* под статус-дотом (z-index: 2) */
+}
+
+/* Пчела-механик: остановка анимаций при reduced-motion (остальные
+   рамки либо статичны, либо их анимация — тоже гасим) */
+@media (prefers-reduced-motion: reduce) {
+  .profile-avatar-wrap.frame-keeper::after,
+  .profile-avatar-wrap.frame-bee_mechanic::after,
+  .profile-avatar-wrap.frame-bee_mechanic::before {
+    animation: none;
+  }
+}
+
+/* Магазин: маркер «надета» */
+.frame-shop-tag.frame-equipped {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
+}

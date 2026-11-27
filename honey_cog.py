@@ -153,6 +153,27 @@ class HoneyCog(commands.Cog):
         log.info("bee round posted: guild=%s channel=%s message=%s",
                  guild_id, channel.id, message.id)
 
+    async def manual_bee_launch(self, guild_id: int) -> dict:
+        """v3.16.0: ручной запуск пчелы — Матка из админ-вкладки «Мёд».
+
+        Та же механика, что у автоматического раунда: случайный ПУБЛИЧНЫЙ
+        текстовый канал (виден всем — справедливость), обычные призы.
+        Блокируется только наличием открытого раунда прямо сейчас
+        (иначе — двойные призы); кулдаун `honey_bee_interval_min` ручной
+        запуск сознательно обходит (в этом и смысл «запустить сейчас»).
+        Возвращает {ok, channel_id?, error?}.
+        """
+        guild = self.bot.get_guild(int(guild_id))
+        if guild is None:
+            return {"ok": False, "error": "guild not found"}
+        if await he.he_bee_has_open(guild_id):
+            return {"ok": False, "error": "bee_already_flying"}
+        channel = self._random_public_channel(guild)
+        if channel is None:
+            return {"ok": False, "error": "no_public_channel"}
+        await self._post_bee_round(guild_id, channel)
+        return {"ok": True, "channel_id": channel.id}
+
     # ---------- Реакция: клейм пчелы ----------
 
     @commands.Cog.listener()

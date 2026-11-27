@@ -928,15 +928,21 @@ async def he_clan_members(guild_id: int, clan_id: int) -> list[dict]:
 # ============================================================
 
 async def he_frames_catalog(guild_id: int, user_discord_id: int) -> dict:
-    """Каталог рамок + купленные пользователем (типы frame / gif_frame)."""
+    """Каталог рамок + купленные пользователем (типы frame / gif_frame).
+
+    v3.16.0: + equipped — ключ надетой рамки (для кнопок «Надеть/Снять»)."""
     owned_frame = await _db.g_cosmetics_owned(guild_id, user_discord_id, "frame")
     owned_gif = await _db.g_cosmetics_owned(guild_id, user_discord_id, "gif_frame")
-    frames = [{"key": k, "name": v, "cost": FRAME_COST, "owned": k in owned_frame}
+    equipped = await _db.g_frame_get(guild_id, user_discord_id)
+    frames = [{"key": k, "name": v, "cost": FRAME_COST, "owned": k in owned_frame,
+               "equipped": equipped == k}
               for k, v in FRAMES.items()]
-    gifs = [{"key": k, "name": v, "cost": GIF_FRAME_COST, "owned": k in owned_gif}
+    gifs = [{"key": k, "name": v, "cost": GIF_FRAME_COST, "owned": k in owned_gif,
+             "equipped": equipped == k}
             for k, v in GIF_FRAMES.items()]
     return {"frames": frames, "gif_frames": gifs,
-            "owned": {"frame": owned_frame, "gif_frame": owned_gif}}
+            "owned": {"frame": owned_frame, "gif_frame": owned_gif},
+            "equipped": equipped}
 
 
 async def he_frame_buy(guild_id: int, user_discord_id: int, frame_key: str,
@@ -949,3 +955,36 @@ async def he_frame_buy(guild_id: int, user_discord_id: int, frame_key: str,
     cost = GIF_FRAME_COST if gif else FRAME_COST
     return await _db.g_cosmetic_buy(guild_id, user_discord_id, cosmetic_type,
                                     frame_key, cost)
+
+
+async def he_frame_equip(guild_id: int, user_discord_id: int,
+                         frame_key: str | None) -> dict:
+    """v3.16.0: надеть/снять рамку. Только владелец купленной рамки.
+
+    frame_key=None (или "none" на уровне роута) — снять. Возвращает
+    {ok, equipped, error?} — equipped: надетый ключ или None.
+    """
+    uid = int(user_discord_id)
+    if frame_key is None:
+        await _db.g_frame_set(guild_id, uid, None)
+        return {"ok": True, "equipped": None}
+    if frame_key not in FRAMES and frame_key not in GIF_FRAMES:
+        return {"ok": False, "error": "unknown_frame"}
+    cosmetic_type = "gif_frame" if frame_key in GIF_FRAMES else "frame"
+    if not await _db.g_cosmetic_is_owned(guild_id, uid, cosmetic_type, frame_key):
+        return {"ok": False, "error": "not_owned"}
+    await _db.g_frame_set(guild_id, uid, frame_key)
+    return {"ok": True, "equipped": frame_key}
+
+
+async def he_bee_has_open(guild_id: int) -> bool:
+    """v3.16.0: есть ли ПРЯМО СЕЙЧАС открытый раунд пчелы (без окна давности).
+
+    Для ручного запуска из админки: два одновременно открытых раунда
+    — двойные призы, блокируем.
+    """
+    t_rounds = _guild.guild_table(guild_id, "honey_bee_rounds")
+    async with _connect() as conn:
+        async with conn.execute(
+            f"SELECT 1 FROM {t_rounds} WHERE status = 'open' LIMIT 1") as cur:
+            return (await cur.fetchone()) is not None

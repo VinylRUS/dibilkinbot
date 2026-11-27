@@ -2391,6 +2391,19 @@ async def public_profile_page(
         import logging
         logging.getLogger("profile").warning("honey level profile failed: %s", e)
 
+    # v3.16.0: надетая рамка аватара цели — косметика за мёд, видна всем.
+    # Серверное состояние (honey_user_frame), не кука — см. api_honey_frame_equip.
+    target_frame = None
+    try:
+        import db as _db
+        target_frame = await _db.g_frame_get(guild_id, target_discord_id)
+        if target_frame not in ("pasechnik", "keeper", "night_bee", "medovik",
+                                "bee_mechanic"):
+            target_frame = None  # неизвестный ключ — не рендерим
+    except Exception as e:
+        import logging
+        logging.getLogger("profile").warning("frame get profile failed: %s", e)
+
     # v3.11: «Вам может понравиться» — только на своём профиле
     recommendations = []
     if is_self:
@@ -2432,6 +2445,7 @@ async def public_profile_page(
         "user": _user,
         "honey": honey,
         "honey_level": honey_level,
+        "target_frame": target_frame,
         "gift_commission": gift_commission,
         "recommendations": recommendations,
         "target": {

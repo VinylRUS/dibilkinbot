@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "tournament_ready", "santa_messages", "movie_night_rsvp", "film_comments", "cl_links", "honey_bank", "honey_bank_log", "honey_lottery_rounds", "honey_lottery_tickets", "honey_bets", "honey_bee_rounds", "honey_bee_claims", "honey_clans", "honey_clan_members"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "tournament_ready", "santa_messages", "movie_night_rsvp", "film_comments", "cl_links", "honey_bank", "honey_bank_log", "honey_lottery_rounds", "honey_lottery_tickets", "honey_bets", "honey_bee_rounds", "honey_bee_claims", "honey_clans", "honey_clan_members", "honey_user_frame"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -651,6 +651,20 @@ GUILD_SCHEMA_TEMPLATES = {
             user_discord_id INTEGER NOT NULL,
             joined_at TEXT NOT NULL,
             UNIQUE(clan_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+    """,
+    # v3.16.0: надетая рамка аватара (эквип за мёд). Серверное состояние —
+    # рамка видна ВСЕМ на публичном профиле (в отличие от accent-цвета,
+    # который живёт в куках и виден только самому юзеру).
+    # UNIQUE(user_discord_id) — надета максимум одна рамка.
+    "honey_user_frame": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_discord_id INTEGER NOT NULL,
+            frame_key TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(user_discord_id)
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
     """,

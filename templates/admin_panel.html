@@ -393,6 +393,19 @@
 
         {# — Общий банк сервера — расходует только Матка — #}
         <article class="card" style="padding:16px;">
+          <h3 style="margin:0 0 10px;">🐝 «Поймай пчелу» — ручной запуск</h3>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:6px 0 8px;">
+            Пчела вылетит в случайный публичный канал сервера — та же механика
+            и призы, что у автоматического раунда (первые 3 реакции 🐝, по 5 мёда).
+            Если раунд прямо сейчас открыт — запуск блокируется. Кулдаун
+            `honey_bee_interval_min` не мешает: смысл кнопки — «запустить сейчас».
+          </p>
+          <button class="btn-primary btn-sm" type="button" onclick="beeLaunchManual()">🐝 Запустить пчелу</button>
+          <div id="bee-manual-status" style="font-size:0.8rem;margin-top:8px;min-height:1.2em;"></div>
+        </article>
+
+        {# — Общий банк сервера — расходует только Матка — #}
+        <article class="card" style="padding:16px;">
           <h3 style="margin:0 0 10px;">🏦 Общий банк сервера</h3>
           <div style="font-size:0.9rem;">Баланс: <b style="color:var(--accent);">{{ honey_bank if honey_bank is not none else 0 }} 🍯</b></div>
           <p style="color:var(--text-muted);font-size:0.78rem;margin:6px 0 8px;">Пополняется комиссиями (подарки, ставки, лотерея). Расходовать может только Матка.</p>
@@ -487,6 +500,29 @@
       if (d.ok) { setHoneyStatus('bank-status', true, 'Банк: ' + d.balance + ' 🍯 (Δ ' + d.delta + ')'); setTimeout(function () { location.reload(); }, 1200); }
       else { setHoneyStatus('bank-status', false, ({ 'insufficient bank': 'В банке недостаточно мёда' })[d.error] || ('Ошибка: ' + d.error)); }
       return false;
+    }
+
+    // v3.16.0: ручной запуск «Поймай пчелу» (только Матка)
+    async function beeLaunchManual() {
+      var st = document.getElementById('bee-manual-status');
+      setHoneyStatus('bee-manual-status', true, '');
+      try {
+        var r = await fetch('/api/honey/bee/launch', { method: 'POST' });
+        var d = await r.json();
+        if (d.ok) { setHoneyStatus('bee-manual-status', true, '✓ Пчела вылетела в случайный публичный канал (ID ' + d.channel_id + ') — ловите!'); }
+        else {
+          var msg = ({
+            'bee_already_flying': 'Пчела уже летает — раунд открыт, дождитесь его конца',
+            'no_public_channel': 'Нет публичных каналов, куда бот может писать',
+            'guild not found': 'Сервер не найден ботом',
+            'bot not ready': 'Бот не подключён (процесс бота не готов)',
+            'honey cog not loaded': 'HoneyCog не загружен'
+          })[d.error] || ('Ошибка: ' + d.error);
+          setHoneyStatus('bee-manual-status', false, msg);
+        }
+      } catch (e2) {
+        setHoneyStatus('bee-manual-status', false, 'Сетевая ошибка');
+      }
     }
   </script>
 

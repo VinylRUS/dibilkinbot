@@ -469,7 +469,7 @@
       {% endif %}
     </section>
 
-    {# === 07 Рамки (v3.15.1: магазин рамок переехал с /honey в настройки) === #}
+    {# === 07 Рамки (v3.15.1: магазин переехал с /honey; v3.16.0: надеть/снять) === #}
     <section class="profile-section" id="sec-frames">
       <div class="section-head">
         <span class="section-num">07</span>
@@ -478,24 +478,30 @@
       {% if frames %}
       <article class="card">
         <p class="hint" style="margin: 0 0 6px; font-size: 0.82rem;">
-          Рамки аватара за мёд — витрина на вашем профиле.
+          Рамки аватара за мёд — витрина на вашем публичном профиле. Купленную рамку можно надеть и снять в любой момент (эквип бесплатный).
         </p>
         {% for f in frames.frames %}
         <div class="frame-shop-row">
           <span>{{ f.name }}</span>
           <span>
-            {% if f.owned %}<span class="frame-shop-tag">куплено ✓</span>
+            {% if f.equipped %}<span class="frame-shop-tag frame-equipped">надета ✓</span>
+            <button type="button" class="btn-ghost btn-sm" onclick="frameEquip('none')">Снять</button>
+            {% elif f.owned %}<span class="frame-shop-tag">куплено ✓</span>
+            <button type="button" class="btn-outline btn-sm" onclick="frameEquip('{{ f.key }}')">Надеть</button>
             {% else %}<span class="frame-shop-cost">{{ f.cost }} 🍯</span>
             <button type="button" class="btn-outline btn-sm" onclick="frameBuy('{{ f.key }}')">Купить</button>{% endif %}
           </span>
         </div>
         {% endfor %}
-        <p class="hint" style="margin: 10px 0 4px; font-size: 0.8rem;">GIF-рамки — финальный этап версии:</p>
+        <p class="hint" style="margin: 10px 0 4px; font-size: 0.8rem;">GIF-рамки:</p>
         {% for f in frames.gif_frames %}
         <div class="frame-shop-row">
-          <span>{{ f.name }} <span class="hint" style="font-size:0.7rem;">в разработке</span></span>
+          <span>{{ f.name }}</span>
           <span>
-            {% if f.owned %}<span class="frame-shop-tag">куплено ✓</span>
+            {% if f.equipped %}<span class="frame-shop-tag frame-equipped">надета ✓</span>
+            <button type="button" class="btn-ghost btn-sm" onclick="frameEquip('none')">Снять</button>
+            {% elif f.owned %}<span class="frame-shop-tag">куплено ✓</span>
+            <button type="button" class="btn-outline btn-sm" onclick="frameEquip('{{ f.key }}')">Надеть</button>
             {% else %}<span class="frame-shop-cost">{{ f.cost }} 🍯</span>
             <button type="button" class="btn-outline btn-sm" onclick="gifFrameBuy('{{ f.key }}')">Купить</button>{% endif %}
           </span>
@@ -511,6 +517,7 @@
   <script>
     // v3.15.1: покупка рамок (магазин переехал с /honey в настройки профиля)
     // v3.15.2: статусы — через глобальные toast-уведомления (DS §4)
+    // v3.16.0: + эквип (надеть/снять) — бесплатный, только владение
     async function frameBuy(key) {
       try {
         const d = await (await fetch('/api/honey/frame/' + key, { method: 'POST' })).json();
@@ -534,6 +541,21 @@
           setTimeout(function () { location.reload(); }, 900);
         } else {
           const msg = (d.error === 'insufficient' ? 'Недостаточно мёда' : 'Ошибка: ' + d.error);
+          if (window.showToast) window.showToast(msg, 'error');
+        }
+      } catch (e) {
+        if (window.showToast) window.showToast('Сетевая ошибка', 'error');
+      }
+    }
+
+    async function frameEquip(key) {
+      try {
+        const d = await (await fetch('/api/honey/frame_equip/' + key, { method: 'POST' })).json();
+        if (d.ok) {
+          if (window.showToast) window.showToast(d.equipped ? '✓ Рамка надета — видна на вашем профиле' : '✓ Рамка снята', 'success');
+          setTimeout(function () { location.reload(); }, 600);
+        } else {
+          const msg = ({ not_owned: 'Сначала купите эту рамку', unknown_frame: 'Неизвестная рамка' })[d.error] || ('Ошибка: ' + d.error);
           if (window.showToast) window.showToast(msg, 'error');
         }
       } catch (e) {
