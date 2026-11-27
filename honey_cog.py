@@ -7,6 +7,9 @@ HoneyCog (подключается в main.py — без правок bot.py):
   упоминается — сюрприз. Раунд живёт 30 минут, первые 3 отреагировавших
   получают по 5 мёда (атомарный клейм в honey_economy.he_bee_claim,
   приз идемпотентен через dedupe_key).
+  v3.16.1: пчела НЕ залетает в служебные каналы (цитатник, анонсы апдейтов —
+  см. _BEE_EXCLUDED_CHANNEL_KEYS); к сообщению раунда с вероятностью
+  BEE_FACT_PROBABILITY добавляется случайный факт о пчёлах из static/bee_facts.json.
 - Лотерея «Улей» #14: еженедельный розыгрыш (воскресенье 20:00 UTC) —
   розыгрыш + анонс победителя с прозрачным RNG-сидом.
 - Дивиденды #18: 1-го числа месяца — % от банка активным участникам.
@@ -28,9 +31,11 @@ HoneyCog (подключается в main.py — без правок bot.py):
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
 from datetime import datetime
+from pathlib import Path
 
 import aiosqlite
 import discord
@@ -41,6 +46,54 @@ import honey_economy as he
 from config import settings
 
 log = logging.getLogger("honey")
+
+# v3.16.1: каналы, в которых пчела НЕ спавнится — служебные (цитатник, анонсы).
+# Пчела — развлечение; постить её в цитатник или ленту анонсов апдейтов
+# неуместно. ID этих каналов читаются из guild-настроек в рантайме.
+_BEE_EXCLUDED_CHANNEL_KEYS = (
+    "channel_quotes_id",          # #цитатник — авто-захват цитат
+    "channel_updates_id",         # анонсы обновлений бота (changelog)
+    "channel_admin_updates_id",   # админские анонсы обновлений
+    "honey_announce_channel_id",  # анонсы лотереи/дивидендов/ставок
+)
+
+# v3.16.1: факты о пчёлах — случайная приписка к сообщению раунда.
+# Файл грузится ОДИН раз при импорте модуля (не на каждый раунд).
+# Если файла нет / он битый — список пустой и фича тихо отключается.
+_BEE_FACTS_PATH = Path(__file__).resolve().parent / "static" / "bee_facts.json"
+# Вероятность, что к раунду добавится факт (не на каждом раунде — чтобы не приедалось).
+BEE_FACT_PROBABILITY = 0.5
+
+
+def _load_bee_facts() -> list[str]:
+    try:
+        with open(_BEE_FACTS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            facts = [str(x).strip() for x in data if str(x).strip()]
+            log.info("bee facts loaded: %d", len(facts))
+            return facts
+        log.warning("bee facts file is not a list: %s", _BEE_FACTS_PATH)
+    except FileNotFoundError:
+        log.warning("bee facts file not found: %s", _BEE_FACTS_PATH)
+    except Exception as e:
+        log.warning("bee facts load failed: %s", e)
+    return []
+
+
+BEE_FACTS: list[str] = _load_bee_facts()
+
+
+def _bee_fact_suffix() -> str:
+    """Случайная приписка-факт к сообщению пчелы (или пусто).
+
+    С вероятностью BEE_FACT_PROBABILITY добавляет случайный факт в формате
+    blockquote. Пусто, если фактов нет или не выпала вероятность.
+    """
+    if not BEE_FACTS or random.random() >= BEE_FACT_PROBABILITY:
+        return ""
+    fact = random.choice(BEE_FACTS)
+    return f"\n\n> 💡 А пока ты реагируешь, знай: {fact}"
 
 
 async def _approved_guilds() -> list[int]:
@@ -78,19 +131,41 @@ class HoneyCog(commands.Cog):
             return None
         return self.bot.get_channel(int(ch_id))
 
-    def _random_public_channel(self, guild: discord.Guild) -> discord.abc.Messageable | None:
+    async def _bee_excluded_channel_ids(self, guild_id: int) -> set[int]:
+        """v3.16.1: ID служебных каналов, где пчела не спавнится.
+
+        Собирает ID из guild-настроек (цитатник, анонсы апдейтов/админ-анонсы,
+        анонсы мёда). Ненастроенные/невалидные ключи просто пропускаются.
+        """
+        excluded: set[int] = set()
+        for key in _BEE_EXCLUDED_CHANNEL_KEYS:
+            ch_id = await db.g_get_setting(guild_id, key)
+            if ch_id and str(ch_id).isdigit():
+                excluded.add(int(ch_id))
+        return excluded
+
+    def _random_public_channel(
+        self, guild: discord.Guild,
+        exclude_ids: set[int] | None = None,
+    ) -> discord.abc.Messageable | None:
         """v3.15.1: случайный ПУБЛИЧНЫЙ текстовый канал гильдии для пчелы.
 
         Публичный = @everyone может его видеть (view_channel). Админские каналы,
         где @everyone не имеет доступа, исключаются — чтобы у всех участников
         был равный шанс поймать пчелу (справедливость). Бот должен уметь
         постить. Возвращает None, если подходящих каналов нет.
+
+        v3.16.1: exclude_ids — служебные каналы (цитатник, анонсы), в которые
+        пчела не должна залетать (см. _bee_excluded_channel_ids).
         """
+        exclude_ids = exclude_ids or set()
         everyone = guild.default_role
         me = guild.me
         candidates: list[discord.TextChannel] = []
         for ch in guild.text_channels:
             try:
+                if ch.id in exclude_ids:
+                    continue  # служебный канал (цитатник/анонсы) — мимо
                 if not ch.permissions_for(everyone).view_channel:
                     continue  # админский/приватный канал — мимо
                 if me and not ch.permissions_for(me).send_messages:
@@ -125,7 +200,8 @@ class HoneyCog(commands.Cog):
                         continue
                     if random.random() < 0.35:  # джиттер: пропускаем тик
                         continue
-                    channel = self._random_public_channel(guild)
+                    excluded = await self._bee_excluded_channel_ids(guild_id)
+                    channel = self._random_public_channel(guild, excluded)
                     if channel is None:
                         continue
                     await self._post_bee_round(guild_id, channel)
@@ -145,7 +221,8 @@ class HoneyCog(commands.Cog):
                 "🐝 **Поймай пчелу!**\n"
                 "Первые **3** поставившие реакцию 🐝 под этим сообщением "
                 "получают по **5 мёда** 🍯\n"
-                f"_(раунд живёт {he.HONEY_BEE_WINDOW_MIN} минут)_")
+                f"_(раунд живёт {he.HONEY_BEE_WINDOW_MIN} минут)_"
+                + _bee_fact_suffix())
         except Exception as e:
             log.warning("bee round post failed guild %s: %s", guild_id, e)
             return
@@ -168,7 +245,8 @@ class HoneyCog(commands.Cog):
             return {"ok": False, "error": "guild not found"}
         if await he.he_bee_has_open(guild_id):
             return {"ok": False, "error": "bee_already_flying"}
-        channel = self._random_public_channel(guild)
+        excluded = await self._bee_excluded_channel_ids(guild_id)
+        channel = self._random_public_channel(guild, excluded)
         if channel is None:
             return {"ok": False, "error": "no_public_channel"}
         await self._post_bee_round(guild_id, channel)
