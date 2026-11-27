@@ -18,7 +18,7 @@ from config import settings
 log = logging.getLogger("guild")
 
 # Суффиксы guild-таблиц — единый контракт
-GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "tournament_ready", "santa_messages", "movie_night_rsvp", "film_comments", "cl_links"]
+GUILD_TABLES = ["watched", "quotes", "winners", "wheel_items", "ratings", "movie_nights", "settings", "filmnights", "watchlist", "collections", "collection_participants", "collection_picks", "santa_events", "santa_participants", "santa_assignments", "achievements", "user_achievements", "voice_sessions", "member_activities", "discord_roles", "user_steam_games", "user_pinned_achievements", "modrinth_subs", "activity_log", "honey_ledger", "follows", "user_cosmetics", "tournaments", "tournament_matches", "tournament_votes", "tournament_ready", "santa_messages", "movie_night_rsvp", "film_comments", "cl_links", "honey_bank", "honey_bank_log", "honey_lottery_rounds", "honey_lottery_tickets", "honey_bets", "honey_bee_rounds", "honey_bee_claims", "honey_clans", "honey_clan_members"]
 
 
 def validate_guild_id(guild_id: int | str) -> int:
@@ -540,6 +540,120 @@ GUILD_SCHEMA_TEMPLATES = {
         );
         CREATE INDEX IF NOT EXISTS idx_{table}_mc_uuid ON {table}(mc_uuid);
     """,
+    # === v3.15: «Мёд» — экономика, ставки, банк, гильдии ===
+    # Общий банк сервера: одна строка (id=1). Пополнение — комиссии
+    # (подарки #31, ставки #15) и ручные операции Матки. Расход — только Матка.
+    "honey_bank": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            balance INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT
+        );
+    """,
+    # История операций банка (каждое движение с причиной и актором).
+    "honey_bank_log": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            delta INTEGER NOT NULL,
+            balance_after INTEGER NOT NULL,
+            reason TEXT,
+            actor_discord_id INTEGER,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_created ON {table}(created_at DESC);
+    """,
+    # Лотерея «Улей» (#14): еженедельный раунд. week_key UNIQUE — один раунд в неделю.
+    "honey_lottery_rounds": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            week_key TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            ticket_cost INTEGER NOT NULL,
+            prize INTEGER NOT NULL,
+            min_participants INTEGER NOT NULL,
+            draw_at TEXT NOT NULL,
+            winner_discord_id INTEGER,
+            rng_seed TEXT,
+            rng_roll INTEGER,
+            drawn_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(week_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
+    """,
+    # Билеты лотереи (один юзер может купить несколько).
+    "honey_lottery_tickets": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            qty INTEGER NOT NULL,
+            cost INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_round ON {table}(round_id);
+    """,
+    # Ставки мёдом на сектор колеса (#15). status: open/won/lost/refunded.
+    "honey_bets": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_discord_id INTEGER NOT NULL,
+            item_name TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            payout INTEGER,
+            created_at TEXT NOT NULL,
+            settled_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+    """,
+    # «Поймай пчелу» (#16): раунд = одно сообщение 🐝. Первые 3 успевших.
+    "honey_bee_rounds": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at TEXT NOT NULL,
+            closed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_status ON {table}(status);
+    """,
+    # Клеймы пчелы: position 1..3, UNIQUE(round_id, user) — атомарный выбор первых 3.
+    "honey_bee_claims": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(round_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_round ON {table}(round_id);
+    """,
+    # Гильдии (кланы) — создаёт и управляет только Матка (замена лиг #51).
+    "honey_clans": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            tag TEXT,
+            description TEXT,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(name)
+        );
+    """,
+    "honey_clan_members": """
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            clan_id INTEGER NOT NULL,
+            user_discord_id INTEGER NOT NULL,
+            joined_at TEXT NOT NULL,
+            UNIQUE(clan_id, user_discord_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_discord_id);
+    """,
 }
 
 
@@ -551,13 +665,26 @@ async def init_guild_tables(guild_id: int | str) -> None:
     (gif_path, gif_poster_path) — для гильдий созданных до v3.7.0.
     """
     gid = validate_guild_id(guild_id)
+    t_ledger = guild_table(gid, "honey_ledger")
     async with _connect() as db:
         for base in GUILD_TABLES:
             table = guild_table(gid, base)
             schema = GUILD_SCHEMA_TEMPLATES[base].format(table=table)
             await db.executescript(schema)
+        # v3.15: миграция honey_ledger — колонка dedupe_key (UNIQUE-индекс ниже).
+        # Без неё разовые бонусы (Steam #8, пчела #16, дивиденды #18) задваиваются
+        # при рестарте фоновых задач.
+        await _migrate_add_columns(db, gid, "honey_ledger", {
+            "dedupe_key": "TEXT",
+        })
+        # UNIQUE-индекс по dedupe_key: NULL-ключи (обычные траты/бонусы) не
+        # конфликтуют между собой — SQLite разрешает множество NULL в UNIQUE.
+        await db.execute(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{t_ledger}_dedupe ON {t_ledger}(dedupe_key)")
+        await db.commit()
         # v3.7.0: миграция wheel_items для существующих гильдий
         await _migrate_wheel_items_add_gif_columns(db, gid)
+
         # v3.11: миграция movie_nights (countdown_sent / rate_prompt_sent / is_marathon)
         await _migrate_add_columns(db, gid, "movie_nights", {
             "countdown_sent": "INTEGER DEFAULT 0",

@@ -18,6 +18,11 @@ from bot import KinovecherBot, get_token, handle_tg_link_message
 from config import settings
 from web import app
 
+# v3.15: маршруты «Мёда» (/honey + /api/honey/*) монтируются здесь,
+# чтобы не расширять web.py (роутер самодостаточен в honey_routes.py).
+import honey_routes  # noqa: E402
+app.include_router(honey_routes.router)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -41,6 +46,15 @@ async def run_bot() -> KinovecherBot | None:
         log.warning("Задайте токен через веб-панель /tokens и перезапустите процесс.")
         return None
     bot = KinovecherBot()
+    # v3.15: экономика «Мёда» — cog с фоновыми задачами (пчела #16, лотерея #14,
+    # дивиденды #18, расчёт ставок #15, Steam-бонус #8). Подключается здесь,
+    # чтобы не расширять список cog'ов в bot.py.
+    try:
+        from honey_cog import HoneyCog
+        await bot.add_cog(HoneyCog(bot))
+        log.info("✓ HoneyCog loaded (v3.15 honey economy)")
+    except Exception as e:
+        log.warning("HoneyCog failed to load: %s", e, exc_info=True)
     task = asyncio.create_task(bot.start(token))
     def _check(t):
         if t.cancelled():
