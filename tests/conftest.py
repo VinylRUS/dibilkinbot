@@ -114,6 +114,8 @@ def client():
        см. HANDOFF_wheel_audit.md, раздел 4).
     """
     import web
+    import honey_routes  # v3.15: маршруты «Мёда» (в проде монтируются в main.py)
+    web.app.include_router(honey_routes.router)
     from fastapi.testclient import TestClient
 
     with TestClient(web.app) as c:
