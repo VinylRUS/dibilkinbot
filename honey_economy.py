@@ -605,6 +605,36 @@ async def he_bets_history(guild_id: int, user_discord_id: int | None = None,
              "settled_at": r[6]} for r in rows]
 
 
+async def he_bets_round_open(guild_id: int) -> tuple[bool, str]:
+    """v3.15.1: открыто ли окно приёма ставок для ТЕКУЩЕЙ загрузки колеса.
+
+    Правило (решение босса): ставки принимаются только до начала ПЕРВОЙ
+    крутки. Крутка считается начавшейся, если:
+    - прямо сейчас идёт спин (lock в wheel_routes), либо
+    - после загрузки текущих лотов колеса уже появился реальный (не тестовый)
+      победитель — детект по «победитель новее самой старой активной загрузки».
+
+    Раунд = текущая загрузка колеса (лоты, добавленные при завершении сбора).
+    Новая загрузка лотов после победителя снова открывает приём ставок.
+    Возвращает (открыто?, причина_закрытия).
+    """
+    import wheel_routes  # локальный импорт — избежать циклической зависимости
+
+    lock = wheel_routes._wheel_spin_locks.get(int(guild_id))
+    if lock is not None and lock.locked():
+        return False, "колесо крутится"
+
+    items = await _db.g_list_wheel_items(guild_id, active_only=True)
+    last_winner = await _db.g_get_last_real_winner(guild_id)
+    if last_winner:
+        added = [i["added_at"] for i in items if i.get("added_at")]
+        # Лоты без added_at (legacy) — не можем доказать «свежесть» загрузки:
+        # консервативно считаем раунд уже начатым.
+        if not added or (last_winner.get("detected_at") or "") >= min(added):
+            return False, "крутка этого раунда уже началась"
+    return True, ""
+
+
 # ============================================================
 # #16: «Поймай пчелу» (первые 3 успевших получают по 5 мёда)
 # ============================================================

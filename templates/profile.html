@@ -238,6 +238,9 @@
       <a href="#sec-styles" class="profile-nav-item" data-target="sec-styles">
         <img src="/static/icons/star.png" alt=""> Стили
       </a>
+      <a href="#sec-frames" class="profile-nav-item" data-target="sec-frames">
+        <img src="/static/icons/gift.png" alt=""> Рамки
+      </a>
     </nav>
 
     {# === 01 Профиль === #}
@@ -465,7 +468,83 @@
       <article class="card"><p style="color:var(--text-muted);margin:0;">Войдите, чтобы менять стили.</p></article>
       {% endif %}
     </section>
+
+    {# === 07 Рамки (v3.15.1: магазин рамок переехал с /honey в настройки) === #}
+    <section class="profile-section" id="sec-frames">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2><img src="/static/icons/gift.png" alt="" width="16" height="16" class="ui-icon"> Рамки</h2>
+      </div>
+      {% if frames %}
+      <article class="card">
+        <p class="hint" style="margin: 0 0 6px; font-size: 0.82rem;">
+          Рамки аватара за мёд — витрина на вашем профиле.
+        </p>
+        {% for f in frames.frames %}
+        <div class="frame-shop-row">
+          <span>{{ f.name }}</span>
+          <span>
+            {% if f.owned %}<span class="frame-shop-tag">куплено ✓</span>
+            {% else %}<span class="frame-shop-cost">{{ f.cost }} 🍯</span>
+            <button type="button" class="frame-shop-buy" onclick="frameBuy('{{ f.key }}')">Купить</button>{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+        <p class="hint" style="margin: 10px 0 4px; font-size: 0.8rem;">GIF-рамки — финальный этап версии:</p>
+        {% for f in frames.gif_frames %}
+        <div class="frame-shop-row">
+          <span>{{ f.name }} <span class="hint" style="font-size:0.7rem;">в разработке</span></span>
+          <span>
+            {% if f.owned %}<span class="frame-shop-tag">куплено ✓</span>
+            {% else %}<span class="frame-shop-cost">{{ f.cost }} 🍯</span>
+            <button type="button" class="frame-shop-buy" onclick="gifFrameBuy('{{ f.key }}')">Купить</button>{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+        <div id="frame-status" class="frames-status"></div>
+      </article>
+      {% else %}
+      <article class="card"><p style="color:var(--text-muted);margin:0;">Войдите, чтобы покупать рамки.</p></article>
+      {% endif %}
+    </section>
   </main>
+
+  <script>
+    // v3.15.1: покупка рамок (магазин переехал с /honey в настройки профиля)
+    async function frameBuy(key) {
+      const st = document.getElementById('frame-status');
+      try {
+        const d = await (await fetch('/api/honey/frame/' + key, { method: 'POST' })).json();
+        if (d.ok) {
+          st.textContent = '✓ Рамка куплена! Баланс: ' + d.balance + ' 🍯 — обновляем...';
+          st.style.color = 'var(--green)';
+          setTimeout(function () { location.reload(); }, 900);
+        } else {
+          st.textContent = (d.error === 'insufficient' ? 'Недостаточно мёда' : 'Ошибка: ' + d.error);
+          st.style.color = 'var(--red)';
+        }
+      } catch (e) {
+        st.textContent = 'Сетевая ошибка'; st.style.color = 'var(--red)';
+      }
+    }
+
+    async function gifFrameBuy(key) {
+      const st = document.getElementById('frame-status');
+      try {
+        const d = await (await fetch('/api/honey/gifframe/' + key, { method: 'POST' })).json();
+        if (d.ok) {
+          st.textContent = '✓ GIF-рамка куплена! Баланс: ' + d.balance + ' 🍯 — обновляем...';
+          st.style.color = 'var(--green)';
+          setTimeout(function () { location.reload(); }, 900);
+        } else {
+          st.textContent = (d.error === 'insufficient' ? 'Недостаточно мёда' : 'Ошибка: ' + d.error);
+          st.style.color = 'var(--red)';
+        }
+      } catch (e) {
+        st.textContent = 'Сетевая ошибка'; st.style.color = 'var(--red)';
+      }
+    }
+  </script>
 
   <script>
     // v3.11: покупка/применение accent-цвета (перенесено из публичного профиля)

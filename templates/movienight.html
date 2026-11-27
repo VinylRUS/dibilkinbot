@@ -87,6 +87,21 @@
     .start-form button:hover { background: var(--accent-hover); }
     .start-form button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    /* v3.15.1: форма добавления фильма во время сбора */
+    .add-film-form {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+    }
+    .add-film-form input {
+      flex: 1; min-width: 220px; padding: 9px 12px;
+      background: var(--input-bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 0.85rem;
+    }
+    .add-film-form button {
+      padding: 9px 16px; background: var(--accent); color: var(--accent-text, #1a1a1a);
+      border: none; border-radius: 8px; cursor: pointer; font-weight: 700;
+      font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .add-film-form button:hover { filter: brightness(1.08); }
     .pick-list {
       background: var(--card);
       border: 1px solid var(--border);
@@ -443,49 +458,52 @@
             </div>
           </div>
 
-          {% if watchlist | length == 0 %}
-            <div class="empty-state">
-              <div class="empty-state-icon"><img src="/static/icons/ghost.png" alt="" width="16" height="16" class="ui-icon"></div>
-              <p>Ваш список желаемого пуст.</p>
-              <p style="margin-top: 8px; font-size: 0.85rem;">
-                Добавьте фильмы через <a href="/profile">/profile</a> или команду <code>/addfilm</code> в Discord,
-                затем вернитесь сюда и выберите из них.
-              </p>
+          {# v3.15.1: добавить фильм можно прямо во время сбора — он автоматически
+             попадает в вишлист и сразу выбирается в этом же сборе #}
+          <div class="add-film-form">
+            <input type="text" id="add-film-input" maxlength="200" placeholder="Название фильма — добавить в сбор..." autocomplete="off">
+            <button type="button" onclick="addFilm()"><img src="/static/icons/plus.png" alt="" width="14" height="14" class="ui-icon"> Добавить</button>
+          </div>
+          <div id="add-film-result" style="display:none; font-size: 0.82rem; margin: 8px 0 10px;"></div>
+
+          {# Прогресс выбора #}
+          <div class="progress-bar">
+            <div class="progress-label">Ваш выбор</div>
+            <div class="progress-value" id="picks-progress">
+              <span id="picks-count">{{ user_picks_count }}</span> / {{ max_per_user }}
             </div>
-          {% else %}
-            {# Прогресс выбора #}
-            <div class="progress-bar">
-              <div class="progress-label">Ваш выбор</div>
-              <div class="progress-value" id="picks-progress">
-                <span id="picks-count">{{ user_picks_count }}</span> / {{ max_per_user }}
+          </div>
+
+          {# Список вишлиста с чекбоксами #}
+          <div class="pick-list" id="pick-list">
+            {% for w_id, title, tmdb_id, added_at, is_watched in watchlist %}
+              {% set picked = w_id in user_picks | map(attribute='watchlist_id') | list %}
+              <div class="pick-item {{ 'checked' if picked else '' }}"
+                   data-watchlist-id="{{ w_id }}"
+                   data-title="{{ title }}"
+                   data-tmdb-id="{{ tmdb_id or '' }}"
+                   onclick="togglePick({{ w_id }})">
+                <div class="pick-checkbox"></div>
+                <div class="pick-title">{{ title }}</div>
               </div>
-            </div>
+            {% endfor %}
+            {% if watchlist | length == 0 %}
+              <div class="pick-item" style="border-bottom:none; cursor:default;" id="pick-list-empty-hint">
+                <div class="pick-checkbox" style="visibility:hidden;"></div>
+                <div class="pick-title" style="color:var(--text-muted);">Список желаемого пуст — добавьте первый фильм выше или через <a href="/profile">/profile</a>, <code>/addfilm</code>.</div>
+              </div>
+            {% endif %}
+          </div>
 
-            {# Список вишлиста с чекбоксами #}
-            <div class="pick-list" id="pick-list">
-              {% for w_id, title, tmdb_id, added_at, is_watched in watchlist %}
-                {% set picked = w_id in user_picks | map(attribute='watchlist_id') | list %}
-                <div class="pick-item {{ 'checked' if picked else '' }}"
-                     data-watchlist-id="{{ w_id }}"
-                     data-title="{{ title }}"
-                     data-tmdb-id="{{ tmdb_id or '' }}"
-                     onclick="togglePick({{ w_id }})">
-                  <div class="pick-checkbox"></div>
-                  <div class="pick-title">{{ title }}</div>
-                </div>
-              {% endfor %}
-            </div>
-
-            <button type="button" class="ready-btn {{ 'ready' if user_picks_count == max_per_user else '' }}"
-                    id="ready-btn"
-                    onclick="toggleReady()">
-              {% if user_picks_count == max_per_user %}
-                <img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Готов! (нажмите чтобы отменить)
-              {% else %}
-                Выберите {{ max_per_user - user_picks_count }} ещё фильм(ов)
-              {% endif %}
-            </button>
-          {% endif %}
+          <button type="button" class="ready-btn {{ 'ready' if user_picks_count == max_per_user else '' }}"
+                  id="ready-btn"
+                  onclick="toggleReady()">
+            {% if user_picks_count == max_per_user %}
+              <img src="/static/icons/check.png" alt="" width="14" height="14" class="ui-icon"> Готов! (нажмите чтобы отменить)
+            {% else %}
+              Выберите {{ max_per_user - user_picks_count }} ещё фильм(ов)
+            {% endif %}
+          </button>
 
           {% if is_organizer %}
             {# === Organizer controls === #}

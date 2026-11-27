@@ -2513,3 +2513,234 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
   ::view-transition-old(*),
   ::view-transition-new(*) { animation: none !important; }
 }
+
+/* ============================================================
+   v3.15.1: Мёд — перестановка блоков (лотерея на дашборде,
+   ставки на колесе, бейдж пасечника, панелька подарка)
+   ============================================================ */
+
+/* Дашборд: колонка «карточка мёда + сжатая лотерея» (2 карточки в ряд
+   с топ-бордом) — плашки не разъезжаются на разных высотах */
+.honey-dash-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.honey-dash-col .card { margin-bottom: 0; }
+
+/* Лотерея на дашборде — сжатая карточка */
+.lottery-card h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+.lottery-mini-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.lottery-mini-form input {
+  width: 90px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.btn-honey-mini {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-text, #1a1a1a);
+  font-weight: 700;
+  font-size: 0.82rem;
+  transition: filter 0.15s;
+}
+.btn-honey-mini:hover { filter: brightness(1.08); }
+.lottery-status {
+  font-size: 0.8rem;
+  margin-top: 8px;
+  min-height: 1.1em;
+}
+
+/* Публичный профиль: маленький значок пасечника */
+.beekeeper-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* Публичный профиль: панелька «Подарить мёд» (НЕ модальное окно) */
+.gift-honey-panel {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--glass-bg);
+  max-width: 380px;
+}
+.gift-honey-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gift-honey-row input {
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: var(--input-bg, var(--glass-bg));
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.gift-honey-send {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-text, #1a1a1a);
+  font-weight: 700;
+  font-size: 0.82rem;
+  transition: filter 0.15s;
+}
+.gift-honey-send:hover { filter: brightness(1.08); }
+.gift-honey-send[disabled] { opacity: 0.5; cursor: not-allowed; }
+.gift-honey-hint {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.gift-honey-status {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  min-height: 1.1em;
+}
+
+/* Колесо: панель ставок в сайдбаре */
+.bets-panel {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.bets-panel h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+.bets-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bets-form select, .bets-form input {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: var(--input-bg, var(--glass-bg));
+  color: var(--text);
+  font-size: 0.82rem;
+}
+.bets-form select { flex: 1; min-width: 130px; }
+.bets-form input { width: 90px; }
+.bet-place-btn {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-text, #1a1a1a);
+  font-weight: 700;
+  font-size: 0.8rem;
+  transition: filter 0.15s;
+}
+.bet-place-btn:hover { filter: brightness(1.08); }
+.bet-place-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.bets-note {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+.bets-pool {
+  font-size: 0.82rem;
+  margin-top: 10px;
+}
+.bets-pool b { color: var(--accent); }
+.bets-closed {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--card-alt, rgba(128, 128, 128, 0.08));
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.bets-status {
+  font-size: 0.78rem;
+  margin-top: 8px;
+  min-height: 1.1em;
+}
+table.bets-mini {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+  margin-top: 6px;
+}
+table.bets-mini th, table.bets-mini td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+table.bets-mini th { color: var(--text-muted); font-weight: 600; }
+
+/* Настройки профиля: магазин рамок (секция «Рамки») */
+.frame-shop-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.85rem;
+}
+.frame-shop-row:last-child { border-bottom: none; }
+.frame-shop-cost { color: var(--accent); font-weight: 700; }
+.frame-shop-buy {
+  padding: 5px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text);
+  font-size: 0.78rem;
+  transition: filter 0.15s;
+}
+.frame-shop-buy:hover { filter: brightness(1.1); }
+.frame-shop-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.frames-status {
+  font-size: 0.8rem;
+  margin-top: 8px;
+  min-height: 1.1em;
+}

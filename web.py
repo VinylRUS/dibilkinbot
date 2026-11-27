@@ -921,7 +921,8 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
             logging.getLogger("dashboard").warning("active santa check failed: %s", e)
 
     # v3.11: «Мёд» 🍯 — баланс/стрик текущего пользователя + топ-5 лидерборда
-    honey = {"balance": 0, "streak": 0, "leaderboard": []}
+    honey = {"balance": 0, "streak": 0, "leaderboard": [], "lottery": None,
+             "lottery_last": None}
     if user_discord_id:
         try:
             honey["balance"] = await db.g_honey_balance(guild_id, user_discord_id)
@@ -930,6 +931,15 @@ async def dashboard(request: Request, _user: dict = Depends(require_user)):
         except Exception as e:
             import logging
             logging.getLogger("dashboard").warning("honey dashboard failed: %s", e)
+        # v3.15.1: лотерея «Улей» переехала с /honey на дашборд — карточка
+        # под карточкой мёда (сжатая, 2 карточки в ряд).
+        try:
+            import honey_economy as he
+            honey["lottery"] = await he.he_lottery_info(guild_id, user_discord_id)
+            honey["lottery_last"] = await he.he_lottery_last(guild_id)
+        except Exception as e:
+            import logging
+            logging.getLogger("dashboard").warning("lottery dashboard failed: %s", e)
 
     # v3.11: Лента подписок — активность тех, на кого подписан текущий пользователь
     _FEED_LABELS = {
@@ -1194,6 +1204,21 @@ async def admin_panel_page(request: Request, _user: dict = Depends(require_admin
         import guild as guild_module
         guilds = await guild_module.list_guilds(approved_only=False)
 
+    # v3.15.1: «Мёд» — гильдии и общий банк переехали с /honey в админ-панель
+    # (только Матка). Читаем здесь, рендерит таб «Мёд» в admin_panel.html.
+    honey_clans = []
+    honey_bank = None
+    honey_bank_log = []
+    if is_superuser:
+        try:
+            import honey_economy as he
+            honey_clans = await he.he_clan_list(guild_id)
+            honey_bank = await he.he_bank_balance(guild_id)
+            honey_bank_log = await he.he_bank_log(guild_id, limit=25)
+        except Exception as e:
+            import logging
+            logging.getLogger("adminpanel").warning("honey admin context failed: %s", e)
+
     # v3.3: latest commit info for self-update button (только для Матки)
     current_version = None
     current_commit = None
@@ -1222,6 +1247,9 @@ async def admin_panel_page(request: Request, _user: dict = Depends(require_admin
         "current_commit": current_commit,
         "hub_gif_url": hub_gif_url,
         "hub_gif_library": hub_gif_library,
+        "honey_clans": honey_clans,
+        "honey_bank": honey_bank,
+        "honey_bank_log": honey_bank_log,
     })
 
 
@@ -2165,6 +2193,15 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         except Exception as e:
             import logging
             logging.getLogger("profile").warning("accent shop (settings) failed: %s", e)
+    # v3.15.1: магазин рамок переехал с /honey в настройки профиля (секция «Рамки»)
+    frames = None
+    if discord_id:
+        try:
+            import honey_economy as he
+            frames = await he.he_frames_catalog(guild_id, discord_id)
+        except Exception as e:
+            import logging
+            logging.getLogger("profile").warning("frames catalog failed: %s", e)
     return templates.TemplateResponse(request, "profile.html", {
         "user": _user,
         "tg_link": tg_link,
@@ -2176,6 +2213,7 @@ async def profile_page(request: Request, _user: dict = Depends(require_user)):
         "is_santa_enabled": await is_santa_enabled(),
         "watchlist": watchlist,
         "accent_shop": accent_shop,
+        "frames": frames,
     })
 
 
@@ -2342,6 +2380,17 @@ async def public_profile_page(
         import logging
         logging.getLogger("profile").warning("honey profile failed: %s", e)
 
+    # v3.15.1: уровень пасечника — маленький значок 🐝 в хедере профиля
+    honey_level = None
+    gift_commission = 0
+    try:
+        import honey_economy as he
+        honey_level = await he.he_level(guild_id, target_discord_id)
+        gift_commission = he.HONEY_GIFT_COMMISSION
+    except Exception as e:
+        import logging
+        logging.getLogger("profile").warning("honey level profile failed: %s", e)
+
     # v3.11: «Вам может понравиться» — только на своём профиле
     recommendations = []
     if is_self:
@@ -2382,6 +2431,8 @@ async def public_profile_page(
     return templates.TemplateResponse(request, "profile_public.html", {
         "user": _user,
         "honey": honey,
+        "honey_level": honey_level,
+        "gift_commission": gift_commission,
         "recommendations": recommendations,
         "target": {
             "discord_id": target_discord_id,

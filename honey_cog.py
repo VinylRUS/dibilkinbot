@@ -1,9 +1,12 @@
 """v3.15 «Мёд» 🍯 — Discord-рантайм: фоновые задачи и события.
 
 HoneyCog (подключается в main.py — без правок bot.py):
-- «Поймай пчелу» #16: цикл постит 🐝 в настроенный канал, раунд живёт
-  30 минут, первые 3 отреагировавших получают по 5 мёда (атомарный клейм
-  в honey_economy.he_bee_claim, приз идемпотентен через dedupe_key).
+- «Поймай пчелу» #16: цикл постит 🐝 в СЛУЧАЙНЫЙ публичный текстовый канал
+  (видимый @everyone, не админский — для справедливости; v3.15.1 — раньше был
+  фиксированный honey_bee_channel_id). На страницах панели пчела НЕ
+  упоминается — сюрприз. Раунд живёт 30 минут, первые 3 отреагировавших
+  получают по 5 мёда (атомарный клейм в honey_economy.he_bee_claim,
+  приз идемпотентен через dedupe_key).
 - Лотерея «Улей» #14: еженедельный розыгрыш (воскресенье 20:00 UTC) —
   розыгрыш + анонс победителя с прозрачным RNG-сидом.
 - Дивиденды #18: 1-го числа месяца — % от банка активным участникам.
@@ -12,11 +15,14 @@ HoneyCog (подключается в main.py — без правок bot.py):
   врезки в wheel_routes; выигрыши ≤ 5 минут после крутки).
 - Steam-бонус #8: идемпотентный бэкфилл юзерам с привязанным Steam
   (dedupe_key гарантирует разовость; работает и для старых привязок).
+- v3.15.1: чистка вишлистов — просмотренные фильмы старше 7 дней
+  удаляются (фильмы сбора помечаются просмотренными при появлении колеса,
+  см. movienight_routes.api_collection_start_spin).
 
 Настройки per-guild (guild_{id}_settings):
-- honey_bee_channel_id — канал «Поймай пчелу» (фича выключена если не задан)
 - honey_bee_interval_min — интервал между раундами пчелы (мин, дефолт 240)
-- honey_announce_channel_id — анонсы лотереи/дивидендов/ставок (fallback: канал пчелы)
+  (v3.15.1: канал пчелы больше не настраивается — он случайный публичный)
+- honey_announce_channel_id — анонсы лотереи/дивидендов/ставок
 - honey_dividend_percent — % дивидендов (дефолт 5)
 - honey_bets_last_winner_id — служебный маркер расчёта ставок (тех.)
 """
@@ -31,7 +37,6 @@ import discord
 from discord.ext import commands, tasks
 
 import db
-import guild as _guild
 import honey_economy as he
 from config import settings
 
@@ -67,17 +72,33 @@ class HoneyCog(commands.Cog):
 
     # ---------- Каналы ----------
 
-    async def _channel(self, guild_id: int, key: str,
-                       fallback_bee: bool = False) -> discord.abc.Messageable | None:
+    async def _channel(self, guild_id: int, key: str) -> discord.abc.Messageable | None:
         ch_id = await db.g_get_setting(guild_id, key)
         if not ch_id or not str(ch_id).isdigit():
-            if fallback_bee:
-                ch_id = await db.g_get_setting(guild_id, "honey_bee_channel_id")
-                if not ch_id or not str(ch_id).isdigit():
-                    return None
-            else:
-                return None
+            return None
         return self.bot.get_channel(int(ch_id))
+
+    def _random_public_channel(self, guild: discord.Guild) -> discord.abc.Messageable | None:
+        """v3.15.1: случайный ПУБЛИЧНЫЙ текстовый канал гильдии для пчелы.
+
+        Публичный = @everyone может его видеть (view_channel). Админские каналы,
+        где @everyone не имеет доступа, исключаются — чтобы у всех участников
+        был равный шанс поймать пчелу (справедливость). Бот должен уметь
+        постить. Возвращает None, если подходящих каналов нет.
+        """
+        everyone = guild.default_role
+        me = guild.me
+        candidates: list[discord.TextChannel] = []
+        for ch in guild.text_channels:
+            try:
+                if not ch.permissions_for(everyone).view_channel:
+                    continue  # админский/приватный канал — мимо
+                if me and not ch.permissions_for(me).send_messages:
+                    continue  # бот не может постить
+            except Exception:
+                continue
+            candidates.append(ch)
+        return random.choice(candidates) if candidates else None
 
     # ---------- «Поймай пчелу» (#16): постинг раундов ----------
 
@@ -88,12 +109,14 @@ class HoneyCog(commands.Cog):
         Раунд запускается не чаще honey_bee_interval_min (дефолт 240) —
         кулдаун между раундами из скоупа. Плюс лёгкий рандом-джиттер,
         чтобы пчела не прилетала по расписанию до минуты.
+        v3.15.1: пчела прилетает в СЛУЧАЙНЫЙ публичный текстовый канал —
+        в каком именно канале её ловить, заранее не знает никто.
         """
         try:
             for guild_id in await _approved_guilds():
                 try:
-                    channel = await self._channel(guild_id, "honey_bee_channel_id")
-                    if channel is None:
+                    guild = self.bot.get_guild(int(guild_id))
+                    if guild is None:
                         continue
                     interval = await db.g_get_setting(guild_id, "honey_bee_interval_min")
                     interval_min = int(interval) if interval and interval.isdigit() else 240
@@ -101,6 +124,9 @@ class HoneyCog(commands.Cog):
                     if await he.he_bee_has_open_recent(guild_id, interval_min):
                         continue
                     if random.random() < 0.35:  # джиттер: пропускаем тик
+                        continue
+                    channel = self._random_public_channel(guild)
+                    if channel is None:
                         continue
                     await self._post_bee_round(guild_id, channel)
                 except Exception as e:
@@ -177,7 +203,9 @@ class HoneyCog(commands.Cog):
         - закрывает протухшие раунды пчелы (окно 30 мин);
         - рассчитывает открытые ставки по новому победителю колеса;
         - начисляет Steam-бонус юзерам с привязанным профилем (идемпотентно);
-        - проводит лотерею (draw_at прошло) и дивиденды (1-е число).
+        - проводит лотерею (draw_at прошло) и дивиденды (1-е число);
+        - v3.15.1: чистит вишлисты — просмотренные фильмы старше 7 дней
+          исчезают (фильмы сбора помечаются при появлении колеса).
         """
         try:
             now = datetime.utcnow()
@@ -188,6 +216,7 @@ class HoneyCog(commands.Cog):
                     await self._maybe_steam_bonuses(guild_id)
                     await self._maybe_draw_lottery(guild_id, now)
                     await self._maybe_pay_dividends(guild_id, now)
+                    await self._watchlist_cleanup(guild_id)
                 except Exception as e:
                     log.warning("honey maintenance guild %s failed: %s",
                                 guild_id, e, exc_info=True)
@@ -216,17 +245,31 @@ class HoneyCog(commands.Cog):
             except Exception as e:
                 log.warning("bee stale close failed: %s", e)
 
+    # ---------- v3.15.1: чистка вишлиста ----------
+
+    async def _watchlist_cleanup(self, guild_id: int) -> None:
+        """Просмотренные фильмы старше 7 дней исчезают из вишлиста.
+
+        Фильмы сбора помечаются is_watched при появлении колеса
+        (movienight_routes.api_collection_start_spin); через неделю записи
+        удаляются совсем — вишлист не копит «мёртвые» позиции.
+        """
+        try:
+            removed = await db.g_watchlist_cleanup(guild_id)
+            if removed:
+                log.info("watchlist cleanup: guild=%s removed=%d", guild_id, removed)
+        except Exception as e:
+            log.warning("watchlist cleanup guild %s failed: %s", guild_id, e)
+
     # ---------- #15: расчёт ставок по победителю колеса ----------
 
     async def _last_real_winner(self, guild_id: int) -> tuple[int, str] | None:
-        """Последний НЕ-тестовый победитель колеса: (id, lot_name)."""
-        t_winners = _guild.guild_table(guild_id, "winners")
-        async with aiosqlite.connect(settings.database_path) as conn:
-            async with conn.execute(
-                f"SELECT id, lot_name FROM {t_winners} WHERE is_test = 0 "
-                f"ORDER BY id DESC LIMIT 1") as cur:
-                row = await cur.fetchone()
-        return (int(row[0]), row[1]) if row else None
+        """Последний НЕ-тестовый победитель колеса: (id, lot_name).
+        v3.15.1: использует db.g_get_last_real_winner (общая функция —
+        она же служит окну приёма ставок he_bets_round_open).
+        """
+        w = await db.g_get_last_real_winner(guild_id)
+        return (w["id"], w["lot_name"]) if w else None
 
     async def _maybe_settle_bets(self, guild_id: int) -> None:
         """Рассчитать открытые ставки, если появился новый победитель колеса.
@@ -288,8 +331,7 @@ class HoneyCog(commands.Cog):
     # ---------- #14: лотерея ----------
 
     async def _announce(self, guild_id: int, content: str) -> None:
-        channel = await self._channel(guild_id, "honey_announce_channel_id",
-                                      fallback_bee=True)
+        channel = await self._channel(guild_id, "honey_announce_channel_id")
         if channel is None:
             return
         try:

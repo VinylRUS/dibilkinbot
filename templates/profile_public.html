@@ -397,6 +397,8 @@
           <div class="profile-name">
             {{ target.display_name }}
             {% if target.is_superuser %}<span class="profile-badge-admin">Матка</span>{% elif target.is_admin %}<span class="profile-badge-admin" style="background: var(--green); color: #fff;">Трутень</span>{% endif %}
+            {# v3.15.1: маленький значок «Пасечник» — уровень на публичном профиле #}
+            {% if honey_level %}<span class="beekeeper-badge" title="Уровень пасечника: {{ honey_level.level }} · суммарно заработано {{ honey_level.total_earned }} мёда · до следующего уровня: {{ honey_level.next_at }} мёда">🐝 Пасечник · ур. {{ honey_level.level }}</span>{% endif %}
             {% if is_self %}<span style="font-size:0.65rem; color: var(--text-muted); font-weight: 500; margin-left: 4px;">(вы)</span>{% endif %}
           </div>
           <div class="profile-meta">
@@ -415,8 +417,28 @@
                     onclick="toggleFollow(this)">
               {{ 'Отписаться' if is_following else '＋ Подписаться' }}
             </button>
+            {# v3.15.1: подарочный мёд — рядом с кнопкой подписки; панелька ниже #}
+            <button id="gift-honey-btn" class="btn-outline btn-sm" type="button"
+                    onclick="toggleGiftHoneyPanel()" title="Подарить мёд">
+              🍯 Подарить мёд
+            </button>
             {% endif %}
           </div>
+          {# v3.15.1: панелька «Подарить мёд» — НЕ модальное окно, разворачивается на месте #}
+          {% if not is_self %}
+          <div id="gift-honey-panel" class="gift-honey-panel" hidden>
+            <div class="gift-honey-row">
+              <input type="number" id="gift-honey-amount" min="1" max="10000" step="1"
+                     placeholder="Сколько мёда (1–10000)">
+              <button id="gift-honey-send" class="gift-honey-send" type="button"
+                      onclick="sendGiftHoney()">Отправить 🍯</button>
+            </div>
+            <div class="gift-honey-hint">
+              Перевод мёдa этому участнику. Комиссия {{ (gift_commission * 100) | round(0) | int }}% уходит в общий банк сервера — перекидка ради фарма невыгодна.
+            </div>
+            <div id="gift-honey-status" class="gift-honey-status"></div>
+          </div>
+          {% endif %}
         </div>
       </div>
       {# v2.3: Пинн-ачивки (3 шт) справа в хедере — иконка + название + tooltip #}
@@ -657,6 +679,59 @@
         })
         .catch(() => { if (window.showToast) window.showToast('❌ Ошибка', 'error'); })
         .finally(() => { btn.disabled = false; });
+    };
+
+    // v3.15.1: Подарочный мёд — панелька (не модалка). ID получателя берём
+    // из URL страницы (/u/{discord_id}), а не из DOM/контекста шаблона.
+    function giftTargetIdFromUrl() {
+      const m = location.pathname.match(/\/u\/(\d+)/);
+      return m ? parseInt(m[1], 10) : 0;
+    }
+
+    window.toggleGiftHoneyPanel = function () {
+      const panel = document.getElementById('gift-honey-panel');
+      if (!panel) return;
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) {
+        const input = document.getElementById('gift-honey-amount');
+        if (input) input.focus();
+      }
+    };
+
+    window.sendGiftHoney = async function () {
+      const input = document.getElementById('gift-honey-amount');
+      const status = document.getElementById('gift-honey-status');
+      const btn = document.getElementById('gift-honey-send');
+      const amount = parseInt((input.value || '0').trim(), 10);
+      const to = giftTargetIdFromUrl();
+      if (!to) { status.textContent = 'Не удалось определить получателя из адреса страницы.'; status.style.color = 'var(--red)'; return; }
+      if (!amount || amount < 1) { status.textContent = 'Введите количество мёда (от 1).'; status.style.color = 'var(--red)'; return; }
+      btn.disabled = true;
+      try {
+        const fd = new FormData();
+        fd.append('to_discord_id', String(to));
+        fd.append('amount', String(amount));
+        const r = await fetch('/api/honey/gift', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (d.ok) {
+          status.textContent = '✓ Отправлено ' + d.delivered + ' 🍯 (комиссия ' + d.commission + ' → банк). Ваш баланс: ' + d.balance;
+          status.style.color = 'var(--green)';
+          input.value = '';
+        } else {
+          status.textContent = ({
+            'recipient_not_found': 'Получатель не найден',
+            'insufficient': 'Недостаточно мёда',
+            'self': 'Нельзя дарить себе',
+            'amount': 'Неверная сумма'
+          })[d.error] || ('Ошибка: ' + d.error);
+          status.style.color = 'var(--red)';
+        }
+      } catch (e) {
+        status.textContent = 'Сетевая ошибка';
+        status.style.color = 'var(--red)';
+      } finally {
+        btn.disabled = false;
+      }
     };
 
     // v3.11: покупка/применение accent-цвета

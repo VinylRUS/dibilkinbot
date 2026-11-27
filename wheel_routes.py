@@ -88,6 +88,8 @@ async def wheel_page(request: Request, _user: dict = Depends(require_user)):
     - last_collection: последний завершённый сбор (для баннера «Колесо загружено из сбора»)
     - active_collection: активный сбор (если есть — предупреждаем)
     - recent_winner: последний победитель за час (для блокировки повторной крутки)
+    - honey_bets (v3.15.1): блок «Ставки» — открытые ставки, пул и статус окна
+      приёма (ставки принимаются только до начала первой крутки раунда).
     """
     guild_id = get_current_guild_id(_user)
     raw_items = await db.g_list_wheel_items(guild_id, active_only=True)
@@ -103,6 +105,26 @@ async def wheel_page(request: Request, _user: dict = Depends(require_user)):
     # v2.3.3: статус тестового режима (для UI — бейдж + кнопки Матки)
     is_test_mode = await _is_wheel_test_mode(int(guild_id))
 
+    # v3.15.1: ставки живут здесь — на странице колеса
+    honey_bets = None
+    try:
+        import honey_economy as he
+        uid = _user.get("discord_id", 0)
+        round_open, closed_reason = await he.he_bets_round_open(guild_id)
+        open_bets = await he.he_bets_open(guild_id)
+        my_bets = [b for b in open_bets["bets"] if uid and b["user_discord_id"] == uid]
+        honey_bets = {
+            "open": round_open,
+            "closed_reason": closed_reason,
+            "pool": open_bets["pool"],
+            "bets": open_bets["bets"],
+            "my_bets": my_bets,
+            "my_history": await he.he_bets_history(guild_id, uid, limit=10) if uid else [],
+            "sectors": [{"id": i["id"], "name": i["name"]} for i in raw_items],
+        }
+    except Exception as e:
+        _log.warning("honey_bets context failed: %s", e)
+
     return templates.TemplateResponse(request, "wheel.html", {
         "user": _user,
         "items": items,
@@ -112,6 +134,7 @@ async def wheel_page(request: Request, _user: dict = Depends(require_user)):
         "recent_winner": recent_winner,
         "wheel_count": len(items),
         "is_test_mode": is_test_mode,
+        "honey_bets": honey_bets,
     })
 
 

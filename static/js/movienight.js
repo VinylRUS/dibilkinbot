@@ -177,6 +177,56 @@
       refreshParticipants(); // пересчитать счётчики
     }
 
+    // === v3.15.1: добавление фильма прямо во время сбора ===
+    // Фильм автоматически попадает в вишлист (g_add_to_watchlist на бэкенде)
+    // и сразу появляется в списке выбора этого сбора. Если квота ещё не
+    // выбрана — автоматически чекаем его.
+    window.addFilm = async function () {
+      const input = document.getElementById('add-film-input');
+      const result = document.getElementById('add-film-result');
+      if (!input) return;
+      const title = (input.value || '').trim();
+      if (!title) { result.textContent = 'Введите название фильма.'; result.style.color = 'var(--red)'; result.style.display = 'block'; return; }
+      const fd = new FormData();
+      fd.append('title', title);
+      result.style.display = 'block';
+      try {
+        const r = await fetch('/api/collection/add_film', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (d.ok) {
+          result.textContent = '✓ «' + d.title + '» добавлен в ваш список желаемого — выберите его ниже.';
+          result.style.color = 'var(--green)';
+          input.value = '';
+          // Вставляем в список выбора и (если квота не исчерпана) чекаем
+          const list = document.getElementById('pick-list');
+          if (list) {
+            const hint = document.getElementById('pick-list-empty-hint');
+            if (hint) hint.remove();
+            const row = document.createElement('div');
+            row.className = 'pick-item';
+            row.dataset.watchlistId = String(d.watchlist_id);
+            row.dataset.title = d.title;
+            row.dataset.tmdbId = '';
+            row.setAttribute('onclick', 'togglePick(' + d.watchlist_id + ')');
+            row.innerHTML = '<div class="pick-checkbox"></div><div class="pick-title"></div>';
+            row.querySelector('.pick-title').textContent = d.title;
+            list.appendChild(row);
+            if (selectedIds.size < maxPerUser) {
+              selectedIds.add(d.watchlist_id);
+              row.classList.add('checked');
+              updateProgressUI();
+            }
+          }
+        } else {
+          result.textContent = d.message || ('Не удалось добавить: ' + (d.error || ''));
+          result.style.color = 'var(--red)';
+        }
+      } catch (e) {
+        result.textContent = 'Сетевая ошибка: ' + e.message;
+        result.style.color = 'var(--red)';
+      }
+    };
+
     // === Чекбоксы выбора ===
     function togglePick(watchlistId) {
       if (selectedIds.has(watchlistId)) {

@@ -925,6 +925,59 @@
       <div id="empty-state" class="empty-state">Колесо пустое. Начните сбор фильмов на <a href="/movienight" style="color: var(--accent);">/movienight</a> <img src="/static/icons/clapperboard.png" alt="" width="16" height="16" class="ui-icon"></div>
       <button id="clear-btn" class="clear-btn" style="display:none">Очистить колесо</button>
 
+      <!-- v3.15.1: ставки на колесо — живут здесь (переехали с /honey) -->
+      {% if honey_bets %}
+      <div class="bets-panel" id="honey-bets-panel">
+        <h3>🎡 Ставки 🍯 <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">— на сектор</span></h3>
+        {% if not honey_bets.open %}
+        <div class="bets-closed">
+          {% if honey_bets.closed_reason == 'колесо крутится' %}
+          Колесо крутится — приём ставок закрыт до результата.
+          {% else %}
+          Приём ставок закрыт: крутка этого колеса уже началась — дождитесь нового сбора.
+          {% endif %}
+        </div>
+        {% elif not honey_bets.sectors %}
+        <div class="bets-closed">Колесо пусто — ставить не на что.</div>
+        {% else %}
+        <div class="bets-form">
+          <select id="bet-sector" required>
+            {% for s in honey_bets.sectors %}
+            <option value="{{ s.name }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" id="bet-amount" min="1" max="10000" placeholder="Мёда">
+          <button type="button" class="bet-place-btn" id="bet-place-btn" onclick="placeBet()">Поставить</button>
+        </div>
+        <div class="bets-note">Приём — только до начала первой крутки. Победители делят 90% пула, 10% — в банк сервера.</div>
+        <div class="bets-status" id="bets-status"></div>
+        {% endif %}
+
+        {% if honey_bets.bets %}
+        <div class="bets-pool">Открытый пул: <b>{{ honey_bets.pool }}</b> мёда · ставок: {{ honey_bets.bets | length }}</div>
+        <table class="bets-mini">
+          <tr><th>Участник</th><th>Сектор</th><th>Мёд</th></tr>
+          {% for b in honey_bets.bets %}
+          <tr><td>{{ b.user_discord_id }}</td><td>{{ b.item_name }}</td><td>{{ b.amount }}</td></tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+
+        {% if honey_bets.my_history %}
+        <details style="margin-top:10px;">
+          <summary class="bets-note" style="cursor:pointer;">История моих ставок</summary>
+          <table class="bets-mini">
+            <tr><th>Сектор</th><th>Мёд</th><th>Статус</th><th>Выплата</th></tr>
+            {% for b in honey_bets.my_history %}
+            <tr><td>{{ b.item_name }}</td><td>{{ b.amount }}</td><td>{{ b.status }}</td>
+                <td>{% if b.payout %}{{ b.payout }}{% else %}—{% endif %}</td></tr>
+            {% endfor %}
+          </table>
+        </details>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <!-- v3.8.1: Настройки колеса (громкость, длительность, GIF хаб) -->
       <div class="sidebar-settings">
         <h3 class="settings-title"><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Настройки</h3>
@@ -962,6 +1015,41 @@
     // is_test_mode и user.is_superuser для UI
     const IS_TEST_MODE = {{ 'true' if is_test_mode else 'false' }};
     const IS_SUPERUSER = {{ 'true' if user.is_superuser else 'false' }};
+  </script>
+  <script>
+    // v3.15.1: ставки на колесо (переехали с /honey). Приём — только до
+    // первой крутки раунда; сервер дополнительно валидирует окно.
+    async function placeBet() {
+      const sector = document.getElementById('bet-sector');
+      const amountInput = document.getElementById('bet-amount');
+      const btn = document.getElementById('bet-place-btn');
+      const status = document.getElementById('bets-status');
+      const amount = parseInt((amountInput.value || '').trim(), 10);
+      if (!sector || !sector.value) { status.textContent = 'Выберите сектор.'; status.style.color = 'var(--red)'; return; }
+      if (!amount || amount < 1) { status.textContent = 'Введите сумму (от 1 мёда).'; status.style.color = 'var(--red)'; return; }
+      btn.disabled = true;
+      try {
+        const fd = new FormData();
+        fd.append('item_name', sector.value);
+        fd.append('amount', String(amount));
+        const r = await fetch('/api/honey/bets/place', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (d.ok) {
+          status.textContent = '✓ Ставка ' + d.amount + ' 🍯 на «' + d.item_name + '» принята. Баланс: ' + d.balance;
+          status.style.color = 'var(--green)';
+          amountInput.value = '';
+          setTimeout(function () { location.reload(); }, 900);
+        } else {
+          status.textContent = d.error || 'Ошибка';
+          status.style.color = 'var(--red)';
+        }
+      } catch (e) {
+        status.textContent = 'Сетевая ошибка';
+        status.style.color = 'var(--red)';
+      } finally {
+        btn.disabled = false;
+      }
+    }
   </script>
   <script src="/static/js/wheel.js?v={{ commit_id }}"></script>
   {% include "_footer.html" %}
