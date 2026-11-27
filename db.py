@@ -5198,6 +5198,56 @@ async def g_mark_watchlist_watched(guild_id: int, title: str) -> int:
         return cur.rowcount
 
 
+async def g_watchlist_cleanup(guild_id: int) -> int:
+    """v3.15.1: удалить из вишлиста просмотренные фильмы старше 7 дней.
+
+    «Просмотренные исчезают из вишлиста через неделю» — когда колесо
+    появляется, фильмы сбора помечаются is_watched=1 (g_mark_watchlist_watched);
+    спустя 7 дней записи удаляются физически. Возвращает число удалённых строк.
+    """
+    table = _guild.guild_table(guild_id, "watchlist")
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+    async with _connect() as db:
+        cur = await db.execute(
+            f"DELETE FROM {table} WHERE is_watched = 1 AND watched_at IS NOT NULL AND watched_at < ?",
+            (cutoff,),
+        )
+        await db.commit()
+        return cur.rowcount
+
+
+async def g_get_last_real_winner(guild_id: int) -> dict | None:
+    """v3.15.1: последний НЕ-тестовый победитель колеса {id, lot_name, detected_at}.
+
+    Используется для окна приёма ставок (см. honey_economy.he_bets_round_open):
+    ставки принимаются только до начала первой крутки текущей загрузки колеса.
+    """
+    table = _guild.guild_table(guild_id, "winners")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT id, lot_name, detected_at FROM {table} "
+            f"WHERE is_test = 0 ORDER BY id DESC LIMIT 1"
+        ) as cur:
+            r = await cur.fetchone()
+    if not r:
+        return None
+    return {"id": int(r[0]), "lot_name": r[1], "detected_at": r[2]}
+
+
+async def g_honey_ledger_recent(guild_id: int, user_discord_id: int,
+                                limit: int = 15) -> list[dict]:
+    """v3.15.1: последние операции леджера мёда пользователя (для /honey)."""
+    table = _guild.guild_table(guild_id, "honey_ledger")
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT delta, reason, created_at FROM {table} "
+            f"WHERE user_discord_id = ? ORDER BY id DESC LIMIT ?",
+            (int(user_discord_id), int(limit))) as cur:
+            rows = await cur.fetchall()
+    return [{"delta": int(r[0]), "reason": r[1], "created_at": r[2]} for r in rows]
+
+
 # === v2.4.1: Modrinth modpack subscriptions ===
 
 async def list_approved_guilds() -> list[int]:

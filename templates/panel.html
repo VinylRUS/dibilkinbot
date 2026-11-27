@@ -209,15 +209,50 @@
     </div>
     {% endif %}
 
-    {# ===== v3.11: Мёд 🍯 ===== #}
+    {# ===== v3.11: Мёд 🍯 (v3.15.1: + лотерея «Улей» под карточкой мёда) ===== #}
     {% if honey %}
     <h2>🍯 Мёд</h2>
-    <div class="now-grid">
-      <article class="card honey-card">
-        <div class="honey-balance">🍯 {{ honey.balance }}</div>
-        <div class="honey-sub">мёда накоплено</div>
-        <div class="honey-streak" title="Дней активности подряд">🔥 Стрик: <strong>{{ honey.streak }}</strong> дн</div>
-      </article>
+    <div class="now-grid honey-dash">
+      <div class="honey-dash-col">
+        <article class="card honey-card">
+          <div class="honey-balance">🍯 {{ honey.balance }}</div>
+          <div class="honey-sub">мёда накоплено</div>
+          <div class="honey-streak" title="Дней активности подряд">🔥 Стрик: <strong>{{ honey.streak }}</strong> дн</div>
+        </article>
+
+        {# v3.15.1: лотерея переехала с /honey — сжатая карточка под мёдом #}
+        {% if honey.lottery and honey.lottery.round %}
+        <article class="card lottery-card">
+          <h3>🎟️ Лотерея «Улей»</h3>
+          <div style="font-size:0.85rem;">
+            Билет — <b>{{ honey.lottery.round.ticket_cost }} мёда</b>,
+            приз — <b>{{ honey.lottery.round.prize }} мёда</b>.
+          </div>
+          <div class="honey-sub">
+            Розыгрыш {{ (honey.lottery.round.draw_at or '')[:16] }} (вс 20:00 UTC) ·
+            участников: <b>{{ honey.lottery.participants }}</b> ·
+            билетов: <b>{{ honey.lottery.tickets_total }}</b>
+            · моих: <b>{{ honey.lottery.my_tickets }}</b>
+          </div>
+          <form class="lottery-mini-form" onsubmit="return lotteryBuyDashboard(event)">
+            <input type="number" name="qty" min="1" max="100" value="1" title="Билетов">
+            <button type="submit" class="btn-honey-mini">Купить билет</button>
+          </form>
+          <div class="lottery-status" id="lottery-status"></div>
+          {% if honey.lottery_last %}
+          <div class="honey-sub" style="margin-top:6px;">
+            {% if honey.lottery_last.status == 'drawn' %}
+            Прошлый розыгрыш: победитель <b>{{ honey.lottery_last.winner_discord_id }}</b>
+            +{{ honey.lottery_last.prize }} мёда
+            {% else %}
+            Прошлый раунд перенесён — было мало участников.
+            {% endif %}
+          </div>
+          {% endif %}
+        </article>
+        {% endif %}
+      </div>
+
       <article class="card">
         <h3>Топ по мёду</h3>
         {% if honey.leaderboard %}
@@ -234,6 +269,31 @@
         {% endif %}
       </article>
     </div>
+
+  <script>
+    // v3.15.1: покупка билета лотереи прямо с дашборда (лотерея переехала с /honey)
+    async function lotteryBuyDashboard(e) {
+      e.preventDefault();
+      var fd = new FormData(e.target);
+      var st = document.getElementById('lottery-status');
+      try {
+        var r = await fetch('/api/honey/lottery/buy', {method: 'POST', body: fd});
+        var d = await r.json();
+        if (d.ok) {
+          st.textContent = '✓ Куплено билетов: ' + d.qty + ' за ' + d.cost + ' 🍯. Баланс: ' + d.balance;
+          st.style.color = 'var(--green)';
+          e.target.reset();
+        } else {
+          st.textContent = ({'insufficient': 'Недостаточно мёда', 'qty': 'Неверное количество'}[d.error]) || ('Ошибка: ' + d.error);
+          st.style.color = 'var(--red)';
+        }
+      } catch (err) {
+        st.textContent = 'Сетевая ошибка';
+        st.style.color = 'var(--red)';
+      }
+      return false;
+    }
+  </script>
     {% endif %}
 
     {# ===== v3.11: Лента подписок ===== #}

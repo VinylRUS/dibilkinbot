@@ -7,18 +7,21 @@
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ commit_id }}">
   <link rel="stylesheet" href="/static/style.css?v={{ commit_id }}">
   <style>
+    /* v3.15.1: сетка починена — плашки не разъезжаются.
+       Узкий gap, равные карточки, stretch вместо start. */
     .honey-head {
       display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-      margin-bottom: 18px;
+      margin-bottom: 14px;
     }
     .honey-balance-big {
       font-size: 1.7rem; font-weight: 800; color: var(--accent);
     }
     .honey-grid {
-      display: grid; gap: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      align-items: start;
+      display: grid; gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      align-items: stretch;
     }
+    .honey-grid .card { margin-bottom: 0; }
     .honey-sub { color: var(--text-muted); font-size: 0.85rem; }
     .lvl-bar {
       height: 12px; border-radius: 8px; overflow: hidden; margin: 8px 0 4px;
@@ -29,51 +32,25 @@
       transition: width 0.4s ease; border-radius: 8px;
     }
     .lvl-num { font-weight: 700; color: var(--accent); }
-    .honey-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    .honey-form input, .honey-form select {
-      padding: 8px 10px; border-radius: 8px;
-      border: 1px solid var(--glass-border); background: var(--glass-bg);
-      color: var(--text); font-size: 0.85rem;
+    .earn-row {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+      padding: 7px 0; border-bottom: 1px dashed var(--border);
+      font-size: 0.85rem;
     }
-    .btn-honey {
-      padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer;
-      background: var(--accent); color: #1a1a1a; font-weight: 700;
-      font-size: 0.85rem; transition: filter 0.15s;
-    }
-    .btn-honey:hover { filter: brightness(1.08); }
-    .btn-honey[disabled] { opacity: 0.5; cursor: not-allowed; }
-    .btn-ghost {
-      padding: 6px 12px; border-radius: 8px; cursor: pointer;
-      background: transparent; border: 1px solid var(--glass-border);
-      color: var(--text); font-size: 0.8rem;
-    }
-    .honey-status { font-size: 0.82rem; margin-top: 8px; min-height: 1.2em; }
-    .honey-status.ok { color: var(--green); }
-    .honey-status.err { color: var(--red); }
-    .tag {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 3px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
-      background: var(--accent-soft); color: var(--accent);
-    }
-    table.honey-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    table.honey-table th, table.honey-table td {
-      padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border);
-    }
-    table.honey-table th { color: var(--text-muted); font-weight: 600; }
-    .mono { font-family: ui-monospace, monospace; font-size: 0.78rem; }
+    .earn-row:last-child { border-bottom: none; }
+    .earn-amount { color: var(--accent); font-weight: 700; white-space: nowrap; }
     .delta-pos { color: var(--green); font-weight: 700; }
     .delta-neg { color: var(--red); font-weight: 700; }
-    .frame-card {
-      display: flex; justify-content: space-between; align-items: center;
-      gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border);
+    .mono { font-family: ui-monospace, monospace; font-size: 0.78rem; }
+    table.honey-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    table.honey-table th, table.honey-table td {
+      padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border);
     }
-    .frame-name { font-size: 0.88rem; font-weight: 600; }
-    .frame-cost { color: var(--accent); font-weight: 700; font-size: 0.82rem; }
-    .final-phase { color: var(--text-muted); font-size: 0.7rem; }
-    .sector-dot {
-      display: inline-block; width: 10px; height: 10px; border-radius: 3px;
-      margin-right: 6px; vertical-align: middle;
-    }
+    table.honey-table th { color: var(--text-muted); font-weight: 600; }
+    .where-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .where-link { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 0.85rem; }
+    .where-link:hover { text-decoration: underline; }
+    .where-sub { color: var(--text-muted); font-size: 0.78rem; }
   </style>
 </head>
 <body>
@@ -81,326 +58,97 @@
 
   <main class="container">
     <div class="honey-head">
-      <h2 class="section-title">🍯 Мёд — экономика</h2>
+      <h2 class="section-title">🍯 Мёд — кошелёк</h2>
       <span class="honey-balance-big" id="balance-big">🍯 {{ balance }}</span>
       <span class="honey-sub">мёда на счету</span>
     </div>
 
     <div class="honey-grid">
 
-      <!-- #52: Уровень пасечника -->
+      <!-- #52: Уровень пасечника — компактно (полный бейдж живёт в профиле) -->
+      {% if level %}
       <article class="card" style="padding: 16px;">
         <h3 class="card-title">🐝 Уровень пасечника</h3>
-        {% if level %}
         <div>Уровень <span class="lvl-num">{{ level.level }}</span>
              <span class="honey-sub">· суммарно заработано {{ level.total_earned }} мёда</span></div>
         <div class="lvl-bar" title="До следующего уровня: {{ level.next_at }} мёда">
           <div class="lvl-bar-fill" style="width: {{ (level.progress * 100 / level.step) | round(1) }}%;"></div>
         </div>
         <div class="honey-sub">{{ level.progress }} / {{ level.step }} мёда до уровня {{ level.level + 1 }}
-          · уровень не падает при тратах</div>
-        {% else %}
-        <div class="honey-sub">Уровень недоступен</div>
-        {% endif %}
+          · уровень не падает при тратах · значок — на вашем профиле</div>
       </article>
+      {% endif %}
 
-      <!-- #31: Подарочный мёд -->
+      <!-- Как копится мёд -->
+      {% if breakdown %}
       <article class="card" style="padding: 16px;">
-        <h3 class="card-title">🎁 Подарочный мёд</h3>
-        <div class="honey-sub">P2P-перевод. Комиссия {{ (gift_commission * 100) | round(0) | int }}% идёт в общий банк сервера —
-          перекидка ради фарма невыгодна.</div>
-        <form class="honey-form" onsubmit="return giftSubmit(event)">
-          <input type="number" name="to_discord_id" placeholder="Discord ID получателя" required>
-          <input type="number" name="amount" placeholder="Сколько мёда" min="1" required>
-          <button class="btn-honey" type="submit">Отправить 🍯</button>
-        </form>
-        <div class="honey-status" id="gift-status"></div>
-      </article>
-
-      <!-- #14: Лотерея «Улей» -->
-      <article class="card" style="padding: 16px;">
-        <h3 class="card-title">🎟️ Лотерея «Улей»</h3>
-        {% if lottery %}
-        <div>Билет — <b>{{ lottery.round.ticket_cost }} мёда</b>,
-             приз — <b>{{ lottery.round.prize }} мёда</b> (фиксированный).</div>
-        <div class="honey-sub">
-          Розыгрыш: {{ lottery.round.draw_at }} (воскресенье 20:00 UTC) ·
-          участников: <b>{{ lottery.participants }}</b> ·
-          билетов: <b>{{ lottery.tickets_total }}</b>
-          {% if lottery.min_participants %} · минимум участников: {{ lottery.min_participants }}{% endif %}
-        </div>
-        {% if user.discord_id %}
-        <div class="honey-sub">Мои билеты: <b>{{ lottery.my_tickets }}</b></div>
-        <form class="honey-form" onsubmit="return lotteryBuy(event)">
-          <input type="number" name="qty" placeholder="Билетов" min="1" max="100" value="1">
-          <button class="btn-honey" type="submit">Купить билет</button>
-        </form>
-        {% endif %}
-        <div class="honey-status" id="lottery-status"></div>
-        {% endif %}
-        {% if lottery_last %}
+        <h3 class="card-title">🍯 Как копится мёд</h3>
+        <div class="earn-row"><span>Просмотрено фильмов — {{ breakdown.watched }} шт.</span>
+          <span class="earn-amount">+{{ breakdown.watched * honey_per.watched }}</span></div>
+        <div class="earn-row"><span>Оценок поставлено — {{ breakdown.ratings }} шт.</span>
+          <span class="earn-amount">+{{ breakdown.ratings * honey_per.rating }}</span></div>
+        <div class="earn-row"><span>Цитат сохранено — {{ breakdown.quotes }} шт.</span>
+          <span class="earn-amount">+{{ breakdown.quotes * honey_per.quote }}</span></div>
+        <div class="earn-row"><span>Ачивок получено — {{ breakdown.achievements }} шт.</span>
+          <span class="earn-amount">+{{ breakdown.achievements * honey_per.achievement }}</span></div>
+        <div class="earn-row"><span>Всего заработано активностью</span>
+          <span class="earn-amount">🍯 {{ breakdown.earned }}</span></div>
         <div class="honey-sub" style="margin-top: 8px;">
-          {% if lottery_last.status == 'drawn' %}
-          Последний розыгрыш ({{ lottery_last.week_key }}): победитель
-          <b>{{ lottery_last.winner_discord_id }}</b> +{{ lottery_last.prize }} мёда ·
-          RNG <span class="mono">seed={{ lottery_last.rng_seed }} roll={{ lottery_last.rng_roll }}</span>
-          {% else %}
-          Последний раунд ({{ lottery_last.week_key }}) перенесён — было мало участников, билеты возвращены.
-          {% endif %}
-        </div>
-        {% endif %}
-      </article>
-
-      <!-- #15: Ставки на колесо -->
-      <article class="card" style="padding: 16px;">
-        <h3 class="card-title">🎡 Ставки на Колесо</h3>
-        <div class="honey-sub">Ставка на сектор до крутки. Победители делят 90% пула
-          пропорционально ставке, 10% — в банк сервера. Приём закрывается на время крутки.</div>
-        {% if wheel_items %}
-        <form class="honey-form" onsubmit="return betPlace(event)">
-          <select name="item_name" required>
-            {% for it in wheel_items %}
-            <option value="{{ it.name }}">{{ it.name }}</option>
-            {% endfor %}
-          </select>
-          <input type="number" name="amount" placeholder="Мёда" min="1" required>
-          <button class="btn-honey" type="submit">Поставить</button>
-        </form>
-        {% else %}
-        <div class="honey-sub" style="margin-top: 8px;">Колесо пусто — ставки недоступны.</div>
-        {% endif %}
-        <div class="honey-status" id="bets-status"></div>
-        {% if bets.bets %}
-        <div style="margin-top: 10px;">
-          <div class="honey-sub">Открытый пул: <b>{{ bets.pool }}</b> мёда</div>
-          <table class="honey-table">
-            <tr><th>Участник</th><th>Сектор</th><th>Мёд</th></tr>
-            {% for b in bets.bets %}
-            <tr><td>{{ b.user_discord_id }}</td><td>{{ b.item_name }}</td><td>{{ b.amount }}</td></tr>
-            {% endfor %}
-          </table>
-        </div>
-        {% endif %}
-        {% if bets_history %}
-        <details style="margin-top: 10px;">
-          <summary class="honey-sub">История моих ставок</summary>
-          <table class="honey-table">
-            <tr><th>Сектор</th><th>Мёд</th><th>Статус</th><th>Выплата</th></tr>
-            {% for b in bets_history %}
-            <tr><td>{{ b.item_name }}</td><td>{{ b.amount }}</td>
-                <td>{{ b.status }}</td>
-                <td>{% if b.payout %}{{ b.payout }}{% else %}—{% endif %}</td></tr>
-            {% endfor %}
-          </table>
-        </details>
-        {% endif %}
-      </article>
-
-      <!-- #16: Поймай пчелу (инфо) -->
-      <article class="card" style="padding: 16px;">
-        <h3 class="card-title">🐝 Поймай пчелу</h3>
-        <div class="honey-sub">
-          Периодически бот постит 🐝 в Discord-канал. Первые <b>3</b> поставивших реакцию 🐝
-          получают по <b>{{ bee_reward }} мёда</b>. Канал настраивается Маткой
-          (ключ <span class="mono">honey_bee_channel_id</span>).
+          Активность на сервере — просмотр фильмов, оценки, цитаты, ачивки.
+          Потратить — на рамки и акценты профиля.
         </div>
       </article>
+      {% endif %}
 
-      <!-- #27/#45: Магазин рамок -->
+      <!-- Последние операции -->
       <article class="card" style="padding: 16px;">
-        <h3 class="card-title">🖼️ Магазин рамок</h3>
-        {% if frames %}
-        {% for f in frames.frames %}
-        <div class="frame-card">
-          <span class="frame-name">{{ f.name }}</span>
-          <span>
-            {% if f.owned %}<span class="tag">куплено ✓</span>
-            {% else %}<span class="frame-cost">{{ f.cost }} 🍯</span>
-            <button class="btn-ghost" onclick="frameBuy('{{ f.key }}')">Купить</button>{% endif %}
-          </span>
-        </div>
-        {% endfor %}
-        <div class="honey-sub" style="margin: 10px 0 4px;">GIF-рамки — финальный этап версии:</div>
-        {% for f in frames.gif_frames %}
-        <div class="frame-card">
-          <span class="frame-name">{{ f.name }}
-            <span class="final-phase">в разработке</span></span>
-          <span>
-            {% if f.owned %}<span class="tag">куплено ✓</span>
-            {% else %}<span class="frame-cost">{{ f.cost }} 🍯</span>
-            <button class="btn-ghost" onclick="gifFrameBuy('{{ f.key }}')">Купить</button>{% endif %}
-          </span>
-        </div>
-        {% endfor %}
-        {% endif %}
-        <div class="honey-status" id="frame-status"></div>
-      </article>
-
-      <!-- Гильдии (кланы) -->
-      <article class="card" style="padding: 16px;">
-        <h3 class="card-title">🏰 Гильдии</h3>
-        {% if is_superuser %}
-        <form class="honey-form" onsubmit="return clanCreate(event)">
-          <input type="text" name="name" placeholder="Название гильдии" required>
-          <input type="text" name="tag" placeholder="Тег" maxlength="8">
-          <button class="btn-honey" type="submit">Создать</button>
-        </form>
-        <form class="honey-form" onsubmit="return clanAddMember(event)">
-          <input type="number" name="clan_id" placeholder="ID гильдии" required>
-          <input type="number" name="discord_id" placeholder="Discord ID участника" required>
-          <button class="btn-ghost" type="submit">+ участник</button>
-        </form>
-        <div class="honey-status" id="clan-status"></div>
-        {% else %}
-        <div class="honey-sub">Гильдии создаёт и курирует только Матка.</div>
-        {% endif %}
-        {% if clans %}
-        <table class="honey-table" style="margin-top: 8px;">
-          <tr><th>Гильдия</th><th>Тег</th><th>Участников</th>{% if is_superuser %}<th></th>{% endif %}</tr>
-          {% for c in clans %}
+        <h3 class="card-title">📜 Последние операции</h3>
+        {% if ledger %}
+        <table class="honey-table">
+          <tr><th>Δ</th><th>Причина</th><th>Когда</th></tr>
+          {% for op in ledger %}
           <tr>
-            <td>{{ c.name }}{% if c.description %} <span class="honey-sub">— {{ c.description }}</span>{% endif %}</td>
-            <td>{% if c.tag %}{{ c.tag }}{% else %}—{% endif %}</td>
-            <td>{{ c.members }}</td>
-            {% if is_superuser %}
-            <td><button class="btn-ghost" onclick="clanDelete({{ c.id }})">удалить</button></td>
-            {% endif %}
+            <td class="{% if op.delta > 0 %}delta-pos{% else %}delta-neg{% endif %}">
+              {% if op.delta > 0 %}+{% endif %}{{ op.delta }}</td>
+            <td>{{ op.reason or '—' }}</td>
+            <td class="honey-sub">{{ (op.created_at or '')[:16] }}</td>
           </tr>
           {% endfor %}
         </table>
         {% else %}
-        <div class="honey-sub" style="margin-top: 6px;">Гильдий пока нет.</div>
+        <div class="honey-sub">Операций пока нет — мёд появится с первой активностью.</div>
         {% endif %}
       </article>
 
-      <!-- Банк сервера (только Матка) -->
-      {% if is_superuser %}
+      <!-- v3.15.1: куда всё переехало (карта-подсказка вместо семи плашек) -->
       <article class="card" style="padding: 16px;">
-        <h3 class="card-title">🏦 Общий банк сервера</h3>
-        <div>Баланс: <span class="lvl-num">{{ bank }} 🍯</span></div>
-        <div class="honey-sub">Пополняется комиссиями (подарки, ставки, лотерея).
-          Расходовать может только Матка.</div>
-        <form class="honey-form" onsubmit="return bankAdjust(event)">
-          <input type="number" name="delta" placeholder="+100 / -50" required>
-          <input type="text" name="reason" placeholder="Причина (приз, дивиденды…)">
-          <button class="btn-honey" type="submit">Применить</button>
-        </form>
-        <div class="honey-status" id="bank-status"></div>
-        {% if bank_log %}
-        <details style="margin-top: 10px;">
-          <summary class="honey-sub">История операций банка</summary>
-          <table class="honey-table">
-            <tr><th>Δ</th><th>После</th><th>Причина</th><th>Когда</th></tr>
-            {% for op in bank_log %}
-            <tr>
-              <td class="{% if op.delta > 0 %}delta-pos{% else %}delta-neg{% endif %}">{{ op.delta }}</td>
-              <td>{{ op.balance_after }}</td>
-              <td>{{ op.reason or '—' }}</td>
-              <td class="honey-sub">{{ op.created_at[:16] }}</td>
-            </tr>
-            {% endfor %}
-          </table>
-        </details>
+        <h3 class="card-title">🧭 Где что лежит</h3>
+        <div class="where-row">
+          <a class="where-link" href="/profile">🖼️ Рамки за мёд</a>
+          <span class="where-sub">— в настройках профиля</span>
+        </div>
+        <div class="where-row">
+          <a class="where-link" href="/wheel">🎡 Ставки на колесо</a>
+          <span class="where-sub">— на странице колеса, до первой крутки</span>
+        </div>
+        <div class="where-row">
+          <a class="where-link" href="/">🎟️ Лотерея «Улей»</a>
+          <span class="where-sub">— на дашборде, под карточкой мёда</span>
+        </div>
+        <div class="where-row">
+          <a class="where-link" href="/u/{{ user.discord_id or 0 }}">🍯 Подарить мёд</a>
+          <span class="where-sub">— на профиле участника, рядом с подпиской</span>
+        </div>
+        {% if user.is_superuser %}
+        <div class="where-row">
+          <a class="where-link" href="/adminpanel?tab=honey">🏰 Гильдии и общий банк</a>
+          <span class="where-sub">— в админ-панели (только Матка)</span>
+        </div>
         {% endif %}
       </article>
-      {% endif %}
 
     </div>
   </main>
-
-  <script>
-    function setStatus(id, ok, text) {
-      var el = document.getElementById(id);
-      el.textContent = text || '';
-      el.className = 'honey-status ' + (ok ? 'ok' : (text ? 'err' : ''));
-    }
-
-    async function postForm(url, form) {
-      var fd = new FormData(form);
-      var r = await fetch(url, {method: 'POST', body: fd});
-      return await r.json();
-    }
-
-    async function giftSubmit(e) {
-      e.preventDefault();
-      var d = await postForm('/api/honey/gift', e.target);
-      if (d.ok) {
-        setStatus('gift-status', true, 'Отправлено ' + d.delivered + ' 🍯 (комиссия ' + d.commission + ' → банк). Баланс: ' + d.balance);
-        e.target.reset();
-      } else {
-        setStatus('gift-status', false, ({'recipient_not_found': 'Получатель не найден', 'insufficient': 'Недостаточно мёда', 'self': 'Нельзя дарить себе', 'amount': 'Неверная сумма'}[d.error]) || ('Ошибка: ' + d.error));
-      }
-      return false;
-    }
-
-    async function lotteryBuy(e) {
-      e.preventDefault();
-      var d = await postForm('/api/honey/lottery/buy', e.target);
-      if (d.ok) {
-        setStatus('lottery-status', true, 'Куплено билетов: ' + d.qty + ' за ' + d.cost + ' 🍯. Баланс: ' + d.balance);
-      } else {
-        setStatus('lottery-status', false, ({'insufficient': 'Недостаточно мёда', 'qty': 'Неверное количество'}[d.error]) || ('Ошибка: ' + d.error));
-      }
-      return false;
-    }
-
-    async function betPlace(e) {
-      e.preventDefault();
-      var d = await postForm('/api/honey/bets/place', e.target);
-      if (d.ok) {
-        setStatus('bets-status', true, 'Ставка ' + d.amount + ' 🍯 на «' + d.item_name + '» принята. Баланс: ' + d.balance);
-      } else {
-        setStatus('bets-status', false, (d.error_code === 'spin_in_progress' ? d.error :
-          ({'insufficient': 'Недостаточно мёда', 'unknown_sector': 'Такого сектора нет на колесе', 'amount': 'Неверная сумма'}[d.error]) || ('Ошибка: ' + d.error)));
-      }
-      return false;
-    }
-
-    async function frameBuy(key) {
-      var fd = new FormData();
-      var d = await (await fetch('/api/honey/frame/' + key, {method: 'POST', body: fd})).json();
-      if (d.ok) { setStatus('frame-status', true, 'Рамка куплена! Баланс: ' + d.balance); setTimeout(function(){location.reload();}, 900); }
-      else { setStatus('frame-status', false, ({'insufficient': 'Недостаточно мёда'})[d.error] || ('Ошибка: ' + d.error)); }
-    }
-
-    async function gifFrameBuy(key) {
-      var fd = new FormData();
-      var d = await (await fetch('/api/honey/gifframe/' + key, {method: 'POST', body: fd})).json();
-      if (d.ok) { setStatus('frame-status', true, 'GIF-рамка куплена! Баланс: ' + d.balance); setTimeout(function(){location.reload();}, 900); }
-      else { setStatus('frame-status', false, ({'insufficient': 'Недостаточно мёда'})[d.error] || ('Ошибка: ' + d.error)); }
-    }
-
-    async function clanCreate(e) {
-      e.preventDefault();
-      var d = await postForm('/api/honey/clans', e.target);
-      if (d.ok) { setStatus('clan-status', true, 'Гильдия «' + d.clan.name + '» создана'); setTimeout(function(){location.reload();}, 900); }
-      else { setStatus('clan-status', false, 'Не удалось создать (имя занято?)'); }
-      return false;
-    }
-
-    async function clanAddMember(e) {
-      e.preventDefault();
-      var url = '/api/honey/clans/' + e.target.elements.clan_id.value + '/members';
-      var d = await postForm(url, e.target);
-      if (d.ok) { setStatus('clan-status', true, 'Участник добавлен'); setTimeout(function(){location.reload();}, 900); }
-      else { setStatus('clan-status', false, ({'user not found': 'Юзер не найден', 'already a member': 'Уже в гильдии'}[d.error]) || ('Ошибка: ' + d.error)); }
-      return false;
-    }
-
-    async function clanDelete(id) {
-      if (!confirm('Удалить гильдию #' + id + '? Участники будут исключены.')) return;
-      var d = await (await fetch('/api/honey/clans/' + id, {method: 'DELETE'})).json();
-      if (d.ok) { location.reload(); } else { setStatus('clan-status', false, 'Не удалось удалить'); }
-    }
-
-    async function bankAdjust(e) {
-      e.preventDefault();
-      var d = await postForm('/api/honey/bank/adjust', e.target);
-      if (d.ok) { setStatus('bank-status', true, 'Банк: ' + d.balance + ' 🍯 (Δ ' + d.delta + ')'); setTimeout(function(){location.reload();}, 1200); }
-      else { setStatus('bank-status', false, ({'insufficient bank': 'В банке недостаточно мёда'}[d.error]) || ('Ошибка: ' + d.error)); }
-      return false;
-    }
-  </script>
 
   {% include "_footer.html" %}
 </body>

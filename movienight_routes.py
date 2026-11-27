@@ -282,6 +282,60 @@ async def api_collection_save_picks(
     return JSONResponse({"ok": True, "picks_count": count, "is_ready": True, "all_ready": all_ready, "ready_count": ready_count})
 
 
+@router.post("/api/collection/add_film")
+async def api_collection_add_film(
+    _user: dict = Depends(require_user),
+    title: str = Form(""),
+):
+    """v3.15.1: добавить НОВЫЙ фильм прямо во время сбора.
+
+    Пока идёт сбор, фильм можно добавить с нуля (не только выбирать из уже
+    имеющихся в вишлисте): добавленный фильм автоматически попадает в список
+    желаемого юзера и сразу доступен для выбора в этом же сборе.
+    Когда появится колесо — все фильмы сбора помечаются просмотренными,
+    а из вишлиста исчезают через неделю (db.g_watchlist_cleanup).
+    """
+    guild_id = get_current_guild_id(_user)
+    user_discord_id = _user.get("discord_id", 0)
+    if not user_discord_id:
+        return JSONResponse({"error": "user not identified"}, status_code=400)
+
+    title = (title or "").strip()
+    if not title or len(title) > 200:
+        return JSONResponse({"error": "invalid_title",
+                             "message": "Введите название фильма (до 200 символов)."},
+                            status_code=400)
+
+    collection = await db.g_get_active_collection(guild_id)
+    if not collection:
+        return JSONResponse({"error": "no_active_collection",
+                             "message": "Сбор не активен — добавить фильм некуда."},
+                            status_code=400)
+
+    new_id, err = await db.g_add_to_watchlist(guild_id, user_discord_id, title, None)
+    if new_id is None and err:
+        # err == "already_in_other_watchlist" — фильм уже в списке другого
+        # участника (анти-дубликат на весь guild)
+        return JSONResponse({
+            "error": err,
+            "message": f"«{title}» уже в списке желаемого другого участника "
+                       "— выберите другой фильм.",
+        }, status_code=409)
+    if err == "already_yours":
+        return JSONResponse({"ok": True, "watchlist_id": new_id, "title": title,
+                             "note": "already_yours"})
+
+    # Журнал активности — как при обычном добавлении в вишлист
+    try:
+        await db.g_log_activity(guild_id, "watchlist_added", user_discord_id,
+                                actor_name=_user.get("username") or _user.get("display_name"),
+                                target_name=title)
+    except Exception:
+        pass
+
+    return JSONResponse({"ok": True, "watchlist_id": new_id, "title": title})
+
+
 @router.post("/api/collection/set_ready")
 async def api_collection_set_ready(
     _user: dict = Depends(require_user),
@@ -476,6 +530,17 @@ async def api_collection_start_spin(
     # Загружаем picks в колесо (уже перемешаны)
     for pick in picks:
         await db.g_add_wheel_item(guild_id, pick["title"], pick.get("tmdb_id"), pick["user_discord_id"])
+
+    # v3.15.1: колесо появилось — фильмы сбора автоматически помечаются
+    # просмотренными в вишлистах; из вишлиста они исчезнут через неделю
+    # (db.g_watchlist_cleanup в maintenance-цикле HoneyCog).
+    for pick in picks:
+        try:
+            await db.g_mark_watchlist_watched(guild_id, pick["title"])
+        except Exception as e:
+            import logging
+            logging.getLogger("web").warning(
+                "watchlist mark-watched failed for %r: %s", pick["title"], e)
 
     # WebSocket: коллекция завершена + обновлённое колесо
     await ws_manager.broadcast_collection_completed(guild_id, len(picks))

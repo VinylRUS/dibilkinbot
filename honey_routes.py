@@ -1,15 +1,24 @@
 """FastAPI APIRouter — маршруты «Мёда» 🍯 v3.15.
 
-Содержит:
-- HTML-страницу /honey (уровень, подарки, лотерея, ставки, рамки, гильдии, банк)
-- REST API:
+v3.15.1: страница /honey перестроена — всё интерактивное разъехалось по
+своим местам (решение босса «плашки разъехались»):
+- Уровень пасечника → бейдж на публичном профиле (/u/{id})
+- Подарочный мёд → панелька на чужом профиле рядом с кнопкой подписки
+- Лотерея → дашборд, под карточкой мёда
+- Ставки на колесо → страница /wheel, приём до первой крутки
+- Поймай пчелу → нигде не упоминается (сюрприз, случайный канал)
+- Магазин рамок → настройки профиля (/profile)
+- Гильдии + общий банк → админ-панель (только Матка)
+/honey — компактный «кошелёк»: баланс, как копится мёд, последние операции.
+
+REST API (состав не менялся):
   - POST /api/honey/gift          (#31: P2P-перевод с комиссией 10% → банк)
   - GET  /api/honey/level         (#52: уровень и прогресс-бар)
   - POST /api/honey/frame/{key}   (#27: статичные рамки, 100 мёда)
   - POST /api/honey/gifframe/{key}(#45: GIF-рамки, 200 мёда — финальный этап)
   - GET  /api/honey/bank + POST /api/honey/bank/adjust (только Матка)
   - GET  /api/honey/lottery + POST /api/honey/lottery/buy (#14)
-  - GET  /api/honey/bets + POST /api/honey/bets/place (#15)
+  - GET  /api/honey/bets + POST /api/honey/bets/place (#15; окно — до первой крутки)
   - GET/POST/DELETE /api/honey/clans (+members) — только Матка (#51)
 
 Стиль — как cl_routes.py (deps импорты, JSONResponse с snowflake → str).
@@ -42,45 +51,34 @@ _log = logging.getLogger("honey_routes")
 
 @router.get("/honey", response_class=HTMLResponse)
 async def honey_page(request: Request, _user: dict = Depends(require_user)):
-    """Хаб экономики «Мёд»: уровень, подарки, лотерея, ставки, магазин рамок,
-    гильдии, банк (банковский блок — только для Матки)."""
+    """Кошелёк «Мёд» v3.15.1: баланс, разбивка «как копится», последние операции.
+
+    Интерактивные блоки v3.15 разъехались по своим местам: уровень — бейдж на
+    публичном профиле; подарки — панелька на чужом профиле; лотерея — дашборд;
+    ставки — страница колеса; рамки — настройки профиля; гильдии и банк —
+    админ-панель. Поймай пчелу — сюрприз, на страницах не упоминается.
+    """
     guild_id = get_current_guild_id(_user)
     uid = _user.get("discord_id", 0)
-    is_superuser = bool(_user.get("is_superuser"))
 
     balance = await db.g_honey_balance(guild_id, uid) if uid else 0
     level = await he.he_level(guild_id, uid) if uid else None
-    lottery = await he.he_lottery_info(guild_id, uid) if uid else \
-        await he.he_lottery_info(guild_id)
-    bets = await he.he_bets_open(guild_id)
-    bets_history = await he.he_bets_history(guild_id, uid, limit=10) if uid else []
-    frames = await he.he_frames_catalog(guild_id, uid) if uid else None
-    clans = await he.he_clan_list(guild_id)
-    wheel_items = await db.g_list_wheel_items(guild_id, active_only=True)
-
-    bank = None
-    bank_log = []
-    if is_superuser:
-        bank = await he.he_bank_balance(guild_id)
-        bank_log = await he.he_bank_log(guild_id, limit=25)
+    breakdown = await db.g_honey_breakdown(guild_id, uid) if uid else None
+    ledger = await db.g_honey_ledger_recent(guild_id, uid, limit=12) if uid else []
 
     return templates.TemplateResponse(request, "honey.html", {
         "user": _user,
         "balance": balance,
         "level": level,
-        "lottery": lottery,
-        "lottery_last": await he.he_lottery_last(guild_id),
-        "bets": bets,
-        "bets_history": bets_history,
-        "frames": frames,
-        "clans": clans,
-        "wheel_items": [{"id": i["id"], "name": i["name"], "color": i["color"]}
-                        for i in wheel_items],
-        "bank": bank,
-        "bank_log": bank_log,
-        "is_superuser": is_superuser,
+        "breakdown": breakdown,
+        "ledger": ledger,
+        "honey_per": {
+            "watched": db.HONEY_PER_WATCHED,
+            "rating": db.HONEY_PER_RATING,
+            "quote": db.HONEY_PER_QUOTE,
+            "achievement": db.HONEY_PER_ACHIEVEMENT,
+        },
         "gift_commission": he.HONEY_GIFT_COMMISSION,
-        "bee_reward": he.HONEY_BEE_REWARD,
         "active": "honey",
     })
 
@@ -260,7 +258,8 @@ async def api_honey_bets(_user: dict = Depends(require_user)):
 async def api_honey_bet_place(_user: dict = Depends(require_user),
                               item_name: str = Form(...),
                               amount: int = Form(...)):
-    """Поставить мёд на сектор. Окно приёма — пока колесо не крутится;
+    """Поставить мёд на сектор. v3.15.1: окно приёма — только ДО начала
+    первой крутки текущей загрузки колеса (после — ставки невозможны);
     расчёт — автоматически при определении победителя крутки."""
     guild_id = get_current_guild_id(_user)
     uid = _user.get("discord_id", 0)
@@ -273,17 +272,17 @@ async def api_honey_bet_place(_user: dict = Depends(require_user),
         return JSONResponse({"error": "unknown sector",
                              "error_code": "unknown_sector"}, status_code=400)
 
-    # Окно приёма ставок: не во время крутки и не после недавнего победителя
-    # (победитель уже определён — до нового сбора крутки невозможны).
-    import wheel_routes
-    lock = wheel_routes._wheel_spin_locks.get(int(guild_id))
-    if lock is not None and lock.locked():
-        return JSONResponse({"error": "Колесо крутится — ставки закрыты до результата.",
-                             "error_code": "spin_in_progress"}, status_code=409)
-    recent_winner = await db.g_get_recent_winner(guild_id, since_minutes=60)
-    if recent_winner:
-        return JSONResponse({"error": "Победитель уже определён — дождитесь нового сбора.",
-                             "error_code": "winner_recent"}, status_code=409)
+    # v3.15.1: приём ставок — до начала первой крутки раунда. Спин идёт прямо
+    # сейчас или победитель этой загрузки уже определён → окно закрыто.
+    round_open, closed_reason = await he.he_bets_round_open(guild_id)
+    if not round_open:
+        if closed_reason == "колесо крутится":
+            return JSONResponse({"error": "Колесо крутится — ставки закрыты до результата.",
+                                 "error_code": "spin_in_progress"}, status_code=409)
+        return JSONResponse({
+            "error": "Приём ставок закрыт: крутка этого колеса уже началась — "
+                     "дождитесь нового сбора.",
+            "error_code": "bets_closed"}, status_code=409)
 
     result = await he.he_bet_place(guild_id, uid, item_name, int(amount))
     if not result.get("ok"):

@@ -167,6 +167,8 @@
       <a class="admin-tab {% if active_tab == 'channels' %}active{% endif %}" href="/adminpanel?tab=channels"><img src="/static/icons/megaphone.png" alt="" width="16" height="16" class="ui-icon"> Каналы</a>
       <a class="admin-tab {% if active_tab == 'features' %}active{% endif %}" href="/adminpanel?tab=features"><img src="/static/icons/settings.png" alt="" width="16" height="16" class="ui-icon"> Фичи</a>
       <a class="admin-tab {% if active_tab == 'guilds' %}active{% endif %}" href="/adminpanel?tab=guilds"><img src="/static/icons/database.png" alt="" width="16" height="16" class="ui-icon"> Серверы</a>
+      {# v3.15.1: Мёд — гильдии и общий банк (переехали с /honey; только Матка) #}
+      <a class="admin-tab {% if active_tab == 'honey' %}active{% endif %}" href="/adminpanel?tab=honey"><img src="/static/icons/money.png" alt="" width="16" height="16" class="ui-icon"> Мёд</a>
       {% endif %}
     </div>
 
@@ -354,8 +356,133 @@
         {% endfor %}
       </article>
     </div>
+    {# === Вкладка Мёд (v3.15.1: гильдии + общий банк, переехали с /honey) === #}
+    <div class="tab-content {% if active_tab == 'honey' %}active{% endif %}" id="tab-honey">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start;">
+
+        {# — Гильдии (кланы) — только Матка создаёт и курирует — #}
+        <article class="card" style="padding:16px;">
+          <h3 style="margin:0 0 10px;">🏰 Гильдии (кланы)</h3>
+          <form class="honey-admin-form" onsubmit="return clanCreate(event)">
+            <input type="text" name="name" placeholder="Название гильдии" required>
+            <input type="text" name="tag" placeholder="Тег" maxlength="8">
+            <button class="btn-primary" type="submit" style="font-size:0.82rem;padding:7px 14px;">Создать</button>
+          </form>
+          <form class="honey-admin-form" onsubmit="return clanAddMember(event)">
+            <input type="number" name="clan_id" placeholder="ID гильдии" required>
+            <input type="number" name="discord_id" placeholder="Discord ID участника" required>
+            <button class="btn-ghost" type="submit" style="font-size:0.82rem;padding:7px 14px;">+ участник</button>
+          </form>
+          <div id="clan-status" style="font-size:0.8rem;margin-top:8px;min-height:1.2em;"></div>
+          {% if honey_clans %}
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-top:8px;">
+            <tr><th style="padding:6px 8px;text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border);">Гильдия</th><th style="padding:6px 8px;text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border);">Тег</th><th style="padding:6px 8px;text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border);">Участников</th><th style="padding:6px 8px;border-bottom:1px solid var(--border);"></th></tr>
+            {% for c in honey_clans %}
+            <tr>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);">{{ c.name }}{% if c.description %} <span style="color:var(--text-muted);font-size:0.72rem;">— {{ c.description }}</span>{% endif %}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);">{% if c.tag %}{{ c.tag }}{% else %}—{% endif %}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);">{{ c.members }}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);"><button class="btn-ghost" style="font-size:0.72rem;padding:3px 8px;color:var(--red);border-color:var(--red);" onclick="clanDelete({{ c.id }})">удалить</button></td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% else %}
+          <p style="color:var(--text-muted);font-size:0.82rem;margin:6px 0 0;">Гильдий пока нет.</p>
+          {% endif %}
+        </article>
+
+        {# — Общий банк сервера — расходует только Матка — #}
+        <article class="card" style="padding:16px;">
+          <h3 style="margin:0 0 10px;">🏦 Общий банк сервера</h3>
+          <div style="font-size:0.9rem;">Баланс: <b style="color:var(--accent);">{{ honey_bank if honey_bank is not none else 0 }} 🍯</b></div>
+          <p style="color:var(--text-muted);font-size:0.78rem;margin:6px 0 8px;">Пополняется комиссиями (подарки, ставки, лотерея). Расходовать может только Матка.</p>
+          <form class="honey-admin-form" onsubmit="return bankAdjust(event)">
+            <input type="number" name="delta" placeholder="+100 / -50" required>
+            <input type="text" name="reason" placeholder="Причина (приз, дивиденды…)">
+            <button class="btn-primary" type="submit" style="font-size:0.82rem;padding:7px 14px;">Применить</button>
+          </form>
+          <div id="bank-status" style="font-size:0.8rem;margin-top:8px;min-height:1.2em;"></div>
+          {% if honey_bank_log %}
+          <details style="margin-top:10px;">
+            <summary style="color:var(--text-muted);font-size:0.78rem;cursor:pointer;">История операций банка</summary>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:6px;">
+              <tr><th style="padding:5px 8px;text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border);">Δ</th><th style="padding:5px 8px;text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border);">После</th><th style="padding:5px 8px;text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border);">Причина</th><th style="padding:5px 8px;text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border);">Когда</th></tr>
+              {% for op in honey_bank_log %}
+              <tr>
+                <td style="padding:5px 8px;border-bottom:1px solid var(--border);{% if op.delta > 0 %}color:var(--green);font-weight:700;{% else %}color:var(--red);font-weight:700;{% endif %}">{{ op.delta }}</td>
+                <td style="padding:5px 8px;border-bottom:1px solid var(--border);">{{ op.balance_after }}</td>
+                <td style="padding:5px 8px;border-bottom:1px solid var(--border);">{{ op.reason or '—' }}</td>
+                <td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text-muted);">{{ (op.created_at or '')[:16] }}</td>
+              </tr>
+              {% endfor %}
+            </table>
+          </details>
+          {% endif %}
+        </article>
+
+      </div>
+    </div>
     {% endif %}{# end if user.is_superuser #}
   </main>
+
+  <style>
+    /* v3.15.1: формы таба «Мёд» (гильдии + банк) */
+    .honey-admin-form {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+    }
+    .honey-admin-form input {
+      padding: 7px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--input-bg);
+      color: var(--text); font-size: 0.82rem;
+    }
+  </style>
+
+  <script>
+    // v3.15.1: Мёд — гильдии и банк (переехали с /honey; только Матка)
+    async function postForm(url, form) {
+      var fd = new FormData(form);
+      var r = await fetch(url, { method: 'POST', body: fd });
+      return await r.json();
+    }
+
+    function setHoneyStatus(id, ok, text) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text || '';
+      el.style.color = ok ? 'var(--green)' : (text ? 'var(--red)' : 'inherit');
+    }
+
+    async function clanCreate(e) {
+      e.preventDefault();
+      var d = await postForm('/api/honey/clans', e.target);
+      if (d.ok) { setHoneyStatus('clan-status', true, 'Гильдия «' + d.clan.name + '» создана'); setTimeout(function () { location.reload(); }, 900); }
+      else { setHoneyStatus('clan-status', false, 'Не удалось создать (имя занято?)'); }
+      return false;
+    }
+
+    async function clanAddMember(e) {
+      e.preventDefault();
+      var url = '/api/honey/clans/' + e.target.elements.clan_id.value + '/members';
+      var d = await postForm(url, e.target);
+      if (d.ok) { setHoneyStatus('clan-status', true, 'Участник добавлен'); setTimeout(function () { location.reload(); }, 900); }
+      else { setHoneyStatus('clan-status', false, ({ 'user not found': 'Юзер не найден', 'already a member': 'Уже в гильдии' })[d.error] || ('Ошибка: ' + d.error)); }
+      return false;
+    }
+
+    async function clanDelete(id) {
+      if (!confirm('Удалить гильдию #' + id + '? Участники будут исключены.')) return;
+      var d = await (await fetch('/api/honey/clans/' + id, { method: 'DELETE' })).json();
+      if (d.ok) { location.reload(); } else { setHoneyStatus('clan-status', false, 'Не удалось удалить'); }
+    }
+
+    async function bankAdjust(e) {
+      e.preventDefault();
+      var d = await postForm('/api/honey/bank/adjust', e.target);
+      if (d.ok) { setHoneyStatus('bank-status', true, 'Банк: ' + d.balance + ' 🍯 (Δ ' + d.delta + ')'); setTimeout(function () { location.reload(); }, 1200); }
+      else { setHoneyStatus('bank-status', false, ({ 'insufficient bank': 'В банке недостаточно мёда' })[d.error] || ('Ошибка: ' + d.error)); }
+      return false;
+    }
+  </script>
 
   <script>
     // v3.10.0: Settings — управление библиотекой гифок
