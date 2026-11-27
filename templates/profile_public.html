@@ -378,7 +378,10 @@
     {# === v2.3: Компактный хедер профиля === #}
     <div class="profile-header-card">
       <div class="profile-header-left">
-        <div class="profile-avatar-wrap avatar-wrap lg">
+        {# v3.16.0: надетая рамка — косметика за мёд. Рендер ТОЛЬКО здесь
+           (72px): мелкие аватары (сайдбар/комментарии) без рамок — ноль
+           интерференса со стеклянными обводками и статусами ролей. #}
+        <div class="profile-avatar-wrap avatar-wrap lg{% if target_frame %} frame-{{ target_frame }}{% endif %}">
           <div class="profile-avatar">
             <img src="{{ avatar_url(target.discord_id) }}" alt="{{ target.display_name or target.username or '' }}" data-name="{{ target.display_name or target.username or '' }}">
           </div>

@@ -164,6 +164,59 @@ async def api_honey_buy_gif_frame(frame_key: str, _user: dict = Depends(require_
     return JSONResponse(result)
 
 
+@router.post("/api/honey/frame_equip/{frame_key}")
+async def api_honey_frame_equip(frame_key: str, _user: dict = Depends(require_user)):
+    """v3.16.0: надеть/снять рамку. 'none' — снять текущую.
+
+    Рамка — СЕРВЕРНОЕ состояние (honey_user_frame): видна всем на
+    публичном профиле, в отличие от accent-цвета на куках. Эквип не
+    стоит мёда — платится только покупка.
+    """
+    guild_id = get_current_guild_id(_user)
+    uid = _user.get("discord_id", 0)
+    if not uid:
+        return JSONResponse({"error": "no user"}, status_code=400)
+    key = None if frame_key.lower() == "none" else frame_key
+    result = await he.he_frame_equip(guild_id, uid, key)
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=400)
+    return JSONResponse(result)
+
+
+@router.post("/api/honey/bee/launch")
+async def api_honey_bee_launch(_user: dict = Depends(require_superuser)):
+    """v3.16.0: ручной запуск «Поймай пчелу» (только Матка, из админки).
+
+    Пчела летит в случайный ПУБЛИЧНЫЙ канал — как автоматический раунд.
+    Открытый раунд блокирует запуск (двойные призы); кулдаун обходим
+    сознательно («запустить сейчас»). Требует живой процесс бота.
+    """
+    guild_id = get_current_guild_id(_user)
+    actor = _user.get("discord_id", 0)
+    try:
+        import bot as bot_module
+        bot_instance = bot_module.get_bot_instance()
+        if not bot_instance or not bot_instance.is_ready():
+            return JSONResponse({"ok": False, "error": "bot not ready"}, status_code=503)
+        cog = bot_instance.get_cog("HoneyCog")
+        if cog is None:
+            return JSONResponse({"ok": False, "error": "honey cog not loaded"}, status_code=503)
+        result = await cog.manual_bee_launch(int(guild_id))
+    except Exception as e:
+        _log.warning("manual bee launch failed: %s", e, exc_info=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    if not result.get("ok"):
+        code = 409 if result.get("error") == "bee_already_flying" else 400
+        return JSONResponse(result, status_code=code)
+    try:
+        await db.g_log_activity(guild_id, "honey_bee_manual", actor,
+                                actor_name=_user.get("username") or _user.get("display_name"),
+                                target_name=str(result.get("channel_id", "")))
+    except Exception:
+        pass
+    return JSONResponse(result)
+
+
 # ============================================================
 # Общий банк сервера — только Матка (superuser)
 # ============================================================
