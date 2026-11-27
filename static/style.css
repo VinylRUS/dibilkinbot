@@ -2543,24 +2543,18 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
 .lottery-mini-form input {
   width: 90px;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  background: var(--input-bg);
   color: var(--text);
   font-size: 0.85rem;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
-.btn-honey-mini {
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  background: var(--accent);
-  color: var(--accent-text, #1a1a1a);
-  font-weight: 700;
-  font-size: 0.82rem;
-  transition: filter 0.15s;
+.lottery-mini-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.btn-honey-mini:hover { filter: brightness(1.08); }
 .lottery-status {
   font-size: 0.8rem;
   margin-top: 8px;
@@ -2584,13 +2578,14 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
   white-space: nowrap;
 }
 
-/* Публичный профиль: панелька «Подарить мёд» (НЕ модальное окно) */
+/* Публичный профиль: панелька «Подарить мёд» (НЕ модальное окно).
+   DS Rule 1: контентная панель — content-токены, без blur. */
 .gift-honey-panel {
   margin-top: 10px;
   padding: 12px 14px;
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  background: var(--glass-bg);
+  border: 1px solid var(--content-border);
+  border-radius: var(--content-radius, 16px);
+  background: var(--content-bg);
   max-width: 380px;
 }
 .gift-honey-row {
@@ -2601,26 +2596,19 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
 .gift-honey-row input {
   flex: 1;
   min-width: 120px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
   border: 1px solid var(--glass-border);
-  background: var(--input-bg, var(--glass-bg));
+  background: var(--input-bg);
   color: var(--text);
   font-size: 0.85rem;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
-.gift-honey-send {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  background: var(--accent);
-  color: var(--accent-text, #1a1a1a);
-  font-weight: 700;
-  font-size: 0.82rem;
-  transition: filter 0.15s;
+.gift-honey-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.gift-honey-send:hover { filter: brightness(1.08); }
-.gift-honey-send[disabled] { opacity: 0.5; cursor: not-allowed; }
 .gift-honey-hint {
   margin-top: 8px;
   font-size: 0.72rem;
@@ -2649,27 +2637,20 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
 }
 .bets-form select, .bets-form input {
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--glass-border);
-  background: var(--input-bg, var(--glass-bg));
+  background: var(--input-bg);
   color: var(--text);
   font-size: 0.82rem;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.bets-form select:focus, .bets-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .bets-form select { flex: 1; min-width: 130px; }
 .bets-form input { width: 90px; }
-.bet-place-btn {
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  background: var(--accent);
-  color: var(--accent-text, #1a1a1a);
-  font-weight: 700;
-  font-size: 0.8rem;
-  transition: filter 0.15s;
-}
-.bet-place-btn:hover { filter: brightness(1.08); }
-.bet-place-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
 .bets-note {
   font-size: 0.72rem;
   color: var(--text-muted);
@@ -2683,8 +2664,9 @@ button:not(.custom-select-trigger):not(.accent-swatch):not(.star-half):not(.step
 .bets-closed {
   font-size: 0.8rem;
   color: var(--text-muted);
-  background: var(--card-alt, rgba(128, 128, 128, 0.08));
-  border-radius: 8px;
+  background: var(--content-bg);
+  border: 1px solid var(--content-border);
+  border-radius: 12px;
   padding: 8px 10px;
 }
 .bets-status {
@@ -2717,17 +2699,6 @@ table.bets-mini th { color: var(--text-muted); font-weight: 600; }
 }
 .frame-shop-row:last-child { border-bottom: none; }
 .frame-shop-cost { color: var(--accent); font-weight: 700; }
-.frame-shop-buy {
-  padding: 5px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid var(--glass-border);
-  color: var(--text);
-  font-size: 0.78rem;
-  transition: filter 0.15s;
-}
-.frame-shop-buy:hover { filter: brightness(1.1); }
 .frame-shop-tag {
   display: inline-flex;
   align-items: center;
@@ -2744,3 +2715,12 @@ table.bets-mini th { color: var(--text-muted); font-weight: 600; }
   margin-top: 8px;
   min-height: 1.1em;
 }
+
+/* v3.15.2: Stagger для списков мёда (DS §5 — каскадное появление) */
+.honey-grid > * {
+  animation: stagger-in 0.4s var(--smooth) both;
+}
+.honey-grid > *:nth-child(1) { animation-delay: 0ms; }
+.honey-grid > *:nth-child(2) { animation-delay: 30ms; }
+.honey-grid > *:nth-child(3) { animation-delay: 60ms; }
+.honey-grid > *:nth-child(n+4) { animation-delay: 90ms; }

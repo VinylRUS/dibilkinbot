@@ -486,7 +486,7 @@
           <span>
             {% if f.owned %}<span class="frame-shop-tag">куплено ✓</span>
             {% else %}<span class="frame-shop-cost">{{ f.cost }} 🍯</span>
-            <button type="button" class="frame-shop-buy" onclick="frameBuy('{{ f.key }}')">Купить</button>{% endif %}
+            <button type="button" class="btn-outline btn-sm" onclick="frameBuy('{{ f.key }}')">Купить</button>{% endif %}
           </span>
         </div>
         {% endfor %}
@@ -497,11 +497,10 @@
           <span>
             {% if f.owned %}<span class="frame-shop-tag">куплено ✓</span>
             {% else %}<span class="frame-shop-cost">{{ f.cost }} 🍯</span>
-            <button type="button" class="frame-shop-buy" onclick="gifFrameBuy('{{ f.key }}')">Купить</button>{% endif %}
+            <button type="button" class="btn-outline btn-sm" onclick="gifFrameBuy('{{ f.key }}')">Купить</button>{% endif %}
           </span>
         </div>
         {% endfor %}
-        <div id="frame-status" class="frames-status"></div>
       </article>
       {% else %}
       <article class="card"><p style="color:var(--text-muted);margin:0;">Войдите, чтобы покупать рамки.</p></article>
@@ -511,37 +510,34 @@
 
   <script>
     // v3.15.1: покупка рамок (магазин переехал с /honey в настройки профиля)
+    // v3.15.2: статусы — через глобальные toast-уведомления (DS §4)
     async function frameBuy(key) {
-      const st = document.getElementById('frame-status');
       try {
         const d = await (await fetch('/api/honey/frame/' + key, { method: 'POST' })).json();
         if (d.ok) {
-          st.textContent = '✓ Рамка куплена! Баланс: ' + d.balance + ' 🍯 — обновляем...';
-          st.style.color = 'var(--green)';
+          if (window.showToast) window.showToast('✓ Рамка куплена! Баланс: ' + d.balance + ' 🍯', 'success');
           setTimeout(function () { location.reload(); }, 900);
         } else {
-          st.textContent = (d.error === 'insufficient' ? 'Недостаточно мёда' : 'Ошибка: ' + d.error);
-          st.style.color = 'var(--red)';
+          const msg = (d.error === 'insufficient' ? 'Недостаточно мёда' : 'Ошибка: ' + d.error);
+          if (window.showToast) window.showToast(msg, 'error');
         }
       } catch (e) {
-        st.textContent = 'Сетевая ошибка'; st.style.color = 'var(--red)';
+        if (window.showToast) window.showToast('Сетевая ошибка', 'error');
       }
     }
 
     async function gifFrameBuy(key) {
-      const st = document.getElementById('frame-status');
       try {
         const d = await (await fetch('/api/honey/gifframe/' + key, { method: 'POST' })).json();
         if (d.ok) {
-          st.textContent = '✓ GIF-рамка куплена! Баланс: ' + d.balance + ' 🍯 — обновляем...';
-          st.style.color = 'var(--green)';
+          if (window.showToast) window.showToast('✓ GIF-рамка куплена! Баланс: ' + d.balance + ' 🍯', 'success');
           setTimeout(function () { location.reload(); }, 900);
         } else {
-          st.textContent = (d.error === 'insufficient' ? 'Недостаточно мёда' : 'Ошибка: ' + d.error);
-          st.style.color = 'var(--red)';
+          const msg = (d.error === 'insufficient' ? 'Недостаточно мёда' : 'Ошибка: ' + d.error);
+          if (window.showToast) window.showToast(msg, 'error');
         }
       } catch (e) {
-        st.textContent = 'Сетевая ошибка'; st.style.color = 'var(--red)';
+        if (window.showToast) window.showToast('Сетевая ошибка', 'error');
       }
     }
   </script>
