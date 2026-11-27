@@ -71,8 +71,8 @@ async def handle_logs_command(text: str, tg_user_id: int, tg_username: str | Non
 
     Формат:
       /logs — последние 24 часа, все уровни (INFO+), лимит 500 записей
-      /logs warn — только WARNING+
-      /logs error — только ERROR+
+      /logs warn — последние 24 часа, только WARNING+
+      /logs error — последние 24 часа, только ERROR+
       /logs 1h — последний час, все уровни
       /logs 6h warn — последние 6 часов, WARNING+
       /logs stats — статистика буфера
